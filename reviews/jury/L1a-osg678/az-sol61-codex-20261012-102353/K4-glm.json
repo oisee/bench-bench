@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The rewrite of trimLiterals replaces the recursion-prone regex with an iterative index-based scanner that reproduces the original transformation exactly, including the greedy pattern's backtracking to the last doubled quote on unterminated fragments (verified by an exhaustive differential test over all strings up to length 7 plus 200k randomized quote-heavy inputs, with zero mismatches). Very large literals (~15M chars) now complete in tens of milliseconds instead of throwing RangeError, all acceptance criteria are covered by the new test file, and it is registered in the correct suite per test/suites.d/README.md. No defects found.",
+  "findings": [],
+  "critic": "K4-glm",
+  "anon": "6e7185a39c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 302
+}

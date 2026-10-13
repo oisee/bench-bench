@@ -1,0 +1,123 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..860aeff 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,47 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("an empty literal and a literal of nothing but blanks become the empty literal", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("INSERT INTO t VALUES ('', '   ')")).to.equal("INSERT INTO t VALUES ('', '')");
++  });
++
++  it("a tab or a newline before the closing quote is data, not padding", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('a\t\n  ', 'b \t')")).to.equal("VALUES ('a\t\n', 'b \t')");
++  });
++
++  it("a double-quoted name does not hide a literal inside it", async () => {
++    // the regex never knew about `"`, and neither does the walk: SQL's
++    // identifier quotes are not string quotes, but telling them apart is
++    // the caller's job and always was
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals(`SELECT "a 'b  ' c" FROM t`)).to.equal(`SELECT "a 'b' c" FROM t`);
++  });
++
++  it("a statement with several literals trims each one", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("UPDATE t SET a = 'a  ', b = 'b' WHERE k = 'k  '"))
++      .to.equal("UPDATE t SET a = 'a', b = 'b' WHERE k = 'k'");
++  });
++
++  it("a literal that never closes ends at its last escaped quote, as before", async () => {
++    // the regex, unwinding, closed the fragment at the last `''` it could
++    // read as a closer -- the walk reproduces that reading of a broken tail
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('a  ''")).to.equal("VALUES ('a''");
++  });
++
++  it("and a literal of fifteen million characters is trimmed, not a stack overflow", async () => {
++    // `'((?:[^']|'')*)'` spends one backtracking choice per character of
++    // the literal and V8 keeps those on the call stack, so the regex
++    // answered this size with `RangeError: Maximum call stack size
++    // exceeded` (measured 2026-10-11). A seeded STRING column hands over
++    // its value whole, so the size is not hypothetical.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "a".repeat(15_000_000);
++    expect(trimLiterals("INSERT INTO t VALUES ('" + body + "   ')"))
++      .to.equal("INSERT INTO t VALUES ('" + body + "')");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..f0d0d8f 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,64 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant. Double quotes are ordinary characters here, the way
++ *  they were to the regex: `"a 'b' c"` holds a literal as far as this
++ *  function is concerned.
++ *
++ *  This is a walk, not a regex, and that is not a matter of style.
++ *  `'((?:[^']|'')*)'` spends one backtracking choice per character of the
++ *  literal -- every character takes the `[^']` arm of the alternation, and
++ *  V8 keeps the choice points on the call stack -- so the regex that had
++ *  trimmed every statement here answers a literal of 15 000 000 characters
++ *  with `RangeError: Maximum call stack size exceeded` (measured
++ *  2026-10-11). The walk spends one `indexOf` per quote instead and one
++ *  comparison per trailing blank, and it reads the odd inputs exactly as
++ *  the backtracking read them: a literal that never finds its closer ends
++ *  at its last `''` (that is where the regex, unwinding, closed it), and a
++ *  quote with no closer after it at all starts nothing. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const len = sql.length;
++  let parts = null;  // emitted pieces; null until the first blank is cut
++  let at = 0;        // start of the region not emitted yet
++  let i = 0;
++  for (;;) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) break;
++    // Walk the literal as the regex does: `''` is one escaped quote, any
++    // other `'` closes it. `sql[c + 1]` past the end is undefined, which
++    // is not `'`, so a quote at the very end closes.
++    let q = open + 1;
++    let close = -1;
++    let lastPair = -1;
++    for (;;) {
++      const c = sql.indexOf("'", q);
++      if (c < 0) break;
++      if (sql[c + 1] === "'") {
++        lastPair = c;
++        q = c + 2;
++      } else {
++        close = c;
++        break;
++      }
++    }
++    // No closer anywhere: the regex unwinds its last `''` into the closing
++    // quote and matches that far, or -- with no pair to unwind -- not at all.
++    if (close < 0 && lastPair < 0) {
++      i = open + 1;
++      continue;
++    }
++    const end = close >= 0 ? close : lastPair;
++    // Trailing blanks stop at the empty literal, so `'   '` becomes `''`;
++    // a tab or a newline is data and stops the cut.
++    let cut = end;
++    while (cut > open + 1 && sql[cut - 1] === " ") cut--;
++    if (cut < end) {
++      (parts ??= []).push(sql.slice(at, open), "'", sql.slice(open + 1, cut), "'");
++      at = end + 1;
++    }
++    i = end + 1;
++  }
++  return parts === null ? sql : parts.join("") + sql.slice(at);
+ }
+ 
+ /**

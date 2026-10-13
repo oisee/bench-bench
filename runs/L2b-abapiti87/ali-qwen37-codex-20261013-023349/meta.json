@@ -1,0 +1,11 @@
+{
+  "harness": "codex",
+  "provider": "alibaba",
+  "model": "qwen3.7-plus",
+  "effort": "medium",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T02:33:50+01:00",
+  "finished_at": "2026-10-13T02:46:22+01:00",
+  "exit_code": "0"
+}

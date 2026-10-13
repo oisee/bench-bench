@@ -1,0 +1,11 @@
+.cache/
+__pycache__/
+runs/_*/
+runs/*/*/work/
+runs/*/*/home/
+runs/*/*/grade-tree/
+runs/*/*/agent.*
+runs/*/*/hosts
+runs/*/*/brief.md
+runs/*/*/internal-reviews/
+*.log.tmp

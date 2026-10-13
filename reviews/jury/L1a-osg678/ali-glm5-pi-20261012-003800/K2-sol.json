@@ -1,0 +1,26 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The iterative scan handles a 15-million-character quoted literal and preserves ordinary balanced-literal cases. It changes the existing transformation for an unmatched quote and uses enough memory on long unquoted input to fail calls the previous implementation completed.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/sql-literals.mjs",
+      "line": 43,
+      "claim": "When two adjacent quotes appear at the end of an unmatched fragment, the scanner always treats them as an escape and abandons the earlier recognized pair. The previous regex closes that pair and trims its trailing spaces; this also changes behavior when such quotes occur inside a double-quoted SQL identifier, despite the requirement that double quotes not affect single-quote recognition.",
+      "repro": "Input: trimLiterals(\"'a ''\") returns \"'a ''\"; the baseline implementation returns \"'a''\". Likewise, for SELECT \"a'  ''\", baseline returns SELECT \"a'''\" but the patch leaves the input unchanged."
+    },
+    {
+      "severity": "P2",
+      "file": "tools/sql-literals.mjs",
+      "line": 70,
+      "claim": "Appending every character outside a literal to an array makes memory usage grow sharply for long SQL with no single-quoted literals. A 15-million-character input uses about 454 MB of process memory instead of about 61 MB with the prior implementation, and can abort under a 128 MB heap limit.",
+      "repro": "From /tmp: node --max-old-space-size=128 --input-type=module -e \"import {trimLiterals} from '/work/tools/sql-literals.mjs'; console.log(trimLiterals('X'.repeat(15000000)).length)\" exits 134 with JavaScript heap out of memory; the baseline regex returns 15000000 under the same limit."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "f12dd3990c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 85
+}

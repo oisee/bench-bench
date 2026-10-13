@@ -1,0 +1,40 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The added Go tests pass, but a minimal compiled ABAP call still returns NOT_COMPILED because the native registration targets the wrong method name. Direct comparisons with Node also reproduce malformed UTF-8 decoding errors, corruption of valid replacement characters, and a Base64 input compatibility mismatch.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 737,
+      "claim": "Register the implemented interface method, CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64. DECODE_BASE64 is only an alias in cl_http_utility; the native lookup uses the implementation name, so this entry is never selected and even ordinary padded ASCII input still fails with NOT_COMPILED.",
+      "repro": "An ABAP Unit method containing cl_abap_unit_assert=>assert_equals( act = cl_http_utility=>decode_base64( 'YWJhcA==' ) exp = `abap` ). Run with node tools/osgo-unit.mjs <fixture-directory> --class <owner>. Reproduced with /tmp/review-base64-abap, owner ZCL_REVIEW_BASE64: NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159)."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 51,
+      "claim": "Malformed sequence consumption depends only on the number of remaining bytes, rather than validating continuation bytes and consuming the valid prefix. This drops trailing valid text, splits a malformed sequence into too many replacements when more input follows, and merges invalid code-point bytes into too few replacements. These cases violate the explicitly required Node-compatible malformed UTF-8 behavior.",
+      "repro": "nodeutf8.Decode(string([]byte{0xe2, 0x41})) returns \"�\" instead of Node's \"�A\"; bytes {0xe2, 0x82, 0x41} return \"��A\" instead of \"�A\"; bytes {0xed, 0xa0} return \"�\" instead of \"��\". Compare with node -e 'for (const h of [\"e241\",\"e28241\",\"eda0\"]) console.log(JSON.stringify(Buffer.from(h,\"hex\").toString()))'. The first two also reproduce through abap.DecodeBase64(nil, \"4kE=\") and abap.DecodeBase64(nil, \"4oJB\")."
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 56,
+      "claim": "A valid encoded U+FFFD also makes DecodeRuneInString return RuneError, with size 3. This branch advances only one byte, so the remaining two bytes are decoded again as errors. Whenever another malformed byte disables the whole-string fast path, each legitimate U+FFFD is expanded to three characters, corrupting valid text and its character count. Distinguish size == 1 decoding errors from valid RuneError runes or advance by size.",
+      "repro": "nodeutf8.Decode(string([]byte{0xef, 0xbf, 0xbd, 0xff})) returns four U+FFFD characters; Node returns two. Also reproduced with abap.DecodeBase64(nil, \"77+9/w==\"). Oracle: node -e 'console.log(JSON.stringify(Buffer.from(\"77+9/w==\",\"base64\").toString()))'."
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/conv.go",
+      "line": 742,
+      "claim": "Scanning UTF-8 bytes and ignoring every non-ASCII byte does not reproduce Node's Base64 handling of non-ASCII input strings. Node uses the low byte of UTF-16 code units here, so a non-ASCII character can act as padding or an alphabet character. For example, U+013D acts as padding in Node but is discarded here, producing different decoded text.",
+      "repro": "abap.DecodeBase64(nil, \"YĽQ==\") returns \"a\". node -e 'console.log(JSON.stringify(Buffer.from(\"Y\\u013dQ==\", \"base64\").toString()))' returns \"\"."
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "88e5b5790c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 115
+}

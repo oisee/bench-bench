@@ -1,0 +1,9 @@
+{
+  "error": "no valid review.json: [Errno 2] No such file or directory: './runs/_screen/cdd25b0d0f/S-glm-pi/work/.bench-review/review.json'",
+  "critic": "S-glm-pi",
+  "critic_model": "zai/glm-5.3",
+  "anon": "cdd25b0d0f",
+  "self_review": false,
+  "exit": 124,
+  "duration_s": 1800
+}

@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change is correct and well integrated: nodeutf8.Decode is a faithful WHATWG/V8 UTF-8 decoder that I verified against the installed Node 26.9 on ~1M inputs (exhaustive over all boundary bytes up to length 4 plus random strings up to 100 bytes) with zero mismatches, the composite DecodeBase64 matched Buffer.from(s,\"base64\").toString() on 300k ASCII base64 inputs including padding, whitespace and junk, and the NATIVE wiring, semantics oracle, testdata class, Go tests, CI and README are all consistent and pass (go vet/test ./nodeutf8 ./abap, node tools/gogen/semantics.mjs all green). The only defect found is an exotic divergence from the Node oracle in the reused base64 step for non-ASCII input characters, inherited from the pre-existing DecodeXBase64.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 19,
+      "claim": "decode_base64 diverges from the stated Node oracle when the base64 input contains non-ASCII characters. Node's Buffer.from(s, \"base64\") decodes each UTF-16 code unit truncated to its low byte (Latin-1 view): an emoji's high surrogate D83D has low byte 0x3D ('='), so Node stops decoding at it, and a character like U+0141 (low byte 'A') contributes a base64 digit. DecodeXBase64 instead filters the UTF-8 bytes of the Go string (all >= 0x80, dropped) and keeps decoding. So cl_http_utility=>decode_base64( 'QUJD\\ud83d\\ude00QUJD' ) returns 'ABCABC' under osgo while Node/open-abap-core return 'ABC', and '\\u0141AB' returns '\\x00' vs Node's '\\x00\\x00'. Inherited from the pre-existing decode_x_base64 semantics that this patch deliberately reuses, so the two stay consistent; realistic ASCII base64 inputs are unaffected (verified).",
+      "repro": "mkdir -p /tmp/r && cd /tmp/r && go mod init r >/dev/null 2>&1; go mod edit -require osg/gogen@v0.0.0 -replace osg/gogen=/work/tools/gogen/go && printf 'package main\n\nimport (\n\t\"fmt\"\n\t\"osg/gogen/abap\"\n)\n\nfunc main() {\n\tfmt.Printf(\"%q %q\\n\", abap.DecodeBase64(&abap.Session{}, \"QUJD\\U0001F600QUJD\"), abap.DecodeBase64(&abap.Session{}, \"\\u0141AB\"))\n}\n' > main.go && go run .   # prints \"ABCABC\" \"\\x00\" ; node -e 'console.log(JSON.stringify(Buffer.from(\"QUJD\\ud83d\\ude00QUJD\",\"base64\").toString()), JSON.stringify(Buffer.from(\"\\u0141AB\",\"base64\").toString()))'   # prints \"ABC\" \"\\u0000\\u0000\""
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "629c52bcba",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 583
+}

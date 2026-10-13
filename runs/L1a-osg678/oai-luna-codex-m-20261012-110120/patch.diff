@@ -1,0 +1,50 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..3c07551 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,44 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  let result = "";
++  let literalStart = -1;
++  let copiedThrough = 0;
++  let i = 0;
++
++  while (i < sql.length) {
++    if (sql[i] !== "'") {
++      i++;
++      continue;
++    }
++
++    if (literalStart < 0) {
++      literalStart = i++;
++      continue;
++    }
++
++    // A run of quotes inside a literal consists of escaped pairs, with an
++    // odd final quote closing the literal. Processing runs avoids regex
++    // backtracking and keeps very large literals linear-time.
++    let end = i + 1;
++    while (end < sql.length && sql[end] === "'") end++;
++    const count = end - i;
++    if (count % 2 === 0) {
++      i = end;
++      continue;
++    }
++
++    let contentEnd = i;
++    if (count === 1) {
++      while (contentEnd > literalStart + 1 && sql[contentEnd - 1] === " ") contentEnd--;
++    }
++    result += sql.slice(copiedThrough, contentEnd) + sql.slice(i, i + count - 1) + "'";
++    literalStart = -1;
++    copiedThrough = end;
++    i = end;
++  }
++
++  return result + sql.slice(copiedThrough);
+ }
+ 
+ /**

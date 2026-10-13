@@ -1,0 +1,28 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1427,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "zai-glm53-codex",
+  "harness": "codex",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 1211,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": ""
+}

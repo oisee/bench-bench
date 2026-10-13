@@ -1,0 +1,34 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The change routes the main generators through Format, and tests in the affected Go packages pass, but the formatter misses required indentation rules. Later class sections are indented too deeply, GET TIME STAMP inside a method is mistaken for a report event, and a boundary-length comment wraps to 256 bytes.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 56,
+      "claim": "A class section after the first is emitted at four spaces instead of the required two, because its header uses the preceding section body's depth. This affects generated classes with PUBLIC, PROTECTED, and PRIVATE sections.",
+      "repro": "Format(\"CLASS c DEFINITION.\\nPUBLIC SECTION.\\nDATA x TYPE i.\\nPROTECTED SECTION.\\nDATA y TYPE i.\\nENDCLASS.\\n\") emits `    PROTECTED SECTION.`; required `  PROTECTED SECTION.`."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 204,
+      "claim": "GET TIME STAMP FIELD is a runtime statement, but the GET event classifier treats it as a report event, moving it to column zero and corrupting the indentation of following method and control-flow lines. This statement is present in the generated WASI helper in wasm/wasi.go.",
+      "repro": "Format(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\nGET TIME STAMP FIELD ts.\\nIF ok = abap_true.\\nx = 1.\\nENDIF.\\nENDMETHOD.\\nENDCLASS.\\n\") emits `GET TIME STAMP FIELD ts.` at column zero and `  IF ...` rather than inside the method."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 410,
+      "claim": "wrapComment permits the split space at the nominal limit and includes that space in the first part, so Format can return a 256-byte line despite the 255-byte limit.",
+      "repro": "Format(\"*\" + strings.Repeat(\"a\", 254) + \" b\\n\") returns nil error with a first output line of 256 bytes."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 224
+}

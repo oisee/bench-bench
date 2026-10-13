@@ -1,0 +1,73 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..7f072e2 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,20 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("trims each literal while preserving its other contents", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const sql = "VALUES ('  it''s \t\n  '), ('   '), (''), ('x\t \n '), (\"quoted \" )";
++    expect(trimLiterals(sql)).to.equal("VALUES ('  it''s \t\n'), (''), (''), ('x\t \n'), (\"quoted \" )");
++    expect(trimLiterals("'short   '")).to.equal("'short'");
++    expect(trimLiterals("unmatched 'short   ")).to.equal("unmatched 'short   ");
++    expect(trimLiterals("SELECT \"double 'value  ' quoted\"")).to.equal("SELECT \"double 'value' quoted\"");
++  });
++
++  it("trims a literal containing 15 million characters without overflowing", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const value = "x".repeat(15_000_000);
++    const sql = `INSERT INTO t VALUES ('${value}   '), ('second  ')`;
++    expect(trimLiterals(sql)).to.equal(`INSERT INTO t VALUES ('${value}'), ('second')`);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..d4c78e7 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,42 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const parts = [];
++  let copiedThrough = 0;
++
++  // Walk the input instead of capturing each literal in a regular expression.
++  // Large regex captures can overflow the JavaScript stack on long SQL values.
++  for (let opening = 0; opening < sql.length; opening++) {
++    if (sql.charCodeAt(opening) !== 39) continue;
++
++    let closing = -1;
++    let lastEscapedPair = -1;
++    for (let i = opening + 1; i < sql.length;) {
++      if (sql.charCodeAt(i) !== 39) {
++        i++;
++      } else if (i + 1 < sql.length && sql.charCodeAt(i + 1) === 39) {
++        // A doubled quote is content. Keep its position as a fallback because
++        // the old matcher backtracked to the first quote if no later closer
++        // existed (for example, a short quote-balanced fragment ending in '').
++        lastEscapedPair = i;
++        i += 2;
++      } else {
++        closing = i;
++        break;
++      }
++    }
++
++    if (closing === -1) closing = lastEscapedPair;
++    if (closing === -1) continue;
++
++    let contentEnd = closing;
++    while (contentEnd > opening + 1 && sql.charCodeAt(contentEnd - 1) === 32) contentEnd--;
++    parts.push(sql.slice(copiedThrough, contentEnd), sql.slice(closing, closing + 1));
++    copiedThrough = closing + 1;
++    opening = closing;
++  }
++
++  return copiedThrough === 0 ? sql : parts.join("") + sql.slice(copiedThrough);
+ }
+ 
+ /**

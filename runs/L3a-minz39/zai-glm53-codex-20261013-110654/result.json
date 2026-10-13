@@ -1,0 +1,32 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run TestLogicalShortCircuit)",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run \"^(TestParse|TestParseRoundtrip|TestOperatorOverloading)$\")",
+      "rc": 0
+    },
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/hir)",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 361,
+  "task": "L3a-minz39",
+  "level": "L3",
+  "executor": "zai-glm53-codex",
+  "harness": "codex",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 1534,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": ""
+}

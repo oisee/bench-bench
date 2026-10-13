@@ -1,0 +1,33 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The native mapping compiles and handles basic Base64 text, but the public nodeutf8.Decode function violates the required raw-byte input contract. Direct Go probes and compiled ABAP tests also reproduce incorrect replacement handling for incomplete UTF-8 and surrogate encodings; the added Go tests pass without covering these failures.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 25,
+      "claim": "Decode interprets its input as Base64 instead of raw bytes, contrary to the explicitly required public API. Valid raw text is corrupted or discarded: Decode(\"abc\") returns \"i�\" and Decode(\"äöü\") returns an empty string. Keep Base64 decoding in the ABAP wrapper and make nodeutf8.Decode interpret the resulting bytes as UTF-8.",
+      "repro": "Call nodeutf8.Decode(\"abc\") and nodeutf8.Decode(\"äöü\"): expected \"abc\" and \"äöü\", actual \"i�\" and \"\". Reproduced with: cd /work/tools/gogen/go && go run /tmp/review-b64.go"
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 70,
+      "claim": "Consuming only one byte after every failed sequence emits one replacement per byte of a valid but incomplete UTF-8 prefix. Node consumes that prefix as one malformed sequence. Consequently DecodeBase64(\"4oI=\") returns two replacements instead of one, and DecodeBase64(\"4oJB\") returns \"��A\" instead of \"�A\", also producing the wrong ABAP strlen.",
+      "repro": "ABAP: DATA val TYPE string. val = cl_http_utility=>decode_base64( '4oJB' ). cl_abap_unit_assert=>assert_equals( act = strlen( val ) exp = 2 ). Fails with actual 3. Node: Buffer.from(\"4oJB\", \"base64\").toString() yields \"�A\". Also reproduced by cd /work/tools/gogen/go && go run /tmp/review-b64.go."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 125,
+      "claim": "The three-byte validator accepts UTF-8 encodings of surrogate code points (ED A0 80 through ED BF BF). Those are invalid UTF-8 and Node replaces each byte, but this code copies them unchanged into the result. DecodeBase64(\"7aCA\") therefore returns invalid bytes ED A0 80; the ABAP runtime treats them as one surrogate unit and strlen returns 1 instead of the required 3 replacements.",
+      "repro": "ABAP: DATA val TYPE string. val = cl_http_utility=>decode_base64( '7aCA' ). cl_abap_unit_assert=>assert_equals( act = strlen( val ) exp = 3 ). Fails with actual 1. Node: Buffer.from(\"7aCA\", \"base64\").toString() yields \"���\". Go utf8.ValidString(abap.DecodeBase64(&abap.Session{}, \"7aCA\")) returns false."
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "d5c6c127b7",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 89
+}

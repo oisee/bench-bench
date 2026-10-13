@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The regex replace is swapped for a linear scanner. It trims only the ordinary spaces before each closing quote, treats '' as an escape, and leaves text outside literals alone. A differential fuzz against the old regex (300k random strings of quotes, spaces, tabs, newlines, double quotes and letters) found no difference on any input with an even number of single quotes. A 15M-character literal is handled in about 35 ms with no stack overflow. The only behaviour change is on unbalanced input with an odd quote count, which the task leaves out of scope.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 52,
+      "claim": "On input with an odd number of single quotes, the old regex backtracked and treated a trailing lone '' as a close followed by an open. The new scanner treats '' as an escaped quote and leaves the trailing open literal untouched, so its output differs from the old function's. This only affects malformed or partial SQL (the task requires parity only for quote-balanced fragments), and the change is not documented in the function comment.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>{const s=\\\"a' ''a \\\";console.log(JSON.stringify(m.trimLiterals(s)), JSON.stringify(s.replace(/'((?:[^']|'')*)'/g,(x,i)=>\\\"'\\\"+i.replace(/ +$/,'')+\\\"'\\\")))})\"  # new: \"a' ''a \"  old: \"a'''a \""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "47a62e492d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 32
+}

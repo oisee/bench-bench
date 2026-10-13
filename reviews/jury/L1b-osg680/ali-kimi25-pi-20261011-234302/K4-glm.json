@@ -1,0 +1,47 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The wiring (frontend NATIVE entry, abap.DecodeBase64) is clean and the base64 byte layer matches Node for ASCII input, but the two new behaviors the task pins down are wrong: nodeutf8.Decode base64-decodes its input instead of taking raw bytes as its specified contract states, and the UTF-8 replacement logic emits one U+FFFD per byte rather than Node's one per maximal invalid subpart, and passes surrogate halves through as raw invalid bytes. Both hidden acceptance tests fail because of this (verified against Node v26.9.0 and against the repo's own WHATWG decoder in go/apc/apc.go).",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 25,
+      "claim": "The public interface has the wrong semantics. The task specifies 'func Decode(b string) string ... Its input is a string of raw bytes, and its output is their Node-compatible UTF-8 text interpretation', i.e. Decode is the lossy UTF-8 interpretation step only. The implementation instead runs a full base64 cleanup/decode on its input first, so feeding it raw bytes gives wrong results: Decode(\"abc\") returns \"i\\uFFFD\" (base64-decodes \"abc\") instead of \"abc\", Decode(\"hello world\") returns garbage, and raw bytes that are not base64 characters are silently dropped (Decode(\"\\xE8\\xA0\") and Decode(\"\\xED\\xA0\\xA0\") return \"\" instead of one and three U+FFFD). This is why the acceptance test 'go test ./nodeutf8' with the hidden raw-byte tests fails, and it entangles abap.DecodeBase64 with the wrong contract.",
+      "repro": "cd $(mktemp -d) && go mod init x >/dev/null && go mod edit -require osg/gogen@v0.0.0 && go mod edit -replace osg/gogen=/work/tools/gogen/go && printf 'package main\\nimport (\"fmt\";\"osg/gogen/nodeutf8\")\\nfunc main(){ fmt.Printf(\"%%q %%q %%q %%q\\\\n\", nodeutf8.Decode(\"abc\"), nodeutf8.Decode(\"hello world\"), nodeutf8.Decode(\"\\\\xE8\\\\xA0\"), nodeutf8.Decode(\"\\\\xED\\\\xA0\\\\xA0\")) }\\n' > m.go && go run . ; node -e 'console.log(JSON.stringify([Buffer.from(\"abc\").toString(), Buffer.from(\"e8a0\",\"hex\").toString(), Buffer.from(\"eda0a0\",\"hex\").toString()]))'"
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 111,
+      "claim": "Surrogate halves (ED A0..BF 80..BF) are accepted as valid 3-byte sequences and passed through as raw bytes, so cl_http_utility=>decode_base64 of e.g. '7aCg' returns the invalid UTF-8 string \"\\xED\\xA0\\xA0\" instead of replacement characters. Node gives three U+FFFD. The acceptance explicitly requires Node-equal replacements for 'invalid code points', and returning non-UTF-8 bytes from a text function can corrupt downstream ABAP string operations.",
+      "repro": "node -e 'console.log([...Buffer.from(\"7aCg\",\"base64\").toString()].length)'  # 3 replacement chars; cd $(mktemp -d) && go mod init x >/dev/null && go mod edit -require osg/gogen@v0.0.0 && go mod edit -replace osg/gogen=/work/tools/gogen/go && printf 'package main\\nimport (\"fmt\";\"osg/gogen/abap\")\\nfunc main(){ fmt.Printf(\"%%q\\\\n\", abap.DecodeBase64(&abap.Session{}, \"7aCg\")) }\\n' > m.go && go run .  # \"\\xed\\xa0\\xa0\""
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 62,
+      "claim": "toValidUTF8 emits one U+FFFD per invalid byte, but Node (WHATWG 'UTF-8 decode') emits one per maximal invalid subpart, so counts diverge for incomplete sequences: decode_base64('6KA=') (bytes E8 A0) gives two U+FFFD where Node gives one, '8J+M' (F0 9F 8C) gives three vs one, and '8YnCkA==' gives \\uFFFD\\uFFFD\\u0090 vs Node's \\uFFFD\\u0090. The acceptance explicitly lists incomplete sequences, and this is what makes the ABAP-level acceptance test (SUCCESS: 4, FAILURE: 0) fail. The repo already contains the correct algorithm (go/apc/apc.go utf8Decode: 'each maximal subpart of an ill-formed sequence is one U+FFFD'), which the new package duplicates incorrectly. A 5613-case randomized comparison against Node found 449 mismatches, all of this kind.",
+      "repro": "node -e 'for (const b of [\"6KA=\",\"8J+M\",\"8YnCkA==\",\"666\",\"75AA=\"]) console.log(b, [...Buffer.from(b,\"base64\").toString()].filter(c=>c===\"\\ufffd\").length)'  # 1 1 1 1 1 replacements in Node; cd $(mktemp -d) && go mod init x >/dev/null && go mod edit -require osg/gogen@v0.0.0 && go mod edit -replace osg/gogen=/work/tools/gogen/go && printf 'package main\\nimport (\"fmt\";\"osg/gogen/abap\")\\nfunc main(){ for _, b := range []string{\"6KA=\",\"8J+M\",\"8YnCkA==\",\"666\",\"75AA=\"} { fmt.Printf(\"%%s %%q\\\\n\", b, abap.DecodeBase64(&abap.Session{}, b)) } }\\n' > m.go && go run .  # 2, 3, and extra U+FFFD per case"
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 31,
+      "claim": "The base64 cleaning loop diverges from Node for non-ASCII input. Node converts the string one byte per UTF-16 code unit (low byte) before base64-decoding, so U+0141 (\\u0141) acts as 'A' and U+013D acts as '=' (stopping the decode); this implementation drops such characters instead. Buffer.from(\"\\u0141BCD\",\"base64\") yields bytes 00 10 83 while DecodeBase64(\"\\u0141BCD\") yields 04 20, and for \"QUJD\\u013DREVG\" Node returns \"ABC\" while the Go code returns \"ABCDEF\".",
+      "repro": "node -e 'console.log(Buffer.from(\"\\u0141BCD\",\"base64\").toString(\"hex\"), JSON.stringify(Buffer.from(\"QUJD\\u013DREVG\",\"base64\").toString()))' ; cd $(mktemp -d) && go mod init x >/dev/null && go mod edit -require osg/gogen@v0.0.0 && go mod edit -replace osg/gogen=/work/tools/gogen/go && printf 'package main\\nimport (\"fmt\";\"osg/gogen/abap\")\\nfunc main(){ s:=&abap.Session{}; fmt.Printf(\"%%x %%q\\\\n\", abap.DecodeBase64(s,\"\\u0141BCD\"), abap.DecodeBase64(s,\"QUJD\\u013DREVG\")) }\\n' > m.go && go run ."
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 82,
+      "claim": "decodeUTF8Rune's rune return value is always 0 and discarded (only the size is used), a dead half of the API that obscures the logic; and decode_test.go carries misleading provenance comments (line 32 'actually U+1F601, not \\U0001F381' on a correct expectation, line 42 labels '7+8=' as 'U+D800 encoded as UTF-8' when it decodes to bytes EF EF, and the 'S!G@V#s%l&l*o()' expectation contradicts its own comment). decode_test.go is also not gofmt-clean (comment alignment).",
+      "repro": "cd /work/tools/gogen/go && gofmt -l nodeutf8"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "d5c6c127b7",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 441
+}

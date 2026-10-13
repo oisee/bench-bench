@@ -1,0 +1,33 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change meets the acceptance criteria: cl_http_utility=>decode_base64 compiles and runs under osgo (verified end-to-end for the alias and if_http_utility~ call syntaxes, padded/unpadded/URL-safe base64, U+FFFD replacement and strlen over multibyte results), and nodeutf8.Decode matched Node's Buffer.from(bytes).toString() on ~424k differential cases including exhaustive interesting-byte combinations. The full pipeline also matched Node on 80k adversarial base64 strings (embedded '=', whitespace, junk, odd lengths); the only divergence found is for non-ASCII characters inside the base64 text, inherited from the pre-existing DecodeXBase64. Remaining findings are minor: that non-ASCII divergence, one dead NATIVE entry, and a gofmt nit in the new test file.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 19,
+      "claim": "DecodeBase64 diverges from Node's Buffer.from(encoded, \"base64\") when `encoded` contains non-ASCII characters: Node converts the string to latin1 before base64-decoding, so a character whose low byte is an alphabet symbol is decoded (U+0141 'Ł' -> 0x41 'A', U+013D 'Ľ' -> 0x3D '='), while the reused DecodeXBase64 skips the character's UTF-8 bytes (and never stops at such a padding byte). The task requires text consistent with Node and Node's handling of extraneous characters; this is a real, reproducible deviation, though it is confined to non-ASCII base64 input and is inherited from the pre-existing, already-shipped DecodeXBase64 used by decode_x_base64 (all ASCII inputs match Node exactly in an 80k-case differential fuzz).",
+      "repro": "input 'QŁJD' (Q,U+0141,J,D): node -e 'process.stdout.write(Buffer.from(\"Q\\u0141JD\",\"base64\").toString(\"hex\"))' prints 400243; abap.DecodeBase64(nil, \"QŁJD\") returns 40efbfbd. Likewise 'QUĽJD': Node 41 (stops at Ľ->'='), Go 414243."
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 707,
+      "claim": "The NATIVE entry [\"CL_HTTP_UTILITY=>DECODE_BASE64\", \"abap.DecodeBase64\"] is dead code: NATIVE keys are `${className}=>${name}` with the method name as written in the class implementation, and cl_http_utility implements the method only as 'METHOD if_http_utility~decode_base64' (ALIASES do not produce MethodDef entries, and redefinedAlias maps redefinitions back to the '~' name), so only the IF_HTTP_UTILITY~DECODE_BASE64 entry at line 738 can fire. Harmless (if it ever fired the emitted call would be identical), but inconsistent with encode_base64, which registers only the interface-method key.",
+      "repro": "grep -n '^  METHOD' .local/pins/open-abap-core*/src/http/cl_http_utility.clas.abap  # no 'METHOD decode_base64.' exists, only if_http_utility~decode_base64"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/abap/http_utility_test.go",
+      "line": 16,
+      "claim": "The new test file is not gofmt-clean: the trailing comments in the case table are mis-aligned (gofmt wants the comment columns equalized across rows 16-18). No repo gate enforces gofmt and several pre-existing files also deviate, so this is cosmetic.",
+      "repro": "cd tools/gogen/go && gofmt -l abap/http_utility_test.go"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "c41628ea8d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1042
+}

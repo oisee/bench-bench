@@ -1,0 +1,32 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run TestLogicalShortCircuit)",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run \"^(TestParse|TestParseRoundtrip|TestOperatorOverloading)$\")",
+      "rc": 0
+    },
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/hir)",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1024,
+  "task": "L3a-minz39",
+  "level": "L3",
+  "executor": "ant-opus-claude",
+  "harness": "claude",
+  "provider": "anthropic",
+  "model": "opus",
+  "effort": "high",
+  "agent_exit": 124,
+  "duration_s": 3600,
+  "stop": "TIMEOUT",
+  "leak_suspect": false,
+  "harness_version": ""
+}

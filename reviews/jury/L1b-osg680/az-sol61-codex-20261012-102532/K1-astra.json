@@ -1,0 +1,12 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change implements the requested compiler mapping and public nodeutf8.Decode API, with Node-compatible Base64 and malformed UTF-8 handling. Runtime tests and the compiled-call parity test passed, and review found no concrete correctness or regression defects.",
+  "findings": [],
+  "critic": "K1-astra",
+  "critic_model": "openai/gpt-6-astra",
+  "anon": "aad4ad6e3f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 75
+}

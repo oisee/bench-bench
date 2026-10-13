@@ -1,0 +1,320 @@
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..0cf9061 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,7 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..0e596f4 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,11 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>if_http_utility~decode_base64:
++// Base64 text as UTF-8, with Node.js-compatible handling of invalid
++// sequences (U+FFFD replacement). Accepts standard and URL-safe
++// alphabets, optional padding, and ignores extraneous characters.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(encoded)
++}
+diff --git a/tools/gogen/go/nodeutf8/decode.go b/tools/gogen/go/nodeutf8/decode.go
+new file mode 100644
+index 0000000..2c548ca
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode.go
+@@ -0,0 +1,154 @@
++// Package nodeutf8 provides Node.js-compatible Base64 decoding and UTF-8 interpretation.
++// The Decode function mimics Node's Buffer.from(encoded, "base64").toString().
++package nodeutf8
++
++import (
++	"encoding/base64"
++)
++
++// replacementChar is the Unicode replacement character U+FFFD used by Node.js
++// when encountering invalid UTF-8 sequences.
++const replacementChar = "\ufffd"
++
++// Decode decodes a Base64-encoded string and returns the UTF-8 interpretation,
++// matching Node.js Buffer.from(encoded, "base64").toString() behavior.
++//
++// It accepts:
++//   - Standard Base64 alphabet (A-Z, a-z, 0-9, +, /)
++//   - URL-safe alphabet (-, _ instead of +, /)
++//   - Optional padding (=)
++//   - Extraneous characters (ignored)
++//
++// The decoded bytes are interpreted as UTF-8. Invalid UTF-8 sequences are
++// replaced with U+FFFD (the Unicode replacement character), preserving valid
++// text around malformed bytes.
++func Decode(b string) string {
++	// Clean the input: keep only valid Base64 characters, translate URL-safe to standard
++	clean := make([]byte, 0, len(b))
++	for i := 0; i < len(b); i++ {
++		c := b[i]
++		// Stop at padding
++		if c == '=' {
++			break
++		}
++		// Standard alphabet
++		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/' {
++			clean = append(clean, c)
++		} else if c == '-' {
++			// URL-safe: - becomes +
++			clean = append(clean, '+')
++		} else if c == '_' {
++			// URL-safe: _ becomes /
++			clean = append(clean, '/')
++		}
++		// All other characters are ignored (extraneous characters)
++	}
++
++	// Handle padding: Node accepts unpadded input and decodes partial groups
++	// If we have 1 extra character after removing padding, it's invalid - drop it
++	if len(clean)%4 == 1 {
++		clean = clean[:len(clean)-1]
++	}
++
++	// Decode using RawStdEncoding which handles unpadded input
++	decoded, _ := base64.RawStdEncoding.DecodeString(string(clean))
++
++	// Interpret as UTF-8 with replacement for invalid sequences
++	return toValidUTF8(string(decoded), replacementChar)
++}
++
++// toValidUTF8 replaces invalid UTF-8 sequences with the replacement string,
++// matching Node.js TextDecoder behavior.
++func toValidUTF8(s, replacement string) string {
++	var result []byte
++	for len(s) > 0 {
++		_, size := decodeUTF8Rune(s)
++		if size == 0 {
++			// Invalid sequence
++			result = append(result, replacement...)
++			// Skip one byte and try again
++			s = s[1:]
++		} else {
++			result = append(result, s[:size]...)
++			s = s[size:]
++		}
++	}
++	return string(result)
++}
++
++// decodeUTF8Rune decodes a single UTF-8 rune from s.
++// Returns the rune value and the number of bytes consumed.
++// Returns (0, 0) for invalid sequences.
++func decodeUTF8Rune(s string) (rune, int) {
++	if len(s) == 0 {
++		return 0, 0
++	}
++
++	b0 := s[0]
++
++	// 1-byte sequence (ASCII)
++	if b0 < 0x80 {
++		return rune(b0), 1
++	}
++
++	// 2-byte sequence: 110xxxxx 10xxxxxx
++	if b0 < 0xE0 {
++		if b0 < 0xC2 {
++			// Invalid: overlong encoding or continuation byte
++			return 0, 0
++		}
++		if len(s) < 2 {
++			return 0, 0
++		}
++		b1 := s[1]
++		if b1 < 0x80 || b1 >= 0xC0 {
++			// Not a continuation byte
++			return 0, 0
++		}
++		return 0, 2
++	}
++
++	// 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
++	if b0 < 0xF0 {
++		if len(s) < 3 {
++			return 0, 0
++		}
++		b1, b2 := s[1], s[2]
++		// Check continuation bytes
++		if b1 < 0x80 || b1 >= 0xC0 || b2 < 0x80 || b2 >= 0xC0 {
++			return 0, 0
++		}
++		// Check for overlong encoding (forbidden)
++		if b0 == 0xE0 && b1 < 0xA0 {
++			return 0, 0
++		}
++		return 0, 3
++	}
++
++	// 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
++	if b0 < 0xF8 {
++		if len(s) < 4 {
++			return 0, 0
++		}
++		b1, b2, b3 := s[1], s[2], s[3]
++		// Check continuation bytes
++		if b1 < 0x80 || b1 >= 0xC0 || b2 < 0x80 || b2 >= 0xC0 || b3 < 0x80 || b3 >= 0xC0 {
++			return 0, 0
++		}
++		// Check for overlong encoding
++		if b0 == 0xF0 && b1 < 0x90 {
++			return 0, 0
++		}
++		// Max valid Unicode is U+10FFFF
++		if b0 == 0xF4 && b1 >= 0x90 {
++			return 0, 0
++		}
++		if b0 > 0xF4 {
++			return 0, 0
++		}
++		return 0, 4
++	}
++
++	// 5+ byte sequences are invalid
++	return 0, 0
++}
+diff --git a/tools/gogen/go/nodeutf8/decode_test.go b/tools/gogen/go/nodeutf8/decode_test.go
+new file mode 100644
+index 0000000..3a9a7d4
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode_test.go
+@@ -0,0 +1,81 @@
++package nodeutf8
++
++import (
++	"testing"
++)
++
++func TestDecode(t *testing.T) {
++	// Test cases verified against Node.js Buffer.from(input, "base64").toString()
++	tests := []struct {
++		name     string
++		input    string
++		expected string
++	}{
++		{"empty", "", ""},
++		{"simple", "YWJj", "abc"},
++		{"hello", "SGVsbG8gV29ybGQh", "Hello World!"},
++
++		// Padded vs unpadded
++		{"padded", "YWJjZA==", "abcd"},
++		{"unpadded", "YWJjZA", "abcd"},
++
++		// URL-safe alphabet - produces same bytes as standard
++		{"urlsafe_minus", "P-4", "?\ufffd"},        // 0x3fee - '?' + invalid UTF-8
++		{"urlsafe_underscore", "P_4", "?\ufffd"},  // 0x3fff - '?' + invalid UTF-8
++
++		// Extraneous characters (ignored in base64, but affect output)
++		{"with_spaces", "Y WJ j", "abc"},          // "YWJj" -> "abc"
++		{"with_newlines", "YWJ\ncg==", "ab\\"},    // "YWJcg==" -> "ab\" (0x61625c)
++
++		// Unicode
++		{"unicode", "w6TDtsO8", "äöü"},
++		{"emoji", "8J+YgQ==", "😁"},               // actually U+1F601, not 🎁
++
++		// Invalid UTF-8 sequences should be replaced with U+FFFD
++		{"invalid_continuation", "gA==", "\ufffd"},                    // 0x80 alone
++		{"invalid_start", "oA==", "\ufffd"},                         // 0xA0 alone
++		{"incomplete_2byte", "wQ==", "\ufffd"},                       // 0xC1 alone
++		{"incomplete_3byte", "6A==", "\ufffd"},                       // 0xE8 alone
++		{"incomplete_4byte", "8A==", "\ufffd"},                       // 0xF0 alone
++		{"invalid_3byte_overlong", "gMCA", "\ufffd\ufffd\ufffd"},     // overlong encoding
++		{"valid_and_invalid", "YWJj6A==ZGVm", "abc\ufffd"},         // mixed valid/invalid
++		{"surrogate", "7+8=", "\ufffd\ufffd"},                      // U+D800 encoded as UTF-8
++		{"too_large", "/w==", "\ufffd"},                            // 0xFF invalid
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			got := Decode(tc.input)
++			if got != tc.expected {
++				t.Errorf("Decode(%q) = %q, want %q", tc.input, got, tc.expected)
++			}
++		})
++	}
++}
++
++func TestDecodeNodeCompatibility(t *testing.T) {
++	// Additional test cases verified against Node.js
++	tests := []struct {
++		input    string
++		expected string
++	}{
++		// Standard and URL-safe produce same byte output, interpreted as UTF-8
++		{"P+4=", "?\ufffd"},
++		{"P-4=", "?\ufffd"},
++		{"P_4=", "?\ufffd"},
++
++		// Padding is optional
++		{"SGVsbG8=", "Hello"},
++		{"SGVsbG8", "Hello"},
++
++		// Invalid base64 characters are skipped, result interpreted as UTF-8
++		{"S!G@V#s%l&l*o()", "Hel\ufffdZ"},
++	}
++
++	for _, tc := range tests {
++		got := Decode(tc.input)
++		if got != tc.expected {
++			t.Errorf("Decode(%q) = %q, want %q", tc.input, got, tc.expected)
++		}
++	}
++}
+diff --git a/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap b/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap
+new file mode 100644
+index 0000000..c267bea
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap
+@@ -0,0 +1,31 @@
++CLASS zcl_gogen_t_b64text DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++
++CLASS zcl_gogen_t_b64text IMPLEMENTATION.
++  METHOD run.
++    DATA lv_decoded TYPE string.
++    DATA lv_encoded TYPE string.
++
++    " Basic decoding
++    lv_decoded = cl_http_utility=>decode_base64( 'b3BlbiBzZXNhbWU=' ).
++    rv = |basic:{ lv_decoded }|.
++
++    " Unpadded
++    lv_decoded = cl_http_utility=>decode_base64( 'b3BlbiBzZXNhbWU' ).
++    rv = |{ rv } unpadded:{ lv_decoded }|.
++
++    " Unicode
++    lv_decoded = cl_http_utility=>decode_base64( 'w6TDtsO8' ).
++    rv = |{ rv } umlauts:{ lv_decoded }|.
++
++    " URL-safe characters
++    lv_decoded = cl_http_utility=>decode_base64( 'P-4' ).
++    rv = |{ rv } urlsafe:{ lv_decoded }|.
++
++    " Empty
++    lv_decoded = cl_http_utility=>decode_base64( '' ).
++    rv = |{ rv } empty:[{ lv_decoded }]|.
++  ENDMETHOD.
++ENDCLASS.

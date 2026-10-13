@@ -1,0 +1,58 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..26b7712 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,52 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  // Iterative parser to avoid stack overflow on very large literals.
++  // A regex with a capturing group can blow the call stack when the
++  // captured content reaches ~10 million characters.
++  const result = [];
++  let i = 0;
++  while (i < sql.length) {
++    if (sql[i] === "'") {
++      // Start of a single-quoted literal
++      const start = i;
++      i++; // skip opening quote
++      const literalStart = i;
++      // Find the closing quote, treating '' as an escaped quote
++      while (i < sql.length) {
++        if (sql[i] === "'") {
++          if (i + 1 < sql.length && sql[i + 1] === "'") {
++            // Escaped quote, skip both
++            i += 2;
++          } else {
++            // Closing quote found
++            break;
++          }
++        } else {
++          i++;
++        }
++      }
++      // If we hit end of string without a closing quote, copy as-is
++      if (i >= sql.length) {
++        result.push(sql.slice(start));
++        break;
++      }
++      // i now points to the closing quote
++      const inner = sql.slice(literalStart, i);
++      // Trim trailing spaces from inner content
++      let trimmed = inner.length;
++      while (trimmed > 0 && inner[trimmed - 1] === " ") trimmed--;
++      result.push("'");
++      result.push(inner.slice(0, trimmed));
++      result.push("'");
++      i++; // skip closing quote for next iteration
++    } else {
++      // Not inside a literal, copy character as-is
++      result.push(sql[i]);
++      i++;
++    }
++  }
++  return result.join("");
+ }
+ 
+ /**

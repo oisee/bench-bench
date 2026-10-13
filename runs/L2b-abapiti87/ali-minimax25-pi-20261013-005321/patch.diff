@@ -1,0 +1,515 @@
+diff --git a/hir/abap/emit.go b/hir/abap/emit.go
+index 3c515a3..18e4618 100644
+--- a/hir/abap/emit.go
++++ b/hir/abap/emit.go
+@@ -91,7 +91,7 @@ func EmitNamed(p *hir.Program) (map[string]string, *hir.Names, error) {
+ 		e.traceCasts()
+ 	}
+ 	for file, src := range e.files {
+-		out, err := wrap(src)
++		out, err := Format(src)
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("%s: %w", file, err)
+ 		}
+diff --git a/hir/abap/indent.go b/hir/abap/indent.go
+new file mode 100644
+index 0000000..bad8c77
+--- /dev/null
++++ b/hir/abap/indent.go
+@@ -0,0 +1,496 @@
++// Package abap lowers verified object HIR to ABAP 7.50.
++package abap
++
++import (
++	"strings"
++)
++
++// indent applies consistent indentation to ABAP source code following abaplint's
++// default style: two spaces per block level.
++func indent(src string) string {
++	if src == "" {
++		return src
++	}
++
++	lines := strings.Split(strings.TrimSuffix(src, "\n"), "\n")
++	var result strings.Builder
++	depth := 0                     // Current indentation depth
++	caseDepth := -1               // Track CASE depth for WHEN alignment
++	inClassSection := false       // Track if we're in a class section (PUBLIC/PROTECTED/PRIVATE)
++
++	// Helper functions
++	isFullLineComment := func(line string) bool {
++		trimmed := strings.TrimSpace(line)
++		return len(trimmed) > 0 && strings.HasPrefix(trimmed, "*")
++	}
++
++	isClassDef := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return strings.HasPrefix(trimmed, "CLASS ") && strings.Contains(trimmed, "DEFINITION")
++	}
++
++	isClassImpl := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return strings.HasPrefix(trimmed, "CLASS ") && strings.Contains(trimmed, "IMPLEMENTATION")
++	}
++
++	isClassSection := func(line string) bool {
++		trimmed := strings.TrimSpace(line)
++		return trimmed == "PUBLIC SECTION." || trimmed == "PROTECTED SECTION." || trimmed == "PRIVATE SECTION."
++	}
++
++	isMethodImpl := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return strings.HasPrefix(trimmed, "METHOD ") && !strings.HasPrefix(trimmed, "METHODS")
++	}
++
++	isMethodEnd := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return trimmed == "ENDMETHOD."
++	}
++
++	isInterfaceDef := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return strings.HasPrefix(trimmed, "INTERFACE ") && !strings.HasSuffix(trimmed, ".")
++	}
++
++	isInterfaceEnd := func(line string) bool {
++		trimmed := strings.ToUpper(strings.TrimSpace(line))
++		return trimmed == "ENDINTERFACE."
++	}
++
++	isReportEvent := func(upperLine string) bool {
++		events := []string{
++			"INITIALIZATION",
++			"AT SELECTION-SCREEN OUTPUT",
++			"AT SELECTION-SCREEN",
++			"AT LINE-SELECTION",
++			"AT USER-COMMAND",
++			"START-OF-SELECTION",
++			"END-OF-SELECTION",
++			"TOP-OF-PAGE",
++			"END-OF-PAGE",
++		}
++		for _, ev := range events {
++			if strings.Contains(upperLine, ev) {
++				return true
++			}
++		}
++		return false
++	}
++
++	// Check if line is a declaration that should be indented within a class section
++	isClassDeclaration := func(upperLine string) bool {
++		decls := []string{
++			"DATA ",
++			"CLASS-DATA ",
++			"METHODS ",
++			"CLASS-METHODS ",
++			"CONSTANTS ",
++			"INTERFACES ",
++			"EVENTS ",
++			"ALIASES ",
++		}
++		for _, d := range decls {
++			if strings.HasPrefix(upperLine, d) {
++				return true
++			}
++		}
++		return false
++	}
++
++	// Get the effective line (skip leading label like "0001:")
++	getEffectiveLine := func(line string) string {
++		if len(line) > 5 {
++			isLabel := true
++			for _, c := range line[:min(4, len(line))] {
++				if c < '0' || c > '9' {
++					isLabel = false
++					break
++				}
++			}
++			if isLabel {
++				return line[min(5, len(line)):]
++			}
++		}
++		return line
++	}
++
++	// Get indentation prefix for current depth
++	getPrefix := func() string {
++		if depth < 0 {
++			depth = 0
++		}
++		return strings.Repeat("  ", depth)
++	}
++
++	// Process each line
++	for _, line := range lines {
++		effectiveLine := getEffectiveLine(line)
++		effectiveTrimmed := strings.TrimSpace(effectiveLine)
++		upperLine := strings.ToUpper(effectiveTrimmed)
++
++		// Handle full-line comments (starting with *)
++		if isFullLineComment(line) {
++			result.WriteString(line)
++			result.WriteString("\n")
++			continue
++		}
++
++		// Determine indentation adjustment before writing the line
++		// Check for block closers first
++		wasIndented := false
++		if effectiveTrimmed != "" {
++			isCloser := false
++
++			// Check for block closers
++			switch {
++			case isMethodEnd(effectiveLine):
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDCLASS.":
++				if depth > 0 {
++					depth--
++				}
++				inClassSection = false
++				isCloser = true
++			case upperLine == "ENDINTERFACE.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDIF.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDDO.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDWHILE.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDLOOP.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDTRY.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDCASE.":
++				if depth > 0 {
++					depth--
++				}
++				caseDepth = -1
++				isCloser = true
++			case upperLine == "ENDFORM.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			case upperLine == "ENDFUNCTION.":
++				if depth > 0 {
++					depth--
++				}
++				isCloser = true
++			}
++
++			if isCloser {
++				if depth < 0 {
++					depth = 0
++				}
++				// Apply indentation after reducing depth
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				wasIndented = true
++			}
++		}
++
++		if wasIndented {
++			continue
++		}
++
++		// Check for block openers that increase indentation
++		if effectiveTrimmed != "" {
++			// CLASS definition header - at column 0
++			if isClassDef(effectiveLine) {
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth = 0
++				continue
++			}
++
++			// CLASS implementation header - at column 0
++			if isClassImpl(effectiveLine) {
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth = 0
++				continue
++			}
++
++			// ENDCLASS - already handled as closer
++			if upperLine == "ENDCLASS." {
++				continue
++			}
++
++			// Interface - at column 0
++			if isInterfaceDef(effectiveLine) {
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth = 0
++				continue
++			}
++
++			// ENDINTERFACE - already handled
++			if isInterfaceEnd(effectiveLine) {
++				continue
++			}
++
++			// Class sections (PUBLIC SECTION, etc.)
++			if isClassSection(effectiveLine) {
++				// Sections are at indent level 1 (2 spaces) within class
++				result.WriteString("  ")
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				inClassSection = true
++				depth = 1 // Set depth to section level
++				continue
++			}
++
++			// Declarations in class sections (DATA, CLASS-METHODS, etc.)
++			if inClassSection && isClassDeclaration(upperLine) {
++				// Declarations are at indent level 2 (4 spaces) within class definition
++				result.WriteString("    ")
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				continue
++			}
++
++			// Method implementation opening
++			if isMethodImpl(effectiveLine) {
++				// Method starts at indent level 1 (2 spaces) within class implementation
++				result.WriteString("  ")
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				// Then increase depth for method body
++				depth = 2 // Method body level
++				continue
++			}
++
++			// ENDMETHOD already handled as closer
++
++			// TRY block
++			if upperLine == "TRY." {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(line)
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// CATCH clause
++			if strings.HasPrefix(upperLine, "CATCH ") {
++				// CATCH is at same level as TRY body
++				if depth > 0 {
++					depth--
++				}
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// CLEANUP clause
++			if upperLine == "CLEANUP." {
++				if depth > 0 {
++					depth--
++				}
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				continue
++			}
++
++			// CASE statement
++			if strings.HasPrefix(upperLine, "CASE ") || upperLine == "CASE." {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				caseDepth = depth
++				depth++
++				continue
++			}
++
++			// WHEN clause
++			if strings.HasPrefix(upperLine, "WHEN ") {
++				// WHEN is inside CASE
++				if caseDepth >= 0 {
++					// Reduce to case level first
++					depth = caseDepth
++				}
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				// WHEN body is indented one more level
++				depth++
++				continue
++			}
++
++			// IF statement
++			if strings.HasPrefix(upperLine, "IF ") || (upperLine == "IF" && len(effectiveTrimmed) == 2) {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// ELSE/ELSEIF
++			if strings.HasPrefix(upperLine, "ELSEIF ") || upperLine == "ELSE." {
++				// ELSE aligns with its IF - reduce depth first
++				if depth > 0 {
++					depth--
++				}
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// DO loop
++			if upperLine == "DO." {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(line)
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// WHILE
++			if strings.HasPrefix(upperLine, "WHILE ") || upperLine == "WHILE." {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// LOOP
++			if strings.HasPrefix(upperLine, "LOOP AT ") || upperLine == "LOOP." {
++				prefix := getPrefix()
++				result.WriteString(prefix)
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++
++				continue
++			}
++
++			// FORM subroutine
++			if strings.HasPrefix(upperLine, "FORM ") {
++				// Form definition at column 0
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				depth++ // Indent the form body
++				continue
++			}
++
++			// Report events
++			if isReportEvent(upperLine) {
++				// Report events at column 0
++				result.WriteString(strings.TrimLeft(line, " \t"))
++				result.WriteString("\n")
++				// Body is indented
++				depth = 1
++				continue
++			}
++		}
++
++		// Default: apply current indentation
++		if depth < 0 {
++			depth = 0
++		}
++
++		trimmed := strings.TrimLeft(line, " \t")
++		if trimmed == "" {
++			// Empty line - preserve it
++			result.WriteString("\n")
++			continue
++		}
++
++		// Check for continuation lines in boolean expressions (OR, AND at start of line)
++		// These should not be further indented - they continue the expression
++		upperTrimmed := strings.ToUpper(trimmed)
++		isContinuation := strings.HasPrefix(upperTrimmed, "OR ") ||
++			strings.HasPrefix(upperTrimmed, "AND ") ||
++			strings.HasPrefix(upperTrimmed, "|| ")
++
++		// Also detect closing parenthesis on its own line (like ").") as continuation
++		// This commonly happens in multi-line method calls
++		if !isContinuation && (upperTrimmed == ")." || strings.TrimSpace(upperTrimmed) == ").") {
++			// Check if the previous line ended with an open paren
++			// In this case, this is a continuation
++			if result.Len() > 0 {
++				prevNewline := strings.LastIndex(result.String(), "\n")
++				if prevNewline > 0 {
++					// Get the line BEFORE the last newline (not after)
++					prevPrevNewline := strings.LastIndex(result.String()[:prevNewline], "\n")
++					var prevLine string
++					if prevPrevNewline >= 0 {
++						prevLine = result.String()[prevPrevNewline+1 : prevNewline]
++					} else {
++						prevLine = result.String()[:prevNewline]
++					}
++					if strings.Contains(prevLine, "(") && !strings.Contains(prevLine, ")") {
++						isContinuation = true
++					}
++				}
++			}
++		}
++
++		// For continuation lines, don't add any indentation - they continue the expression
++		// at the statement's original indentation level (column 0 relative to the statement)
++		var prefix string
++		if isContinuation {
++			prefix = ""
++		} else {
++			prefix = getPrefix()
++		}
++		result.WriteString(prefix)
++		result.WriteString(trimmed)
++		result.WriteString("\n")
++	}
++
++	return result.String()
++}
++
++// Format applies indentation and line wrapping to ABAP source code.
++// It ensures no line exceeds 255 bytes.
++func Format(src string) (string, error) {
++	// First apply indentation
++	indented := indent(src)
++
++	// Then apply line wrapping (existing wrap function)
++	return wrap(indented)
++}

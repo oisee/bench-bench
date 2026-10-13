@@ -1,0 +1,26 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The new native method handles ordinary Base64 and UTF-8 cases, but it does not fully match Node when the encoded input contains an astral Unicode character. The change also exceeds this repository's enforced size budgets, so its pre-push gate fails.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 16,
+      "claim": "DecodeBase64 reuses DecodeXBase64, which skips astral Unicode characters and continues decoding; Node's Buffer.from(input, 'base64') stops at them. Thus the new method returns the wrong text for an extraneous character that the task explicitly requires it to handle like Node.",
+      "repro": "Input 'QU😀JD': node -e 'console.log(Buffer.from(\"QU😀JD\", \"base64\").toString())' prints A; abap.DecodeBase64(&abap.Session{}, \"QU😀JD\") returns ABC."
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 15,
+      "claim": "The added native exceeds the checked budgets for go:abap and http_utility.go, and the frontend edit exceeds its budget. The new nodeutf8 package also lacks the required budget entry and README, so the repository's pre-push size gate rejects this change.",
+      "repro": "node tools/osd-size-budget.mjs --changed baseline exits 1 and reports three changed-path breaches; staging nodeutf8 in a temporary Git index additionally reports its missing package budget and README."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "47fdacba85",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 129
+}

@@ -1,0 +1,40 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The Base64 call works for ordinary encoded text, but the required public helper has the wrong input contract and malformed UTF-8 differs from Node. The new ABAP fixture is not tied to an expected result, so the existing semantics check stays green despite these errors.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 25,
+      "claim": "Decode treats its input as Base64 text, but the required API accepts raw bytes and only converts their UTF-8 representation. For example, Decode(\"Hello\") returns \"\\u001d�e\" instead of \"Hello\"; non-alphabet raw bytes can disappear entirely.",
+      "repro": "cd tools/gogen/go && go run /tmp/osgo-review-repro.go"
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 69,
+      "claim": "When a multibyte sequence has a valid but incomplete prefix, the decoder emits one replacement per byte instead of Node's one replacement for the prefix. The ABAP call for 4oI= returns two U+FFFD characters instead of one; 4oJB returns two before A instead of one.",
+      "repro": "Input cl_http_utility=>decode_base64( '4oI=' ): Go returns \"��\"; Node Buffer.from('4oI=','base64').toString() returns \"�\"."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 121,
+      "claim": "The three-byte validator accepts UTF-8 encodings of surrogate code points. For 7aCA (bytes ED A0 80), DecodeBase64 returns the invalid bytes unchanged, while Node returns three U+FFFD characters.",
+      "repro": "Input cl_http_utility=>decode_base64( '7aCA' ): Go output hex eda080; Node Buffer.from('7aCA','base64').toString() is \"���\"."
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap",
+      "line": 1,
+      "claim": "The new ABAP fixture has no EXPECT entry in semantics.mjs, so its output is printed as 'new' without an assertion; the semantics check passes even when Base64 decoding is wrong.",
+      "repro": "node tools/gogen/semantics.mjs | rg 'new  Go ZCL_GOGEN_T_B64TEXT'"
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "d5c6c127b7",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 71
+}

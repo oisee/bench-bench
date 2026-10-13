@@ -1,0 +1,34 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The new hir/abap indent/Format implementation satisfies every acceptance bullet (verified by the patch's tests, independent scratch tests, a 1000-case fuzz for termination/idempotency/255-byte limit/token preservation, and Format over all 80 real .abap files in the repo), and all generated-ABAP producers (EmitNamed, ts.Transpile, llvm Compile/CompileMultiClass, tsfront drivers, wasm wrapLongLines) now route through Format; the full Go test suite passes and the golden-file changes are whitespace-only. Remaining findings are unreachable-from-generators edge cases: a quote character inside a full-line \" comment can steal the next statement's indentation level, INTERFACE ... DEFERRED opens a block unlike CLASS ... DEFERRED, and the GET-event heuristic misses the GET node FIELDS ... event form.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 119,
+      "claim": "A quote byte (', `, |) inside a full-line \" comment sets stmt.first for the next statement, so a comment line preceding a dedenting closer (ENDIF/ENDMETHOD/ENDCLASS) is indented at the closer's column instead of the enclosing block's level.",
+      "repro": "In package abap: indent(\"IF a = 1.\\n\\\" don't do this\\nENDIF.\\n\") leaves the comment at column 0 while \" it's a note\\nx = 1. inside the block is indented at 2; a comment without a quote stays at 2. Not reachable from current generators (wasm strips comments; hir/abap emits only '*' comments, which are exempt)."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 184,
+      "claim": "INTERFACE has no DEFERRED/LOAD exemption like the CLASS case, so 'INTERFACE foo DEFERRED.' opens a block that nothing closes and every following line gains two spaces until an ENDINTERFACE appears.",
+      "repro": "In package abap: indent(\"INTERFACE lif DEFERRED.\\nDATA x TYPE i.\\n\") returns the DATA line indented at 2 instead of 0. No repo emitter generates deferred interface declarations."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 275,
+      "claim": "reportEvent only treats the 2/3-word 'GET node [LATE]' forms as report events, so the real event syntax 'GET node FIELDS f1 f2.' is indented inside the previous event instead of starting a new one at column zero.",
+      "repro": "In package abap: indent(\"START-OF-SELECTION.\\nWRITE 'a'.\\nGET mara FIELDS matnr.\\nWRITE 'b'.\\n\") keeps GET/WRITE indented at 2 instead of resetting GET to column 0. Generated reports only use GET RUN TIME / GET TIME STAMP style statements, which are correctly excluded."
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "cdd25b0d0f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1174
+}

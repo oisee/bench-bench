@@ -1,0 +1,280 @@
+diff --git a/.github/workflows/gogen.yml b/.github/workflows/gogen.yml
+index a433ff6..13c131e 100644
+--- a/.github/workflows/gogen.yml
++++ b/.github/workflows/gogen.yml
+@@ -115,7 +115,7 @@ jobs:
+       - name: Semantics, Go and IR-as-JS against the measured answers
+         run: node tools/gogen/semantics.mjs
+       - name: Byte ownership and frontend emission
+-        run: node --test tools/gogen/frontend-owned.test.mjs tools/gogen/frontend-bytes.test.mjs tools/gogen/emit-go.test.mjs tools/gogen/session-statics.test.mjs
++        run: node --test tools/gogen/frontend-owned.test.mjs tools/gogen/frontend-bytes.test.mjs tools/gogen/emit-go.test.mjs tools/gogen/session-statics.test.mjs tools/gogen/parse-i8.test.mjs
+       - name: Go byte fixtures and ABAPiti repros
+         run: node tools/gogen/unit.mjs --fixture tools/gogen/testdata --jobs 4
+       # osabap: a report built into a native command (open-abap-gui's
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index 04694d4..b9cd89d 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -6461,9 +6461,8 @@ function datasetStatement(node, ctx, text) {
+   // GET DATASET's name is a Target in the grammar, read here like a source
+   const source = (n, to) => convert(isExpr(n, Expressions.Target) ? lvalue(n, ctx) : sourceOperand(n, ctx), to);
+   const target = (n) => convert(lvalue(n, ctx), {k: "data"});
+-  // a position or length from a number; a character operand would need a
+-  // conversion the Go emitter has no rule for (c/n/string -> int8), and an
+-  // Error there fails the whole program, so it is refused here, in one method
++  // a position or length from a number; character operands remain outside
++  // this statement's supported operand types, so refuse them here.
+   const number = (n, to, what) => {
+     const v = isExpr(n, Expressions.Target) ? lvalue(n, ctx) : sourceOperand(n, ctx);
+     if (!["i", "int8", "p", "f"].includes(v.type.k)) throw new Unsupported(`${what} of type ${v.type.k}`);
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..e5c9556 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/hex"
+ 	"errors"
+ 	"math"
++	"math/big"
+ 	"net/url"
+ 	"osg/gogen/abaperr"
+ 	"osg/gogen/intarith"
+@@ -195,6 +196,42 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts numeric text to int8 exactly. Spaces around the value are
++// ignored, blanks are zero, and decimal fractions round half away from zero.
++// Values outside int64 after rounding raise CX_SY_CONVERSION_OVERFLOW;
++// malformed text raises CX_SY_CONVERSION_NO_NUMBER.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	n := new(big.Int)
++	if whole != "" {
++		if _, ok := n.SetString(whole, 10); !ok {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++		}
++	}
++	if frac != "" && frac[0] >= '5' {
++		n.Add(n, big.NewInt(1))
++	}
++	if neg {
++		n.Neg(n)
++	}
++	if !n.IsInt64() {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	return n.Int64()
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/conv_i8_test.go b/tools/gogen/go/abap/conv_i8_test.go
+new file mode 100644
+index 0000000..e23e956
+--- /dev/null
++++ b/tools/gogen/go/abap/conv_i8_test.go
+@@ -0,0 +1,55 @@
++package abap
++
++import (
++	"math"
++	"testing"
++)
++
++func TestParseI8(t *testing.T) {
++	valid := map[string]int64{
++		"":                                    0,
++		"   ":                                 0,
++		" +1 ":                                1,
++		"1.499":                               1,
++		"1.5":                                 2,
++		"-1.5":                                -2,
++		".5":                                  1,
++		"-.5":                                 -1,
++		"5.":                                  5,
++		"+9223372036854775807.49":             math.MaxInt64,
++		"9223372036854775807":                 math.MaxInt64,
++		"-9223372036854775808.49":             math.MinInt64,
++		"-9223372036854775808":                math.MinInt64,
++		"00000000000000000000000000000000001": 1,
++	}
++	for input, want := range valid {
++		if got := ParseI8(input); got != want {
++			t.Errorf("ParseI8(%q) = %d, want %d", input, got, want)
++		}
++	}
++
++	for input, wantClass := range map[string]string{
++		"abc":                         "CX_SY_CONVERSION_NO_NUMBER",
++		"1.2.3":                       "CX_SY_CONVERSION_NO_NUMBER",
++		"1e2":                         "CX_SY_CONVERSION_NO_NUMBER",
++		"1 2":                         "CX_SY_CONVERSION_NO_NUMBER",
++		"+":                           "CX_SY_CONVERSION_NO_NUMBER",
++		"9223372036854775808":         "CX_SY_CONVERSION_OVERFLOW",
++		"9223372036854775807.5":       "CX_SY_CONVERSION_OVERFLOW",
++		"-9223372036854775809":        "CX_SY_CONVERSION_OVERFLOW",
++		"-9223372036854775808.5":      "CX_SY_CONVERSION_OVERFLOW",
++		"999999999999999999999999999": "CX_SY_CONVERSION_OVERFLOW",
++	} {
++		t.Run(input, func(t *testing.T) {
++			defer func() {
++				r := recover()
++				e, ok := r.(ArithmeticError)
++				if !ok || e.Class != wantClass {
++					t.Fatalf("ParseI8(%q) panic = %#v, want ArithmeticError{%s}", input, r, wantClass)
++				}
++			}()
++			_ = ParseI8(input)
++			t.Fatalf("ParseI8(%q) did not panic", input)
++		})
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..274c297 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,21 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = dot < 0 ? body : body.slice(0, dot);
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  let n = BigInt(whole || "0");
++  if (frac !== "" && frac[0] >= "5") n++;
++  if (neg) n = -n;
++  if (n > MAX8 || n < MIN8) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+diff --git a/tools/gogen/parse-i8.test.mjs b/tools/gogen/parse-i8.test.mjs
+new file mode 100644
+index 0000000..e4e6e6f
+--- /dev/null
++++ b/tools/gogen/parse-i8.test.mjs
+@@ -0,0 +1,32 @@
++import {test} from "node:test";
++import assert from "node:assert/strict";
++import {AbapError, ParseI8} from "./js/abap.mjs";
++
++test("ParseI8 parses and rounds decimal text without losing int64 precision", () => {
++  const valid = new Map([
++    ["", 0n], ["   ", 0n], [" +1 ", 1n], ["1.499", 1n], ["1.5", 2n], ["-1.5", -2n],
++    [".5", 1n], ["-.5", -1n], ["5.", 5n],
++    ["+9223372036854775807.49", 9223372036854775807n],
++    ["9223372036854775807", 9223372036854775807n],
++    ["-9223372036854775808.49", -9223372036854775808n],
++    ["-9223372036854775808", -9223372036854775808n],
++    ["00000000000000000000000000000000001", 1n],
++  ]);
++  for (const [input, want] of valid) assert.equal(ParseI8(input), want, input);
++});
++
++test("ParseI8 distinguishes malformed text from rounded overflow", () => {
++  const cases = new Map([
++    ["abc", "CX_SY_CONVERSION_NO_NUMBER"], ["1.2.3", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["1e2", "CX_SY_CONVERSION_NO_NUMBER"], ["1 2", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["+", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"],
++    ["9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["-9223372036854775809", "CX_SY_CONVERSION_OVERFLOW"],
++    ["-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["999999999999999999999999999", "CX_SY_CONVERSION_OVERFLOW"],
++  ]);
++  for (const [input, cls] of cases) {
++    assert.throws(() => ParseI8(input), (e) => e instanceof AbapError && e.cls === cls, input);
++  }
++});
+diff --git a/tools/gogen/semantics.mjs b/tools/gogen/semantics.mjs
+index 26a2eff..304698f 100644
+--- a/tools/gogen/semantics.mjs
++++ b/tools/gogen/semantics.mjs
+@@ -29,6 +29,9 @@ const EXPECT = {
+   ZCL_GOGEN_T_INT8X: "0000000000000000FFFFFFFFFFFFFFFE/-2/0708/65535/-9223372036854775808/8000000000000000/0/00000000FFFFFFFE/-2/FFFFFFFE/documented",
+   // Documentation-backed int8 limits, also checked against math/big in Go.
+   ZCL_GOGEN_T_INT8ARITH: "-4/1/-4/4/1/4/-3/1/-4/div-overflow/round-overflow/0/1/0/1/1/9223372036854775807/0/0/9223372036854775807/-1/-2/9223372036854775806/-1/1/0/-1/1/-1/add-overflow/sub-overflow/mul-overflow/9223372036854775807/-1/4294967289/-30064771072/4294967289/0/packed-div-overflow/neg-overflow/-9223372036854775808/7/0/0/0/zero-div/zero-mod/zero-round",
++  // String-to-int8 conversion: exact signed bounds, decimal rounding, and
++  // catchable conversion overflow/no-number errors in both generated hosts.
++  ZCL_GOGEN_T_C2I8: "max:9223372036854775807 min:-9223372036854775808 ties:3,-3 blank:0 over:max,min no:number",
+   // Unmeasured regression: character bases, int8 concat and shared i formatting.
+   ZCL_GOGEN_T_IPOWTEXT: "a42/42a/a42a/a5-/c:10/n:10/5-/2147483648-",
+   // Unmeasured: documented integer power and packed assignment rounding.
+diff --git a/tools/gogen/testdata/zcl_gogen_t_c2i8.clas.abap b/tools/gogen/testdata/zcl_gogen_t_c2i8.clas.abap
+new file mode 100644
+index 0000000..b08bd0d
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_c2i8.clas.abap
+@@ -0,0 +1,27 @@
++* String-to-int8 conversion: exact decimal bounds and runtime exception classes.
++CLASS zcl_gogen_t_c2i8 DEFINITION PUBLIC FINAL CREATE PUBLIC.
++ PUBLIC SECTION.
++ CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++CLASS zcl_gogen_t_c2i8 IMPLEMENTATION.
++ METHOD run.
++ DATA lv_s TYPE string.
++ DATA lv_i8 TYPE int8.
++ lv_s = '  +9223372036854775807.49  '.
++ lv_i8 = lv_s. rv = |max:{ lv_i8 }|.
++ lv_s = '-9223372036854775808.49'.
++ lv_i8 = lv_s. rv = rv && | min:{ lv_i8 }|.
++ lv_s = '2.5'. lv_i8 = lv_s. rv = rv && | ties:{ lv_i8 }|.
++ lv_s = '-2.5'. lv_i8 = lv_s. rv = rv && |,{ lv_i8 }|.
++ lv_s = '   '. lv_i8 = lv_s. rv = rv && | blank:{ lv_i8 }|.
++ lv_s = '9223372036854775807.5'.
++ TRY. lv_i8 = lv_s. rv = rv && ' bad-max'.
++ CATCH cx_sy_conversion_overflow. rv = rv && ' over:max'. ENDTRY.
++ lv_s = '-9223372036854775808.5'.
++ TRY. lv_i8 = lv_s. rv = rv && ' bad-min'.
++ CATCH cx_sy_conversion_overflow. rv = rv && ',min'. ENDTRY.
++ lv_s = 'abc'.
++ TRY. lv_i8 = lv_s. rv = rv && ' bad-number'.
++ CATCH cx_sy_conversion_no_number. rv = rv && ' no:number'. ENDTRY.
++ ENDMETHOD.
++ENDCLASS.

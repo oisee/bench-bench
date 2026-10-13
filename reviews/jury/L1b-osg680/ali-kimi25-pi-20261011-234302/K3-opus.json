@@ -1,0 +1,40 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The NATIVE mapping and the Go wrapper make cl_http_utility=>decode_base64 compile, and the Base64 step matches Node for padded, unpadded, URL-safe, mid-string '=' and junk-character inputs. The hand-written UTF-8 validator does not match Node's (WHATWG) decoding in two ways. It passes encoded surrogates through as raw invalid bytes, and it emits one U+FFFD per byte for truncated multibyte sequences where Node emits one per maximal subpart. Both are in the acceptance criteria and are covered by the hidden nodeutf8 tests, which fail.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 113,
+      "claim": "The 3-byte branch rejects overlongs only for E0 and never rejects UTF-16 surrogates (ED followed by A0..BF). ED A0 80 is therefore accepted as valid and copied verbatim, so Decode returns invalid UTF-8. Node returns three U+FFFD. Through ABAP, strlen of the result is 1 instead of 3.",
+      "repro": "Decode(\"7aCA\") returns \"\\xed\\xa0\\x80\"; node -e 'console.log(JSON.stringify(Buffer.from(\"7aCA\",\"base64\").toString()))' prints \"\\ufffd\\ufffd\\ufffd\". In an osgo ABAP Unit case, strlen( cl_http_utility=>decode_base64( '7aCA' ) ) gives 1, expected 3."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 66,
+      "claim": "On any invalid sequence the decoder emits one U+FFFD and skips exactly one byte. Node/WHATWG replaces each maximal subpart (a valid prefix of a sequence) with a single U+FFFD. Because of this, incomplete sequences produce too many replacement characters: E8 80 gives 2 instead of 1, F0 9F 98 gives 3 instead of 1, and F0 9F 98 41 gives 3 U+FFFD plus 'A' instead of 1 plus 'A'.",
+      "repro": "Decode(\"6IA=\") = \"\\ufffd\\ufffd\" vs Node \"\\ufffd\"; Decode(\"8J+Y\") = 3x U+FFFD vs Node 1x; Decode(\"8J+YQQ==\") = \"\\ufffd\\ufffd\\ufffdA\" vs Node \"\\ufffdA\""
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 60,
+      "claim": "The code re-implements UTF-8 validation by hand and returns a rune value it never computes (always 0). An algorithm that tracks the expected continuation-byte range for each lead byte (the WHATWG UTF-8 decoder) would fix both defects above in fewer lines. The unit tests only use single-byte truncations, which is why they never caught the maximal-subpart difference.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap",
+      "line": 1,
+      "claim": "The new ABAP fixture is not referenced by any test or runner (grep for b64text/B64TEXT finds nothing), so the ABAP path the change adds has no automated coverage in the repository.",
+      "repro": "grep -rn 'b64text\\|B64TEXT' tools/"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "d5c6c127b7",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 50
+}

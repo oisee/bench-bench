@@ -1,0 +1,34 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The formatter passes the existing Go tests, but it misses required continuation indentation when a statement starts later on a shared line and rejects breakable string-template expressions. Driver formatting also silently returns raw source on a formatting error, allowing unindented and overlong ABAP.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 70,
+      "claim": "A continuation takes the indentation of the first statement on its start line, even when the continuing statement began later on that line. This violates the required statement indentation after multiple statements on one line.",
+      "repro": "abap.Format(\"IF a = 1. x = f(\\n p = 2 ).\\nENDIF.\\n\") returns \"IF a = 1. x = f(\\np = 2 ).\\nENDIF.\\n\"; the p continuation should have two leading spaces."
+    },
+    {
+      "severity": "P1",
+      "file": "tsfront/registry_driver.go",
+      "line": 21,
+      "claim": "If formatting fails, generated drivers are returned unchanged without an error, so a single long input label leaves the whole driver unindented and retains an over-255-byte line.",
+      "repro": "tsfront.LexerTestClass([]tsfront.LexerCase{{Name: strings.Repeat(\"a\", 250)}}, tsfront.DriverParams{Class: \"zcl_lexer\", Dump: \"dump\", Diff: \"diff\", Raw: \"raw\", A: \"a\", B: \"b\", TokenCount: \"count\", Virtual: \"virtual\"}) returns an unindented PRIVATE SECTION and a 272-byte msg line."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 199,
+      "claim": "The lexer records no wrap points inside an embedded string-template expression, so Format rejects an expression with ordinary breakable spaces as unbreakable.",
+      "repro": "abap.Format(\"METHOD m.\\ns = |{ \" + strings.Repeat(\"strlen( a ) + \", 25) + \"1 }|.\\nENDMETHOD.\\n\") returns `unbreakable source line (360 bytes)`."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "7d6bdb3cca",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 183
+}

@@ -1,0 +1,10 @@
+{
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "qwen3.7-plus",
+  "effort": "high",
+  "harness_version": "1.0.2",
+  "started_at": "2026-10-12T11:47:00+01:00",
+  "finished_at": "2026-10-12T12:27:57+01:00",
+  "exit_code": "0"
+}

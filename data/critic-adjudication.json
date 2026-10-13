@@ -1,0 +1,11 @@
+{
+  "_doc": "Critic rejections of test-passing patches, checked by running the critic's repro on the patch and on the upstream reference (task MERGE). confirmed=true: patch and reference differ, a real defect the hidden tests miss. confirmed=false: reference behaves the same, a false alarm.",
+  "reviews": [
+    {"critic": "S-sol", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "confirmed": true,
+     "check": "abap.Format(\"IF a = 1. x = f(\\n p = 2 ).\\nENDIF.\\n\")", "patch": "continuation line has no indent", "reference": "continuation indented by two spaces"},
+    {"critic": "S-sol", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "confirmed": true,
+     "check": "tslower on `function make(): {} { return {}; }` used by a caller", "patch": "checker type {} is not a lowered declaration", "reference": "lowers without diagnostics"},
+    {"critic": "S-sol", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "confirmed": false,
+     "check": "RegistryRunClass with a 250-character file name", "patch": "panic: unbreakable source line (292 bytes)", "reference": "same panic"}
+  ]
+}

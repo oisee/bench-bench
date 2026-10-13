@@ -1,0 +1,41 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change adds hir/abap indent/Format with correct two-space block semantics (class sections, methods, CASE/WHEN, TRY/CATCH/CLEANUP, report events, forms, continuations, literal/comment-aware statement splitting) and routes every generator (hir/abap, llvm, ts, tsfront drivers, all wasm backends) through Format. Full test suite passes uncached, goldens were regenerated accordingly, and fuzzing plus real wasm/llvm compiles confirm idempotency, <=255-byte lines, and content preservation. Remaining findings are minor edge cases (a hard error instead of wrapping for over-long trailing comments) and cleanup nits.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 392,
+      "claim": "A code line whose trailing \" comment is longer than ~250 bytes makes Format fail with 'unbreakable source line' instead of wrapping the comment: wrapABAP splits before the \" and the comment-only remainder then only has leading-space candidates (cut <= indent) because the \"-comment branch at line 376 is not re-evaluated inside the while loop. The old wrap() in hir/abap/emit.go split such comments at internal spaces, so this input shape regressed; wrapComment is unreachable for trailing comments. Not reachable from current emitters (all generated trailing comments are short), so impact is latent.",
+      "repro": "Input line '    WRITE 'x'. \"' + 360 more comment bytes (abap.Format -> error 'unbreakable source line (425 bytes)'; old hir/abap wrap() split it at comment spaces). Verified with a scratch Go program in /tmp calling abap.Format on: printf 'METHOD m.\\nWRITE %s. \"%s\\nENDMETHOD.\\n' \"'x'\" \"$(python3 -c \\\"print(' long comment '*30)\\\")\""
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 95,
+      "claim": "When a physical line opens a block and a later statement on the same line continues onto the next line (e.g. 'IF a = 1. b' / '= 2.'), continuationIndent is taken from the line's own indent (lineDepth) instead of the depth after the opener, so the continuation is indented at the IF level rather than inside it. Ambiguous against the acceptance text and not produced by any generator in this repo.",
+      "repro": "printf 'METHOD m.\\nIF a = 1. b\\n= 2.\\nENDIF.\\nENDMETHOD.\\n' > /tmp/c3.abap; # indent via abap.Format puts '= 2.' at 4 spaces (same as the IF line) instead of 6"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/emit.go",
+      "line": 2141,
+      "claim": "The old wrap() is now dead code (Format replaced its only caller). Similarly wasm still pre-wraps with wrapLongLines (wasm/multiclass.go:150,161,262) and then re-formats the same sources with abap.Format in CompileMultiClass and again in Files()/CompileWith, and the chunk-cost estimate at wasm/multiclass.go:130 still counts wrapLongLines lines, which no longer matches the emitted line counts.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "llvm/llvm2abap.go",
+      "line": 730,
+      "claim": "formatABAP panics when Format reports an unbreakable line (e.g. a >255-byte spaceless token), and Compile's signature cannot return that error; previously llvm compilation never failed at this stage. wasm/names.go:139 CompileInterface has the same panic. In practice emitters never emit such tokens, and the CLI would previously have rejected over-long lines downstream anyway.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1148
+}

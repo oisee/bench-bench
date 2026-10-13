@@ -1,0 +1,36 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+      "rc": 1
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 1
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 1
+    }
+  ],
+  "patch_lines": 166,
+  "task": "L2a-osg693",
+  "level": "L2",
+  "executor": "ali-minimax25-pi",
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "MiniMax-M2.5",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 2362,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "1.0.2"
+}

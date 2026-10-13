@@ -1,0 +1,14 @@
+{
+  "harness": "codex",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "effort": "xhigh",
+  "round": "2",
+  "harness_version": "",
+  "started_at": "2026-10-13T12:15:07+01:00",
+  "finished_at": "2026-10-13T12:23:24+01:00",
+  "exit_code": "0",
+  "protocol": "two-independent-critic-rounds-v1",
+  "internal_review_rounds": 2,
+  "stage_count": 5
+}

@@ -1,0 +1,13 @@
+
+
+  the write boundary: a padded CHAR stores the same on every engine
+    ✔ stores three characters, not ten, whichever engine is underneath
+    ✔ and an escaped quote survives the trimming, since a literal is not a string
+    ✔ blanks that are not trailing are data and stay
+    ✔ and nothing outside a literal is touched
+    ✔ a literal of millions of characters is trimmed without a regular expression (77ms)
+    ✔ trims the same as the quote-aware pattern did, on well-formed statements
+
+
+  6 passing (209ms)
+

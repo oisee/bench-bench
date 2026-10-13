@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change lowers anonymous object literals into canonical, content-addressed shape classes (sorted field identity, shared across property orders and readonly/optional views), routes record-like literals to maps, picks union constituents via checker assignability, and preserves JS evaluation order via temps; empty literals use contextual shapes. The full test suite plus adversarial probes (nesting, spreads, conditionals/closures/switch, initializers, records, cross-file shape sharing, readonly/writable view mixing) all verify, emit through ABAP, and run correctly through the Go backend, and the patch also fixes latent baseline bugs (same-key union misselection causing 'string <- i32', a leaked l.hint, and a nil-ctor panic path). Remaining nits are minor and pre-existing.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_expr.go",
+      "line": 2268,
+      "claim": "The evaluation-order fix is gated on the 'shape.' name prefix, so an anonymous literal that reuses a named alias shape class (the shapeLike reuse path in synthFromProperties, lower_types.go:609) still evaluates property initializers in constructor/declaration order instead of source order. Equivalent literals therefore get different evaluation semantics depending on whether a named alias shape happened to be synthesized first. Pre-existing for named aliases (baseline reproduces it too), not a regression, but the fix is incomplete/asymmetric for the feature area this change touches.",
+      "repro": "Probe test (tsfront): type Row = {name: string; count: number}; export function use(r: Row): number { return r.count; } export class Probe { static counter: number = 0; static next(): number {this.counter += 1; return this.counter;} static run(): number { use({count: 5, name: \"x\"}); const v = {count: this.next(), name: \"name\" + this.next()}; return v.count * 10 + this.counter; } } -> runGoHIR prints \"22\"; JavaScript semantics give v.count=1, counter=2 => \"12\". Same wrong result on baseline, so pre-existing."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_types.go",
+      "line": 696,
+      "claim": "In the shape-reuse paths (lines 642 and 696), the Readonly update only mutates a copy stored in l.fields; the reused hir.Class.Fields entry is never updated, so a shared shape's Readonly flags reflect whichever view was synthesized first, and the flag written into l.fields is not consumed by any pass (only class Fields feed number_ranges/golang classify). Inert/misleading metadata rather than a miscompile.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-glm-pi",
+  "critic_model": "zai/glm-5.3",
+  "anon": "a613a81551",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1349
+}

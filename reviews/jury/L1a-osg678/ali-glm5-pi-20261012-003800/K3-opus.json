@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The regex is replaced by a linear scanner that recognises '...' pairs with '' escapes and trims trailing ordinary spaces before the closing quote. A differential fuzz of 200k short strings against the old regex found no difference on any input with an even number of quotes, and a 15M-character literal is trimmed correctly in about 50 ms with no stack overflow. The acceptance suite passes. The only divergence is on malformed input with an odd number of quotes, which the callers (complete DuckDB statements) do not produce.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 55,
+      "claim": "On unbalanced input the new scanner copies everything after an unterminated quote unchanged. The old regex backtracked out of a trailing '' and still matched and trimmed an earlier pair, so results differ for odd quote counts. This is arguably safer and is outside the 'quote-balanced' contract, but it is an undocumented behavior change.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>console.log(JSON.stringify(m.trimLiterals(\\\"'a ''\\\"))))\"  # new: \"'a ''\", old regex: \"'a''\""
+    },
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 70,
+      "claim": "Text outside literals is pushed into the result array one character at a time. This is correct, but it is slow and memory-heavy for large statements whose bulk is outside quotes (about 0.5 s for 15M characters). Pushing slices between quotes would be cheaper and simpler.",
+      "repro": "trimLiterals('x'.repeat(15e6) + \" 'a '\")  # ~530 ms vs ~45 ms for an equally large literal"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "f12dd3990c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 33
+}

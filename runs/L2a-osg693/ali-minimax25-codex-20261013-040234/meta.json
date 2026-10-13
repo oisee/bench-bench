@@ -1,0 +1,11 @@
+{
+  "harness": "codex",
+  "provider": "alibaba",
+  "model": "MiniMax-M2.5",
+  "effort": "medium",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T04:02:39+01:00",
+  "finished_at": "2026-10-13T04:21:53+01:00",
+  "exit_code": "0"
+}

@@ -1,0 +1,5 @@
+# github.com/oisee/abapiti/hir/abap [github.com/oisee/abapiti/hir/abap.test]
+hir/abap/format_test.go:428:10: undefined: strings
+hir/abap/format_test.go:436:23: undefined: strings
+FAIL	github.com/oisee/abapiti/hir/abap [build failed]
+FAIL

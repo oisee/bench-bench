@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change wires cl_http_utility=>decode_base64 into the Go host and decodes its bytes with Node-compatible UTF-8 semantics. The supplied acceptance and regression checks pass; additional comparisons against Node found no mismatch across 11,111 Base64 inputs and 100,000 byte strings.",
+  "findings": [],
+  "critic": "K2-sol",
+  "anon": "bf625cf4a1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 51
+}

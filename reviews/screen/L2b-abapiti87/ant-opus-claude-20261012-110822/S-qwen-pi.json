@@ -1,0 +1,12 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The patch correctly implements ABAP indentation and line wrapping as specified. It provides `indent` and `Format` functions in `hir/abap/format.go`, routes all generated ABAP through `Format`, handles all acceptance criteria (two-space indentation, class/TRY/CASE rules, report events, literal/comment awareness, continuation lines, 255-byte wrap limit, idempotency), and passes the full test suite with no regressions.",
+  "findings": [],
+  "critic": "S-qwen-pi",
+  "critic_model": "alibaba/qwen3.7-plus",
+  "anon": "7d6bdb3cca",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 365
+}

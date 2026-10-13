@@ -1,0 +1,502 @@
+diff --git a/minzc/pkg/hir/hir.go b/minzc/pkg/hir/hir.go
+index 4f79c53..208e09a 100644
+--- a/minzc/pkg/hir/hir.go
++++ b/minzc/pkg/hir/hir.go
+@@ -365,7 +365,8 @@ func (*VarRefExpr) hirExpr()          {}
+ func (e *VarRefExpr) ExprTy() mir2.Ty { return e.Ty }
+ 
+ // BinExpr is a binary operation.
+-// Op is one of: + - * / % & | ^ << >> == != < <= > >=
++// Op is one of: + - * / % & | ^ << >> == != < <= > >= && ||
++// && and || short-circuit and produce a canonical boolean value.
+ type BinExpr struct {
+ 	Op   string
+ 	L, R Expr
+diff --git a/minzc/pkg/hir/lower.go b/minzc/pkg/hir/lower.go
+index 6f9ca55..76f1582 100644
+--- a/minzc/pkg/hir/lower.go
++++ b/minzc/pkg/hir/lower.go
+@@ -1928,6 +1928,19 @@ func (l *lowerer) lowerCondExpr(ex *CondExpr) mir2.Reg {
+ 
+ // lowerBinExpr lowers a binary expression.
+ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
++	if ex.Op == "&&" || ex.Op == "||" {
++		// Branch before lowering the RHS, including its calls and memory effects.
++		// Materialize truth values so the join carries 0 or 1, not a machine flag.
++		trueVal := &BoolLitExpr{Val: true}
++		falseVal := &BoolLitExpr{Val: false}
++		rhs := &CondExpr{Cond: ex.R, Then: trueVal, Else: falseVal, Ty: mir2.TyBool}
++		cond := &CondExpr{Cond: ex.L, Then: rhs, Else: falseVal, Ty: mir2.TyBool}
++		if ex.Op == "||" {
++			cond.Then, cond.Else = trueVal, rhs
++		}
++		return l.lowerCondExpr(cond)
++	}
++
+ 	// Comparison operators → produce a flag (ClassFlag).
+ 	switch ex.Op {
+ 	case "==", "!=", "<", "<=", ">", ">=":
+@@ -1979,6 +1992,11 @@ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
+ 
+ // lowerUnaryExpr lowers a unary expression.
+ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
++	if ex.Op == "!" {
++		return l.lowerCondExpr(&CondExpr{
++			Cond: ex.X, Then: &BoolLitExpr{Val: false}, Else: &BoolLitExpr{Val: true}, Ty: mir2.TyBool,
++		})
++	}
+ 	xReg := l.lowerExpr(ex.X)
+ 	ty := ex.Ty
+ 	var cls mir2.RegClass
+@@ -1992,10 +2010,6 @@ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
+ 		return l.bld.Neg(xReg, ty, cls)
+ 	case "~":
+ 		return l.bld.Not(xReg, ty, cls)
+-	case "!":
+-		// Boolean not: x == 0
+-		zero := l.bld.Const(0, ty, mir2.ClassGeneral)
+-		return l.bld.Cmp(mir2.CmpEq, xReg, zero, mir2.ClassFlag, false)
+ 	default:
+ 		panic(fmt.Sprintf("hir/lower: unhandled unary op %q", ex.Op))
+ 	}
+diff --git a/minzc/pkg/mir2/z80codegen.go b/minzc/pkg/mir2/z80codegen.go
+index 1136a80..fc32057 100644
+--- a/minzc/pkg/mir2/z80codegen.go
++++ b/minzc/pkg/mir2/z80codegen.go
+@@ -850,7 +850,8 @@ type z80cg struct {
+ 
+ 	// curBlock is the block currently being code-generated.
+ 	// Set at the start of genBlock; used by materializePendingFlag for forward scans.
+-	curBlock *Block
++	curBlock     *Block
++	blockLiveOut *RegSet
+ 
+ 	// pendingFlagReg is the ClassFlag virtual register produced by the most
+ 	// recent genCmp that has not yet been consumed (by OR/AND/brif).
+@@ -2533,6 +2534,7 @@ func (g *z80cg) genBlock(f *Func, b *Block) {
+ 	g.lastFlagsRhs = ""
+ 	g.blockT = 0 // reset per-block T-state accumulator
+ 	g.curBlock = b
++	g.blockLiveOut = ComputeLiveness(f).LiveOutOf(f, b)
+ 	g.pendingFlagReg = NoReg
+ 	g.pendingAccReg = NoReg
+ 	// If a block param is allocated to A, any compare instruction in this block
+@@ -5500,6 +5502,13 @@ func (g *z80cg) genExt(inst *Inst) {
+ 	src := g.loc(inst.Src[0])
+ 	srcW := inst.SrcTy.Width()
+ 	dstW := inst.Ty.Width()
++	if inst.SrcTy == TyBool && dstW == 8 && src != "F" {
++		// Canonical boolean values already occupy an 8-bit register.
++		if src != dst {
++			g.emitLD8(dst, src)
++		}
++		return
++	}
+ 
+ 	if srcW == 8 && dstW == 16 {
+ 		// Zero-extend u8 → u16.
+@@ -7332,6 +7341,10 @@ func (g *z80cg) condCode(f *Func, cond Reg) string {
+ 
+ 	for _, b := range f.Blocks {
+ 		for _, inst := range b.Insts {
++			if inst.Dst == cond && inst.Op == OpConst && g.loc(cond) == "F" {
++				// Flag constants are emitted with SCF / carry clearing.
++				return "C"
++			}
+ 			if inst.Dst == cond && inst.Op == OpCmp {
+ 				c := inst.Cond
+ 				if g.cmpSwapped[cond] {
+@@ -8355,10 +8368,6 @@ func (g *z80cg) saveAccAcrossCall(inst *Inst, callee *Func) (string, Reg) {
+ 	return "", NoReg
+ }
+ 
+-// regsLiveAfterInst returns the set of virtual registers that are used after
+-// the given instruction within the current block (including the terminator).
+-// This is a lightweight local liveness check — no full dataflow, but sufficient
+-// for caller-save elimination since most calls are followed by uses in the same block.
+ // saveABeforeOverwrite checks if A currently holds a vreg that is still live
+ // after the current instruction. If so, saves it to a scratch register.
+ // Used before emitLDA in ALU paths to prevent clobbering live values.
+@@ -8457,46 +8466,43 @@ func (g *z80cg) isVregLiveAfter(vreg Reg, target *Inst) bool {
+ 	return false
+ }
+ 
++// regsLiveAfterInst includes uses in successor blocks and excludes definitions
++// that occur after target, including after register coalescing.
+ func (g *z80cg) regsLiveAfterInst(target *Inst) map[Reg]bool {
+ 	live := make(map[Reg]bool)
+ 	if g.curBlock == nil {
+ 		return live
+ 	}
+-	// Track which vregs are redefined between target and their use.
+-	// A vreg that is redefined (Dst) before its next use is NOT live-across.
+-	redefined := make(map[Reg]bool)
+-	found := false
+-	for _, inst := range g.curBlock.Insts {
++	// RHS calls in short-circuit expressions may have live values used only
++	// in successor blocks (or on a loop back-edge). Seed from CFG liveness,
++	// then walk backward to the instruction, killing later definitions.
++	if out := g.blockLiveOut; out != nil {
++		out.Each(func(r Reg) { live[r] = true })
++	}
++	if g.curBlock.Term != nil {
++		for _, r := range g.curBlock.Term.termUses() {
++			live[r] = true
++		}
++	}
++	for i := len(g.curBlock.Insts) - 1; i >= 0; i-- {
++		inst := g.curBlock.Insts[i]
+ 		if inst == target {
+-			found = true
+-			continue
++			break
+ 		}
+-		if !found {
+-			continue
++		delete(live, inst.Dst)
++		for _, r := range inst.ExtraRets {
++			delete(live, r)
+ 		}
+-		// Collect uses (only if not yet redefined since target).
+ 		for _, s := range inst.Src {
+-			if s != NoReg && !redefined[s] {
++			if s != NoReg {
+ 				live[s] = true
+ 			}
+ 		}
+ 		for _, a := range inst.Args {
+-			if a != NoReg && !redefined[a] {
++			if a != NoReg {
+ 				live[a] = true
+ 			}
+ 		}
+-		// Track redefinitions.
+-		if inst.Dst != NoReg {
+-			redefined[inst.Dst] = true
+-		}
+-	}
+-	// Collect terminator uses.
+-	if g.curBlock.Term != nil {
+-		for _, r := range g.curBlock.Term.termUses() {
+-			if r != NoReg {
+-				live[r] = true
+-			}
+-		}
+ 	}
+ 	return live
+ }
+diff --git a/minzc/pkg/nanz/logical_test.go b/minzc/pkg/nanz/logical_test.go
+new file mode 100644
+index 0000000..27a2293
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_test.go
+@@ -0,0 +1,141 @@
++package nanz_test
++
++import (
++	"fmt"
++	"regexp"
++	"testing"
++
++	"github.com/minz/minzc/pkg/emulator"
++	"github.com/minz/minzc/pkg/hir"
++	"github.com/minz/minzc/pkg/mir2"
++	"github.com/minz/minzc/pkg/nanz"
++	"github.com/minz/minzc/pkg/pipeline"
++	"github.com/minz/minzc/pkg/z80asm"
++)
++
++func TestLogicalPrecedence(t *testing.T) {
++	cases := []struct{ expr, tree string }{
++		{"a || b && c", "(|| a (&& b c))"},
++		{"a && b || c", "(|| (&& a b) c)"},
++		{"(a || b) && c", "(&& (|| a b) c)"},
++		{"a || b | c xor d & e == f < g << h + i * j", "(|| a (| b (^ c (& d (== e (< f (<< g (+ h (* i j)))))))))"},
++		{"a && b | c", "(&& a (| b c))"},
++		{"a || b || c", "(|| (|| a b) c)"},
++		{"a && b && c", "(&& (&& a b) c)"},
++	}
++	var tree func(hir.Expr) string
++	tree = func(e hir.Expr) string {
++		if b, ok := e.(*hir.BinExpr); ok {
++			return fmt.Sprintf("(%s %s %s)", b.Op, tree(b.L), tree(b.R))
++		}
++		return e.(*hir.VarRefExpr).Name
++	}
++	for _, tc := range cases {
++		t.Run(tc.expr, func(t *testing.T) {
++			m, err := nanz.Parse("fun entry(a:u8,b:u8,c:u8,d:u8,e:u8,f:u8,g:u8,h:u8,i:u8,j:u8) -> bool { return "+tc.expr+" }", "precedence")
++			if err != nil {
++				t.Fatal(err)
++			}
++			e := m.Funcs[0].Body.Body[0].(*hir.ReturnStmt).Val
++			if got := tree(e); got != tc.tree {
++				t.Fatalf("got %s, want %s", got, tc.tree)
++			}
++			if e.ExprTy() != mir2.TyBool {
++				t.Fatalf("logical type = %v, want bool", e.ExprTy())
++			}
++			// The printed HIR must retain distinct logical operators on reparsing.
++			if _, err := nanz.Parse(nanz.Print(m), "roundtrip"); err != nil {
++				t.Fatal(err)
++			}
++		})
++	}
++}
++
++// The return value encodes the canonical boolean in the units digit and the
++// number of RHS/LHS calls in the tens digit. Run the same programs in MIR2's VM
++// and as compiled Z80 code to catch eager evaluation and flag/value mistakes.
++func TestLogicalExecution(t *testing.T) {
++	cases := []struct {
++		name, body  string
++		input, want int
++	}{
++		{"constant_false", "let r = false && bump(3)\nreturn (r as u8) + calls * 10", 0, 0},
++		{"constant_true", "let r = true || bump(3)\nreturn (r as u8) + calls * 10", 0, 1},
++		{"lhs_false_and", "let r = bump(a) && bump(3)\nreturn (r as u8) + calls * 10", 0, 10},
++		{"lhs_false_or", "let r = bump(a) || bump(3)\nreturn (r as u8) + calls * 10", 0, 21},
++		{"and_skip", "let r = a && bump(3)\nreturn (r as u8) + calls * 10", 0, 0},
++		{"and_true", "let r = a && bump(3)\nreturn (r as u8) + calls * 10", 2, 11},
++		{"and_false", "let r = a && bump(0)\nreturn (r as u8) + calls * 10", 2, 10},
++		{"or_skip", "let r = a || bump(3)\nreturn (r as u8) + calls * 10", 2, 1},
++		{"or_true", "let r = a || bump(3)\nreturn (r as u8) + calls * 10", 0, 11},
++		{"or_false", "let r = a || bump(0)\nreturn (r as u8) + calls * 10", 0, 10},
++		{"lhs_once_and", "let r = bump(a) && bump(3)\nreturn (r as u8) + calls * 10", 2, 21},
++		{"lhs_once_or", "let r = bump(a) || bump(3)\nreturn (r as u8) + calls * 10", 2, 11},
++		{"nested_skip", "let r = a || bump(0) && bump(3)\nreturn (r as u8) + calls * 10", 2, 1},
++		{"nested_rhs_skip", "let r = a || bump(0) && bump(3)\nreturn (r as u8) + calls * 10", 0, 10},
++		{"nested_parentheses", "let r = (a || bump(2)) && bump(3)\nreturn (r as u8) + calls * 10", 0, 21},
++		{"comparison", "let r = a > 1 && bump(3) == 3\nreturn (r as u8) + calls * 10", 2, 11},
++		{"bitwise_and", "let r = a & 3\nreturn r", 2, 2},
++		{"bitwise_or", "let r = a | 4\nreturn r", 2, 6},
++		{"bitwise_xor", "let r = a xor 3\nreturn r", 2, 1},
++		{"if_and_skip", "if a && bump(3) { return 99 }\nreturn calls", 0, 0},
++		{"if_or_skip", "if a || bump(3) { return 1 + calls * 10 }\nreturn 99", 2, 1},
++		{"while_and", "let i: u8 = 0\nwhile i < a && bump(3) { i = i + 1 }\nreturn i + calls * 10", 2, 22},
++		{"while_or", "let i: u8 = 0\nwhile i < a || bump(0) { i = i + 1 }\nreturn i + calls * 10", 2, 12},
++		{"bool_return", "return flag(a) as u8", 2, 1},
++		{"negated", "let r = !(a && bump(3))\nreturn (r as u8) + calls * 10", 2, 10},
++		{"wide_truth", "let r = (a as u16) << 8 && bump(3)\nreturn (r as u8) + calls * 10", 2, 11},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			src := `global calls: u8
++fun bump(v: u8) -> u8 { calls = calls + 1 return v }
++fun flag(v: u8) -> bool { return v && 3 }
++fun entry(a: u8) -> u8 { calls = 0
++` + tc.body + "\n}"
++			m, err := nanz.Parse(src, tc.name)
++			if err != nil {
++				t.Fatal(err)
++			}
++			vm := mir2.NewVM(hir.LowerModule(m))
++			got, err := vm.Call("entry", []mir2.Value{{I: int64(tc.input)}})
++			if err != nil || len(got) != 1 || got[0].I != int64(tc.want) {
++				t.Fatalf("VM result %v, error %v; want %d", got, err, tc.want)
++			}
++			asm, err := pipeline.CompileHIR(m)
++			if err != nil {
++				t.Fatal(err)
++			}
++			abi := regexp.MustCompile(`; fun entry\(a: u8 = ([A-Z]+)\)`).FindStringSubmatch(asm)
++			if len(abi) != 2 {
++				t.Fatalf("missing entry ABI: %s", asm)
++			}
++			boot := fmt.Sprintf("ORG 0x8000\nLD SP, 0xFF00\nLD %s, %d\nCALL entry\nDI\nHALT\n", abi[1], tc.input)
++			res, err := z80asm.NewAssembler().AssembleString(boot + asm)
++			if err != nil || len(res.Errors) > 0 {
++				t.Fatalf("assemble: %v, %v\n%s", err, res.Errors, asm)
++			}
++			cpu := emulator.NewRemogattoZ80()
++			if err := cpu.LoadMemory(0x8000, res.Binary); err != nil {
++				t.Fatal(err)
++			}
++			cpu.SetPC(0x8000)
++			if err := cpu.Run(); err != nil {
++				t.Fatal(err)
++			}
++			if got := cpu.GetRegisters().A; int(got) != tc.want {
++				t.Fatalf("Z80 result %d, want %d\n%s", got, tc.want, asm)
++			}
++		})
++	}
++}
++
++func TestLogicalEmptyLambda(t *testing.T) {
++	m, err := nanz.Parse("fun entry() -> u8 { let f = || { return 3 } return 0 }", "empty_lambda")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(m.Funcs) != 2 || len(m.Funcs[1].Params) != 0 {
++		t.Fatalf("empty lambda was not preserved: %v", m.Funcs)
++	}
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..74de53a 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -110,6 +110,8 @@ const (
+ 	tokStar       // *
+ 	tokSlash      // /
+ 	tokPercent    // %
++	tokAmpAmp     // &&
++	tokPipePipe   // ||
+ 	tokAmp        // &
+ 	tokPipe       // |
+ 	tokCaret      // ^ (also used as pointer dereference)
+@@ -218,6 +220,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokColonColon, "::", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAmpAmp, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokPipePipe, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+@@ -3759,12 +3769,17 @@ func (p *parser) parseReturn() (hir.Stmt, error) {
+ 			}
+ 			return &hir.ReturnStmt{Vals: vals}, nil
+ 		}
+-		// Single parenthesised expression — consume ')' and treat as single return.
+-		if _, err2 := p.l.eat(tokRParen); err2 != nil {
+-			return nil, err2
++		if _, err := p.l.eat(tokRParen); err != nil {
++			return nil, err
+ 		}
+-		p.warnUninitInExpr(first)
+-		return &hir.ReturnStmt{Val: first}, nil
++		// Continue parsing operators after the parentheses without parsing the
++		// first expression twice (which could register a lambda twice).
++		val, err := p.parseBinaryRest(first, 0)
++		if err != nil {
++			return nil, err
++		}
++		p.warnUninitInExpr(val)
++		return &hir.ReturnStmt{Val: val}, nil
+ 	}
+ 	val, err := p.parseExpr()
+ 	if err != nil {
+@@ -4397,23 +4412,25 @@ type binop struct {
+ }
+ 
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	tokPipePipe: {"||", 1},
++	tokAmpAmp:   {"&&", 2},
++	tokPipe:     {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4421,6 +4438,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	return p.parseBinaryRest(lhs, minPrec)
++}
++
++func (p *parser) parseBinaryRest(lhs hir.Expr, minPrec int) (hir.Expr, error) {
+ 	for {
+ 		t := p.l.peek()
+ 		// "expr as type" cast — high precedence postfix.
+@@ -4471,10 +4492,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 4, between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -5071,7 +5092,7 @@ func (p *parser) parsePrimary() (hir.Expr, error) {
+ 		}
+ 		return &hir.AddrOfExpr{Sym: fmt.Sprintf("@mir2.str.%d", idx)}, nil
+ 
+-	case tokPipe:
++	case tokPipe, tokPipePipe:
+ 		// |params| expr  or  |params| { stmts }  — non-capturing lambda
+ 		return p.parseLambda()
+ 
+@@ -5338,13 +5359,17 @@ func paramTysFromFunc(f *hir.Func) []mir2.Ty {
+ //	lambda = '|' [param (',' param)*] '|' ('{' stmt* '}' | expr)
+ //	param  = IDENT [':' type]
+ func (p *parser) parseLambda() (hir.Expr, error) {
+-	if _, err := p.l.eat(tokPipe); err != nil {
++	// In prefix position, || opens an empty-parameter lambda.
++	emptyParams := p.l.is(tokPipePipe)
++	if emptyParams {
++		p.l.next()
++	} else if _, err := p.l.eat(tokPipe); err != nil {
+ 		return nil, err
+ 	}
+ 
+ 	// Parse parameter list: |x: u8, y: u8|  or  |x, y|  or  ||
+ 	var params []hir.Param
+-	for !p.l.is(tokPipe) && !p.l.is(tokEOF) {
++	for !emptyParams && !p.l.is(tokPipe) && !p.l.is(tokEOF) {
+ 		pname, err := p.l.eat(tokIdent)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("line %d: lambda: expected parameter name: %w", pname.line, err)
+@@ -5365,8 +5390,10 @@ func (p *parser) parseLambda() (hir.Expr, error) {
+ 			p.l.next()
+ 		}
+ 	}
+-	if _, err := p.l.eat(tokPipe); err != nil {
+-		return nil, fmt.Errorf("lambda: expected closing '|': %w", err)
++	if !emptyParams {
++		if _, err := p.l.eat(tokPipe); err != nil {
++			return nil, fmt.Errorf("lambda: expected closing '|': %w", err)
++		}
+ 	}
+ 
+ 	// Parse body: block { ... } or single expression → implicit return
+@@ -5469,7 +5496,7 @@ func matchOpOverload(ovs []opOverload, lTy, rTy mir2.Ty) (opOverload, bool) {
+ 
+ func resultTy(l, r mir2.Ty, op string) mir2.Ty {
+ 	switch op {
+-	case "==", "!=", "<", "<=", ">", ">=":
++	case "==", "!=", "<", "<=", ">", ">=", "&&", "||":
+ 		return mir2.TyBool
+ 	}
+ 	if l == mir2.TyU16 || r == mir2.TyU16 {

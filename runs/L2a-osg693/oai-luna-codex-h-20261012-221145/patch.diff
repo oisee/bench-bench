@@ -1,0 +1,274 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index 04694d4..e5c0423 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -148,7 +148,10 @@ export function compileProgram({folders, objects, tolerant = false, skip = () =>
+   // its generic REF TO object sibling. The dynamic raise path below checks
+   // the actual registered object; retain every other syntax diagnostic.
+   const diagnostics = syntaxDiagnostics(reg, (fn) => wanted.includes(objName(fn)), objName, session)
+-    .filter((d) => !d.message.endsWith("RAISE EXCEPTION, must be object reference, got GenericObjectReferenceType"));
++    .filter((d) => !d.message.endsWith("RAISE EXCEPTION, must be object reference, got GenericObjectReferenceType"))
++    // The runtime handles these built-in exception classes even when the
++    // caller's registry does not include their standard class definitions.
++    .filter((d) => !runtimeCatchUnknownClass(d.message));
+   // Tolerant surveys leave broken objects out, retaining their diagnostics.
+   if (diagnostics.length && !tolerant) throw new Error(diagnostics.map((d) => d.message).join("\n"));
+   const broken = new Set(diagnostics.map((d) => d.object.toLowerCase()));
+@@ -1921,6 +1924,10 @@ const RUNTIME_CX = ["CX_SY_ZERODIVIDE", "CX_SY_ARITHMETIC_OVERFLOW", "CX_SY_CONV
+   // the DATASET statements (go/abap/dataset.go): READ or TRANSFER on a file
+   // not open, TRANSFER on one opened FOR INPUT; OPEN of an open file
+   "CX_SY_FILE_OPEN_MODE", "CX_SY_FILE_OPEN"];
++function runtimeCatchUnknownClass(message) {
++  const match = /CATCH, unknown class ([A-Z0-9_]+)/.exec(message);
++  return match !== null && RUNTIME_CX.includes(match[1]);
++}
+ // the superclass of a runtime exception the registry does not hold, read
+ // off A4H (CX_SY_REPLACE_INFINITE_LOOP inheriting from CX_DYNAMIC_CHECK), and
+ // CX_SY_OPEN_SQL_DATA_ERROR from CX_SY_OPEN_SQL_ERROR (its definition on
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..b8f2df9 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/hex"
+ 	"errors"
+ 	"math"
++	"math/big"
+ 	"net/url"
+ 	"osg/gogen/abaperr"
+ 	"osg/gogen/intarith"
+@@ -195,6 +196,42 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts decimal text to an int8 without passing through a float,
++// so values across the full signed 64-bit range remain exact. The fraction is
++// rounded half away from zero, like ParseI.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	if !ok || strings.HasSuffix(t, "-") {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	if !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	n := new(big.Int)
++	if whole != "" {
++		n.SetString(whole, 10)
++	}
++	if frac != "" && frac[0] >= '5' {
++		n.Add(n, big.NewInt(1))
++	}
++	if neg {
++		n.Neg(n)
++	}
++	if !n.IsInt64() {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	return n.Int64()
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/move.go b/tools/gogen/go/abap/move.go
+index 5e2a9dd..6af418f 100644
+--- a/tools/gogen/go/abap/move.go
++++ b/tools/gogen/go/abap/move.go
+@@ -92,6 +92,10 @@ func MoveData(dst, src Data) {
+ 			*dst.P.(*int64) = *src.P.(*int64)
+ 			return
+ 		}
++		if sk == 'C' || sk == 'g' {
++			*dst.P.(*int64) = ParseI8(*src.P.(*string))
++			return
++		}
+ 	case 'g':
+ 		p := dst.P.(*string)
+ 		switch sk {
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..c8f6ce4
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,44 @@
++package abap
++
++import (
++	"math"
++	"testing"
++)
++
++func TestParseI8ExactAndRounded(t *testing.T) {
++	cases := map[string]int64{
++		"": 0, "   ": 0, " +0 ": 0,
++		"9223372036854775807":  math.MaxInt64,
++		"-9223372036854775808": math.MinInt64,
++		"9007199254740993":     9007199254740993,
++		"1.5":                  2, "-1.5": -2, "1.49": 1, "-1.49": -1,
++		"9223372036854775806.5":  math.MaxInt64,
++		"-9223372036854775807.5": math.MinInt64,
++	}
++	for input, want := range cases {
++		if got := ParseI8(input); got != want {
++			t.Errorf("ParseI8(%q) = %d, want %d", input, got, want)
++		}
++	}
++}
++
++func TestParseI8Errors(t *testing.T) {
++	for _, tc := range []struct{ input, class string }{
++		{"9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"},
++		{"1x", "CX_SY_CONVERSION_NO_NUMBER"},
++		{"1e2", "CX_SY_CONVERSION_NO_NUMBER"},
++		{"12-", "CX_SY_CONVERSION_NO_NUMBER"},
++	} {
++		func() {
++			defer func() {
++				got, ok := recover().(ArithmeticError)
++				if !ok || got.Class != tc.class {
++					t.Errorf("ParseI8(%q) panic = %#v, want ArithmeticError %s", tc.input, got, tc.class)
++				}
++			}()
++			ParseI8(tc.input)
++		}()
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..a7881f4 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,23 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++const I8_MIN = -9223372036854775808n;
++const I8_MAX = 9223372036854775807n;
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const sign = t[0] === "-" ? -1n : 1n;
++  const body = (t[0] === "+" || t[0] === "-" ? t.slice(1) : t);
++  if (!decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  let n = whole === "" ? 0n : BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n++;
++  n *= sign;
++  if (n < I8_MIN || n > I8_MAX) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+@@ -993,6 +1010,7 @@ export function MoveData(dst, src) {
+       break;
+     case "8":
+       if (sk === "8") return dst.set(v);
++      if (sk === "C" || sk === "g") return dst.set(ParseI8(v));
+       break;
+     case "g":
+       if (sk === "g" || sk === "C") return dst.set(v);
+diff --git a/tools/gogen/parsei8.test.mjs b/tools/gogen/parsei8.test.mjs
+new file mode 100644
+index 0000000..f922cdb
+--- /dev/null
++++ b/tools/gogen/parsei8.test.mjs
+@@ -0,0 +1,61 @@
++import {test} from "node:test";
++import assert from "node:assert/strict";
++import {ParseI8, AbapError} from "./js/abap.mjs";
++import {compileProgram} from "./frontend.mjs";
++import {emitGo} from "./emit-go.mjs";
++import {emitJs} from "./emit-js.mjs";
++import {mkdtempSync, rmSync, writeFileSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {join} from "node:path";
++
++test("ParseI8 preserves signed 64-bit decimal values and rounds exactly", () => {
++  for (const [input, expected] of [
++    ["", 0n], ["   ", 0n], [" +0 ", 0n],
++    ["9223372036854775807", 9223372036854775807n],
++    ["-9223372036854775808", -9223372036854775808n],
++    ["9007199254740993", 9007199254740993n],
++    ["1.5", 2n], ["-1.5", -2n], ["1.49", 1n], ["-1.49", -1n],
++    ["9223372036854775806.5", 9223372036854775807n],
++    ["-9223372036854775807.5", -9223372036854775808n],
++  ]) assert.equal(ParseI8(input), expected, input);
++});
++
++test("ParseI8 distinguishes overflow from invalid text", () => {
++  for (const [input, className] of [
++    ["9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"],
++    ["1x", "CX_SY_CONVERSION_NO_NUMBER"], ["1e2", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["12-", "CX_SY_CONVERSION_NO_NUMBER"],
++  ]) assert.throws(() => ParseI8(input), (error) => error instanceof AbapError && error.cls === className);
++});
++
++test("both emitters generate string-to-int8 assignments and overflow catches", () => {
++  const dir = mkdtempSync(join(tmpdir(), "gogen-parsei8-"));
++  try {
++    writeFileSync(join(dir, "zcl_parse_i8.clas.abap"), `
++CLASS zcl_parse_i8 DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run IMPORTING iv TYPE string RETURNING VALUE(rv) TYPE int8.
++ENDCLASS.
++CLASS zcl_parse_i8 IMPLEMENTATION.
++  METHOD run.
++    TRY.
++      rv = iv.
++    CATCH cx_sy_conversion_overflow.
++      rv = 0.
++    ENDTRY.
++  ENDMETHOD.
++ENDCLASS.
++`);
++    const program = compileProgram({folders: [dir], objects: ["ZCL_PARSE_I8"]});
++    const go = emitGo(program);
++    const js = emitJs(program);
++    assert.match(go, /abap\.ParseI8\(iv\)/);
++    assert.match(js, /abap\.ParseI8\(iv\)/);
++    assert.match(go, /CX_SY_CONVERSION_OVERFLOW/);
++    assert.match(js, /CX_SY_CONVERSION_OVERFLOW/);
++  } finally {
++    rmSync(dir, {recursive: true, force: true});
++  }
++});

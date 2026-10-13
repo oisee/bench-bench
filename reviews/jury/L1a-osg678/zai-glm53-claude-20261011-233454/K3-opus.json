@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The patch replaces the backtracking regex in trimLiterals with a linear indexOf-based walk. In 1,000,000 random inputs over quotes, spaces, tabs, newlines and double quotes, its output matched the old regex exactly, including the old regex's handling of unterminated and odd-quote tails. It handles 15M-character literals in about 50 ms, the worst-case inputs I tried ran in linear time, and the new tests cover each acceptance point.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 42,
+      "claim": "The rule for recovering an unterminated literal at its last '' pair is subtle and has only one targeted test. It is correct: random-input comparison with the old regex found no difference. But a future change to this branch could drift from the regex's behaviour without being noticed. A table-driven test comparing against the old regex on small inputs would protect it.",
+      "repro": "node /tmp/fuzz.mjs  (compares trimLiterals with the old regex on 500k random strings; 0 mismatches)"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "83157fb7be",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 33
+}

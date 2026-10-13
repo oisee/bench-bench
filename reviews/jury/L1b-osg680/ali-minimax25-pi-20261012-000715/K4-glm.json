@@ -1,0 +1,40 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The change does not meet the task's acceptance criteria: cl_http_utility=>decode_base64 still fails with NOT_COMPILED because the NATIVE entry is keyed CL_HTTP_UTILITY=>DECODE_BASE64 while the method compiles under its interface name (the neighboring ENCODE_BASE64 entry shows the required CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 form). Separately, nodeutf8.Decode is not Node-compatible: an ad-hoc 'incomplete sequence' skip drops valid text after a malformed lead byte and miscounts replacement characters, deviating from Node's WHATWG decoding on ~16k of 112k brute-forced byte sequences. The base64 cleaning half is a faithful copy of the existing DecodeXBase64 logic and works, but it is duplicated rather than reused.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 737,
+      "claim": "The NATIVE key never matches, so cl_http_utility=>decode_base64 still returns NOT_COMPILED and the primary acceptance criterion (compiles and executes) fails. The method implementation in cl_http_utility.clas.abap is written as IF_HTTP_UTILITY~DECODE_BASE64 (an interface method, decode_base64 is only an ALIASES), and NATIVE lookup at frontend.mjs:1543 uses the written method name, so the key must be CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 like the ENCODE entry on the previous line. In a scratch copy of the repo, re-keying the entry made my ZCL_OSGT_DECODE_BASE64 test class compile and run.",
+      "repro": "Add zcl_osgt_decode_base64.clas.abap (empty class) + testclasses calling cl_http_utility=>decode_base64( encoded = `YWJhcA==` ) to a copy of tools/gogen/testdata/osgo-cases, then: node tools/osgo-unit.mjs <dir> --class ZCL_OSGT_DECODE_BASE64  ->  all 4 tests NOT_COMPILED with 'NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159): @KERNEL: host code of the transpiler runtime'"
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 51,
+      "claim": "The incomplete-sequence heuristic (i += remaining) skips ALL remaining bytes whenever a lead byte lacks enough continuation bytes, even when those bytes are not continuations, so valid text after a malformed lead is dropped. Node preserves it. This violates the acceptance criterion 'Valid text around malformed bytes is preserved', and makes the hidden go test ./nodeutf8 fail.",
+      "repro": "Node: Buffer.from('8EFB','base64').toString() === '\\uFFFDAA';  Go: nodeutf8.Decode(\"\\xf0\\x41\\x41\") === \"\\uFFFD\" (both 'A's swallowed). ABAP level: cl_http_utility=>decode_base64( encoded = `8EFB` ) returns just one U+FFFD instead of U+FFFD + 'AA'."
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 31,
+      "claim": "Replacement-character counts deviate from Node's WHATWG decoder in both directions: a boundary-violating second byte followed by a short tail under-reports (0xE0 0x80 -> 1 U+FFFD, Node gives 2; likewise 0xF0 0x8F.., 0xED 0xA0.., 0xF4 0x90.. tails), and lead+continuation+non-continuation over-reports (0xE4 0xBD 0x60 -> 2 U+FFFD + '`', Node gives 1 U+FFFD + '`'). Brute-forcing all 1-2 byte plus curated 3-5 byte sequences vs Node: 16,186 mismatches out of 112,547.",
+      "repro": "Node: Buffer.from('e080','hex').toString() has length 2 ('\\uFFFD\\uFFFD'), Buffer.from('e4bd60','hex').toString() is '\\uFFFD`';  Go: nodeutf8.Decode(\"\\xe0\\x80\") is one U+FFFD, nodeutf8.Decode(\"\\xe4\\xbd\\x60\") is \"\\uFFFD\\uFFFD`\"."
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/abap/conv.go",
+      "line": 739,
+      "claim": "DecodeBase64 duplicates the 20-line base64 cleaning loop of DecodeXBase64 verbatim instead of calling it (return nodeutf8.Decode(DecodeXBase64(s, encoded))), so a future fix to one copy can diverge from the other; the developer's own tests also assert the comment 'This matches Node.js's Buffer.toString() behavior' which finding 2/3 show is false.",
+      "repro": ""
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "88e5b5790c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 295
+}

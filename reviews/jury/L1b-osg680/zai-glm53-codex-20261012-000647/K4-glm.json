@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change implements cl_http_utility=>decode_base64 as a host native (mirroring the established ENCODE_BASE64 pattern) composed of the existing Node-compatible base64 decoder plus a new nodeutf8 package that is a faithful port of Node's UTF-8 replacement decoder. I verified byte-exact parity with Node across ~186k UTF-8 cases (all single bytes, exhaustive lead/continuation combinations, 150k random) and ~50k base64 cases (padding variants, URL-safe alphabet, junk characters) with zero mismatches, plus an end-to-end osgo unit run against the real pinned cl_http_utility (3/3 SUCCESS) and the project's own suites (go test ./nodeutf8 ./abap, node --test emit-go.test.mjs 15/15, semantics.mjs) all green. Only residual limitation found is shared with the pre-existing natives: interface-form static calls (if_http_utility=>decode_base64) still report NOT_COMPILED, exactly as unescape_url and encode_base64 already do, and is outside the task's stated scope.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 737,
+      "claim": "Only the class-qualified form cl_http_utility=>decode_base64 is mapped; the interface-form static call if_http_utility=>decode_base64 still fails NOT_COMPILED. This is a pre-existing frontend limitation shared by the neighboring UNESCAPE_URL and ENCODE_BASE64 entries (verified: if_http_utility=>unescape_url fails identically on baseline behavior), not a regression, and the task only names the class form.",
+      "repro": "mkdir -p /tmp/i && printf 'CLASS zc DEFINITION PUBLIC FINAL CREATE PUBLIC.\n PUBLIC SECTION.\n  CLASS-METHODS run RETURNING VALUE(rv) TYPE string.\nENDCLASS.\nCLASS zc IMPLEMENTATION.\n METHOD run. rv = if_http_utility=>decode_base64( |4oKs| ). ENDMETHOD.\nENDCLASS.\n' > /tmp/i/zc.clas.abap && printf 'CLASS ltcl DEFINITION FOR TESTING.\n PRIVATE SECTION. METHODS c FOR TESTING.\nENDCLASS.\nCLASS ltcl IMPLEMENTATION. METHOD c. ENDMETHOD. ENDCLASS.\n' > /tmp/i/zc.clas.testclasses.abap && cd /work && node tools/osgo-unit.mjs /tmp/i --class ZC 2>&1 | tail -2  # NOT_COMPILED: IF_HTTP_UTILITY has no method DECODE_BASE64 (same for unescape_url)"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "47fdacba85",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 649
+}

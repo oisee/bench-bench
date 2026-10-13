@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The replacement scanner preserves the prior transformation on quote-balanced and incomplete fragments, including doubled quotes and multiple literals. Focused differential checks and 15-million-character cases found no correctness or stack-overflow issue.",
+  "findings": [],
+  "critic": "K2-sol",
+  "anon": "27b9c00c43",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 35
+}

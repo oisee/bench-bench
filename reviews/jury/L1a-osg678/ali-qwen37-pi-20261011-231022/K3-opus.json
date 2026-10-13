@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The regex was replaced by a linear scanner that pairs single quotes and treats '' as an escape. In a differential fuzz of 200k random strings it gave the same output as the old regex for every quote-balanced input. It trims a 15M-character literal in about 45 ms without a stack overflow, and test/write-boundary.mjs passes. The only divergence is on inputs with an odd number of quotes, which the task does not require to be preserved.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 58,
+      "claim": "On unbalanced input, behaviour differs from the old regex. When a literal has no closing quote, the old regex backtracked and treated the first quote of the last '' pair as the closing quote, then trimmed the spaces before it. The new code stops and leaves the rest of the string untouched. The task only requires balanced fragments to be preserved, and the new behaviour is arguably the saner one. Still, it is an undocumented change for odd-quote fragments, and neither a test nor a comment records it.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>console.log(JSON.stringify(m.trimLiterals(\\\"x 'a '' b\\\"))))\"  # new: \"x 'a '' b\"; old regex gives \"x 'a'' b\""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "efb95d2ecd",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 41
+}

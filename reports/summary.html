@@ -1,0 +1,481 @@
+<title>Bench Bench Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~900px) of numbered findings; every chart sits in the flow
+   directly under the sentence it proves. Status colors carry pass/fail, harness hues carry identity. */
+:root {
+  --bg: #f7f8f6; --panel: #ffffff; --ink: #141615; --ink-2: #4c524f; --ink-3: #7d837f;
+  --rule: #dfe3df; --grid: #eceeeb; --accent: #2a5bd7;
+  --good: #0ca30c; --good-tint: #dff2dc; --bad: #d03b3b; --bad-tint: #fbe3e1;
+  --warn: #ec835a; --warn-tint: #fdeadf; --none: #f0f1ee;
+  --claude: #2a78d6; --codex: #eb6834; --pi: #1baf7a;
+  --f-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --f-body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121413; --panel: #1a1d1b; --ink: #eef0ed; --ink-2: #b9beba; --ink-3: #868c88;
+  --rule: #2c312e; --grid: #242826; --accent: #7aa2ff;
+  --good-tint: #183a1a; --bad-tint: #43201f; --warn-tint: #452c20; --none: #222624;
+  --claude: #3987e5; --codex: #d95926; --pi: #199e70; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121413; --panel: #1a1d1b; --ink: #eef0ed; --ink-2: #b9beba; --ink-3: #868c88;
+  --rule: #2c312e; --grid: #242826; --accent: #7aa2ff;
+  --good-tint: #183a1a; --bad-tint: #43201f; --warn-tint: #452c20; --none: #222624;
+  --claude: #3987e5; --codex: #d95926; --pi: #199e70; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 400 16px/1.55 var(--f-body); }
+.wrap { max-width: 920px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; display: grid; gap: 56px }
+h1, h2 { font-family: var(--f-display); font-weight: 700; text-wrap: balance; margin: 0 }
+h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.08; letter-spacing: -0.01em }
+h2 { font-size: clamp(20px, 3.4vw, 26px); line-height: 1.2 }
+h3 { font: 600 17px/1.3 var(--f-body); margin: 0 }
+p { margin: 0; max-width: 68ch }
+.eyebrow { font: 600 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3) }
+.lede { font-size: 18px; color: var(--ink-2) }
+section { display: grid; gap: 18px; min-width: 0 }
+.sec-head { display: grid; gap: 8px }
+.sec-head .n { font: 600 13px/1 var(--f-mono); color: var(--accent) }
+.muted { color: var(--ink-3) }
+.small { font-size: 13.5px }
+code, .mono { font-family: var(--f-mono); font-size: .88em }
+
+/* headline facts */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px }
+.fact { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: grid; gap: 6px; align-content: start }
+.fact b { font: 700 22px/1.15 var(--f-display) }
+.fact span { font-size: 14px; color: var(--ink-2) }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13.5px; color: var(--ink-2) }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; font-style: normal }
+.sw-pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
+.sw-to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 3px, var(--panel) 3px 6px); box-shadow: inset 0 0 0 1.5px var(--good) }
+.sw-fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.sw-veto { background: var(--warn-tint); box-shadow: inset 0 0 0 1.5px var(--warn) }
+.sw-none { background: var(--none) }
+.sw-found { background: var(--good-tint); box-shadow: inset 0 0 0 2.5px var(--accent) }
+.dot { width: 12px !important; height: 12px !important; border-radius: 50% !important }
+
+/* run matrix */
+.scroll { overflow-x: auto; min-width: 0 }
+table.matrix { border-collapse: separate; border-spacing: 3px; font-size: 13px; min-width: 640px; width: 100% }
+.matrix th { font: 600 12px/1.2 var(--f-mono); color: var(--ink-3); text-align: center; padding: 4px 2px; white-space: nowrap }
+.matrix th.lvl { color: var(--ink-2) }
+.matrix td.who { text-align: left; white-space: nowrap; padding-right: 10px; font-size: 14px }
+.matrix td.who .h { font: 400 12px var(--f-mono); color: var(--ink-3); margin-left: 6px }
+.matrix td.score { font: 600 13px var(--f-mono); text-align: right; white-space: nowrap; padding-left: 8px; color: var(--ink-2); font-variant-numeric: tabular-nums }
+.cell { height: 38px; border-radius: 5px; text-align: center; font: 600 12px/1.1 var(--f-mono); font-variant-numeric: tabular-nums; cursor: default; color: var(--ink) }
+.cell small { display: block; font-weight: 400; font-size: 10.5px; color: var(--ink-2) }
+.cell.pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
+.cell.to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--good) }
+.cell.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.cell.veto { background: var(--warn-tint); box-shadow: inset 0 0 0 1.5px var(--warn) }
+.cell.none { background: var(--none); color: var(--ink-3); font-weight: 400 }
+.cell:focus-visible, [data-tip]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+tr.group-gap td { height: 8px }
+
+/* bars */
+.bars { display: grid; gap: 7px }
+.bar-row { display: grid; grid-template-columns: minmax(130px, 190px) 1fr 104px; gap: 10px; align-items: center; font-size: 14px }
+.bar-row .lab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.bar-row .lab .h { font: 400 12px var(--f-mono); color: var(--ink-3); margin-left: 4px }
+.track { display: flex; gap: 2px; height: 16px }
+.seg { border-radius: 3px; min-width: 0 }
+.seg.pass { background: var(--good) }
+.seg.to { background: repeating-linear-gradient(135deg, var(--good) 0 3px, var(--good-tint) 3px 6px) }
+.seg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.bar-row .val { font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right }
+
+/* svg charts */
+svg { display: block; width: 100%; height: auto; overflow: visible }
+svg text { fill: var(--ink-2); font: 12px var(--f-mono) }
+svg .axis { stroke: var(--rule) } svg .grid { stroke: var(--grid) }
+svg .lim { stroke: var(--bad); stroke-dasharray: 3 3; opacity: .7 }
+svg .lim-t { fill: var(--bad); font-size: 11px }
+.chart { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0 }
+
+/* three findings */
+.trio { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px }
+.trio .chart h3 { font-size: 15px }
+.mini { display: grid; gap: 8px; font-size: 13.5px }
+.mini-row { display: grid; grid-template-columns: 92px 1fr 46px; gap: 8px; align-items: center }
+.mini-row .val { font: 600 12.5px var(--f-mono); text-align: right; font-variant-numeric: tabular-nums }
+
+/* critics */
+table.crit { border-collapse: separate; border-spacing: 3px; min-width: 680px; width: 100%; font-size: 13px }
+.crit th { font: 600 11.5px/1.25 var(--f-mono); color: var(--ink-2); padding: 4px; vertical-align: bottom; text-align: center }
+.crit th .truth { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 99px; font-size: 11px }
+.truth.ok { background: var(--good-tint); color: var(--ink); box-shadow: inset 0 0 0 1px var(--good) }
+.truth.no { background: var(--bad-tint); color: var(--ink); box-shadow: inset 0 0 0 1px var(--bad) }
+.crit td.who { white-space: nowrap; padding-right: 8px; font-size: 13.5px }
+.crit td.stat { font: 600 12px var(--f-mono); white-space: nowrap; color: var(--ink-2); padding-left: 6px; font-variant-numeric: tabular-nums }
+.vcell { height: 40px; border-radius: 5px; text-align: center; font: 600 12px/1.15 var(--f-mono) }
+.vcell small { display: block; font-weight: 400; font-size: 10.5px; color: var(--ink-2) }
+.vcell.agree { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
+.vcell.miss { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.vcell.strict { background: var(--warn-tint); box-shadow: inset 0 0 0 1.5px var(--warn) }
+.vcell.found { background: var(--good-tint); box-shadow: inset 0 0 0 2.5px var(--accent) }
+.vcell.unc { background: var(--none); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.vcell.pend { background: var(--none); color: var(--ink-3); font-weight: 400 }
+
+table.tasks { border-collapse: collapse; min-width: 720px; width: 100%; font-size: 13.5px }
+.tasks th { font: 600 11.5px/1.2 var(--f-mono); color: var(--ink-3); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule) }
+.tasks td { padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: top }
+.tasks td.mono { white-space: nowrap; color: var(--ink-2) }
+.tasks a { color: var(--accent); white-space: nowrap }
+.tldr { background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: 6px; padding: 16px 20px; display: grid; gap: 8px }
+.tldr h2 { font-size: 15px; letter-spacing: .06em }
+.tldr ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 76ch }
+.tldr li b { font-weight: 600 }
+table.tok { border-collapse: collapse; min-width: 700px; width: 100%; font-size: 13.5px }
+.tok th { font: 600 11.5px/1.2 var(--f-mono); color: var(--ink-3); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap }
+.tok th:first-child, .tok td:first-child { text-align: left }
+.tok td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: right; font: 13px var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap }
+.tok td:first-child { font: 14px var(--f-body) }
+.tok td .h { font: 400 12px var(--f-mono); color: var(--ink-3); margin-left: 6px }
+.tok .tb { display: inline-block; height: 10px; border-radius: 2px; vertical-align: 0; margin-right: 6px; background: var(--ink-3); opacity: .55 }
+.callout { background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--warn); border-radius: 6px; padding: 16px 18px; display: grid; gap: 10px; min-width: 0 }
+pre { margin: 0; background: var(--none); border-radius: 6px; padding: 12px 14px; font: 12.5px/1.6 var(--f-mono); overflow-x: auto; color: var(--ink) }
+pre .bad { color: var(--bad) } pre .good { color: var(--good) }
+
+ol.caveats, ol.next { margin: 0; padding-left: 22px; display: grid; gap: 10px; max-width: 70ch }
+ol.caveats b, ol.next b { font-weight: 600 }
+
+#tip { position: fixed; z-index: 10; pointer-events: none; max-width: 300px; background: var(--ink); color: var(--bg); font: 12.5px/1.45 var(--f-body); padding: 8px 10px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18) }
+#tip b { font-weight: 600 }
+footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule); padding-top: 16px }
+@media (max-width: 520px) {
+  .bar-row { grid-template-columns: 110px 1fr 84px; font-size: 13px }
+  .wrap { padding-inline: 16px; gap: 44px }
+}
+@media (prefers-reduced-motion: no-preference) { .seg { transition: opacity .15s } }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:16px">
+    <div class="eyebrow">Bench Bench · coding agents on real tasks · October 12–13, 2026</div>
+    <h1>Which coding agents actually finish the job</h1>
+    <p class="lede">15 model + harness combinations worked on 6 tasks taken from real repositories: three difficulty levels, hidden tests, no human help. Key findings come first, then the data behind them, then what you should not trust yet.</p>
+    <div class="tldr"><h2>TL;DR</h2><ul id="tldr"></ul></div>
+    <div class="facts" id="facts"></div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="n">00</span><h2>The six tasks</h2>
+      <p>Each task is a real merged pull request from one of three public repositories by the same author. The agent gets the repository at the parent commit plus a written brief, never the PR itself. Grading overlays the PR's own tests (hidden from the agent) onto the agent's working tree: <i>acceptance</i> tests must go from failing to passing, <i>regression</i> tests must keep passing. The levels climb from ordinary languages toward exotic targets: L1 is plain JS/Go, L2 generates ABAP, L3 is compiler work (a TypeScript→ABAP frontend and a Z80 language).</p></div>
+    <div class="scroll"><table class="tasks">
+      <thead><tr><th>Task</th><th>Upstream PR</th><th>What the agent must do</th><th>Stack</th><th>Limit</th><th>Upstream fix</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">L1a</td><td><a href="https://github.com/oisee/open-steamgate/pull/678">open-steamgate #678</a></td><td>Make <code>trimLiterals(sql)</code> survive ~15M-character SQL literals without a stack overflow, keeping its exact trimming behaviour.</td><td>JavaScript</td><td>30 min</td><td class="mono">+46 −1 · 2 files</td></tr>
+        <tr><td class="mono">L1b</td><td><a href="https://github.com/oisee/open-steamgate/pull/680">open-steamgate #680</a></td><td>Make ABAP <code>cl_http_utility=&gt;decode_base64</code> compile under the ABAP→Go runtime, decoding Base64 and malformed UTF-8 exactly as Node does.</td><td>Go · ABAP</td><td>30 min</td><td class="mono">+136 −6 · 8 files</td></tr>
+        <tr><td class="mono">L2a</td><td><a href="https://github.com/oisee/open-steamgate/pull/693">open-steamgate #693</a></td><td>Support ABAP <code>string → int8</code> conversion in both the Go and the JS code generators: exact 64-bit values, ABAP rounding, overflow and no-number exceptions.</td><td>Go · JS · ABAP semantics</td><td>45 min</td><td class="mono">+116 −6 · 8 files</td></tr>
+        <tr><td class="mono">L2b</td><td><a href="https://github.com/oisee/abapiti/pull/87">abapiti #87</a></td><td>Indent all generated ABAP the way abaplint's default indentation rule expects, and wrap lines at 255 bytes; idempotent.</td><td>Go → ABAP</td><td>45 min</td><td class="mono">+670 −271 · 12 files</td></tr>
+        <tr><td class="mono">L3a</td><td><a href="https://github.com/oisee/minz/pull/39">minz #39</a></td><td>Add short-circuit <code>&amp;&amp;</code> / <code>||</code> to Nanz, a language of the MinZ Z80 compiler, through parser, HIR, VM and compiler.</td><td>Go (compiler)</td><td>60 min</td><td class="mono">+173 −19 · 4 files</td></tr>
+        <tr><td class="mono">L3b</td><td><a href="https://github.com/oisee/abapiti/pull/95">abapiti #95</a></td><td>Lower anonymous TypeScript object literals (no named class or alias) to HIR so the TypeScript→ABAP and →Go backends can emit them.</td><td>Go · TS → ABAP</td><td>60 min</td><td class="mono">+493 −13 · 5 files</td></tr>
+      </tbody></table></div>
+    <p class="small muted">So not everything is ABAP: L1a is pure JS and L3a is a Z80 compiler. ABAP shows up as the target language in L1b–L2b and L3b. The briefs agents received are in <code>tasks/*/brief.md</code> in the repository.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">01</span><h2>The full run grid</h2>
+      <p>Each cell is one run of one task. The number is the wall time in seconds. Hover a cell for test results and details. L3 was run only for finalists.</p></div>
+    <div class="legend">
+      <span><i class="sw-pass"></i>solved</span>
+      <span><i class="sw-to"></i>solved, but hit the time limit</span>
+      <span><i class="sw-veto"></i>tests passed, jury rejected</span>
+      <span><i class="sw-fail"></i>not solved</span>
+      <span><i class="sw-none"></i>not run</span>
+    </div>
+    <div class="scroll"><table class="matrix" id="matrix"></table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">02</span><h2>How much is solved without timeouts</h2>
+      <p>When an agent hits the limit, whatever is in the working tree at that moment gets graded. It counts, with a caveat: half of GLM-5.3's solves in Claude Code and in Pi came this way.</p></div>
+    <div class="legend">
+      <span><i class="sw-pass" style="background:var(--good)"></i>solved in time</span>
+      <span><i class="sw-to"></i>solved at the limit</span>
+      <span><i class="sw-fail"></i>not solved</span>
+    </div>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">03</span><h2>Speed: same tasks, tens of times apart</h2>
+      <p>Wall time of every run on a log scale. Filled dot: solved; ring: not solved. Dashed line: the level's time limit.</p></div>
+    <div class="chart">
+      <div class="legend">
+        <span><i class="dot" style="background:var(--claude)"></i>Claude Code</span>
+        <span><i class="dot" style="background:var(--codex)"></i>Codex</span>
+        <span><i class="dot" style="background:var(--pi)"></i>Pi</span>
+        <span><i class="dot" style="background:transparent;box-shadow:inset 0 0 0 2px var(--ink-3)"></i>not solved</span>
+      </div>
+      <div class="scroll"><svg id="speed" role="img" aria-label="Run times by task"></svg></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head" id="tokens"><span class="n">03b</span><h2>Tokens and cost</h2>
+      <p>Totals over each agent's round-1 runs, read from the harness's own transcripts (Claude Code session logs, Codex <code>turn.completed</code> events, Pi session files). Input includes cached input; agents re-send their context every turn, so 92–99% of input is cache reads. API cost is shown only where a list price is recorded: Opus (Claude Code's own <code>total_cost_usd</code>) and GLM-5.3 (Z.ai list price). The other models ran on subscription plans, and their per-token prices are not in the data yet.</p></div>
+    <div class="scroll"><table class="tok" id="tok"></table></div>
+    <p class="small muted" id="tok-note"></p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">04</span><h2>Three effects visible already</h2></div>
+    <div class="trio" id="trio"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">05</span><h2>The two-critic protocol: a Luna pilot</h2>
+      <p>Builder → critic → fix → critic → fix. We took three Luna runs and repeated them under the new protocol. No extra tasks were solved, and time went up 2–10×. The critics did find real bugs, but the builder could not fix them.</p></div>
+    <div class="chart"><div class="scroll"><svg id="pilot" role="img" aria-label="Time before and after the critic protocol"></svg></div>
+      <div class="legend"><span><i class="dot" style="background:var(--ink-3)"></i>single pass</span><span><i class="dot" style="background:var(--accent)"></i>with two critics</span></div></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">06</span><h2>Critic screening: who finds the bug without seeing the tests</h2>
+      <p>Each critic gets a finished patch, the brief and the full repository, but not the hidden-test results. It has to decide on its own whether the patch is correct. Screening is complete.</p>
+      <p><b>Interim conclusion.</b> Sol is the only critic that actively tries to break the patch. It caught every failure and found two real bugs in test-passing patches, both confirmed against the reference. The price is one false alarm and a habit of rejecting nearly everything. Opus is more careful: no false alarms, but it missed Sol's L3b failure, as did Fable, Qwen and both GLM critics. GLM approves almost everything: it caught 1 of 3 failures in Claude Code and 2 of 3 in Pi (one of them its own model's patch), and spends 16–30 minutes per review in either harness.</p></div>
+    <div class="legend">
+      <span><i class="sw-pass"></i>agrees with the tests</span>
+      <span><i class="sw-fail"></i>approved a failing patch</span>
+      <span><i class="sw-found"></i>rejected a test-passing patch; bug confirmed on the reference</span>
+      <span><i class="sw-veto"></i>rejected a test-passing patch; unchecked or false alarm</span>
+      <span><i class="sw-none"></i>pending / uncertain</span>
+    </div>
+    <div class="scroll"><table class="crit" id="crit"></table></div>
+    <div class="callout">
+      <h3>Rejecting a test-passing patch is not necessarily a critic error</h3>
+      <p class="small">Sol rejected Opus's L2b patch even though it passed the hidden tests, and attached an input that reproduces the bug. Running that input on the patch and on the upstream reference solution:</p>
+<pre>input   "IF a = 1. x = f(\n p = 2 ).\nENDIF.\n"
+Opus    "IF a = 1. x = f(\n<span class="bad">p = 2 ).</span>\nENDIF.\n"     ← continuation lost its indent
+ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ← two spaces</pre>
+      <p class="small">The brief explicitly requires continuation lines to keep their indent, so this is a real bug the hidden tests do not cover. All three of Sol's rejections among the six screening patches were checked this way. Two were confirmed: the second bug is that Opus's L3b patch fails on a function returning an empty object type, which the reference handles. The third was a false alarm: the reference panics on the same input as Sol's own L2b patch.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">07</span><h2>What not to trust yet</h2></div>
+    <ol class="caveats">
+      <li><b>One run per cell.</b> A one-task difference between agents may be noise. There are no repeats anywhere yet.</li>
+      <li><b>The old composite leaderboard score is biased.</b> The jury only graded L1 and never saw the Luna runs; a run without a jury grade got a flat 60 points. This page therefore counts only solved tasks and time.</li>
+      <li><b>Costs are list-price estimates for two models only.</b> Opus and GLM-5.3 are priced; the other models ran on subscription plans whose per-token prices are not recorded. Token counts are reported by each harness and are comparable only roughly: harnesses differ in how they cache and what they count as input.</li>
+      <li><b>Hidden tests are incomplete.</b> Critic screening found two Opus patches (L2b and L3b) that pass the tests but diverge from the reference (section 06). Their "solved" status is overstated.</li>
+      <li><b>L2a grader fix.</b> A hidden test clashed by name with tests the agents wrote. After the fix, 4 failures became passes and L2 went to 18/30. Under the selection rule, Luna xhigh rather than GLM-5.3/Pi should then have reached L3, but it has not been run on L3 yet.</li>
+      <li><b>All tasks come from one ecosystem</b> (Go/TS tooling around ABAP). Whether the findings transfer to other projects is untested.</li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">08</span><h2>Next steps</h2></div>
+    <ol class="next">
+      <li><b>Check Sol's remaining rejection</b> (Luna xhigh on L2b, outside the six-patch set) against the reference.</li>
+      <li><b>Second wave:</b> the two best critics on the failed L2b and L3b patches, with a control group that gets the same extra attempt without a critic.</li>
+      <li><b>Luna xhigh on L3a and L3b</b> under the original protocol, to complete the corrected set of finalists.</li>
+      <li><b>Repeats on L2b and L3b</b> for Opus, Sol and Luna xhigh: these are the most discriminating tasks.</li>
+      <li><b>Add list prices for the remaining models</b> so cost per solved task can be compared across all agents.</li>
+    </ol>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const D = {"generated": "2026-10-13 15:59 UTC", "runs": [{"task": "L1a", "executor": "ali-glm5-pi", "model": "GLM-5", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 664.0, "f2p": "1/1", "p2p": "0/0", "lines": 58.0, "effective": true, "override": false, "tin": 905414.0, "tcache": 837120.0, "tout": 10419.0, "calls": 37.0, "tools": 38.0, "cost": null}, {"task": "L1a", "executor": "ali-kimi25-pi", "model": "Kimi K2.5", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 364.0, "f2p": "1/1", "p2p": "0/0", "lines": 50.0, "effective": true, "override": false, "tin": 289066.0, "tcache": 259456.0, "tout": 8910.0, "calls": 30.0, "tools": 29.0, "cost": null}, {"task": "L1a", "executor": "ali-minimax25-pi", "model": "MiniMax M2.5", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 191.0, "f2p": "1/1", "p2p": "0/0", "lines": 73.0, "effective": false, "override": true, "tin": 132613.0, "tcache": 117888.0, "tout": 6814.0, "calls": 18.0, "tools": 17.0, "cost": null}, {"task": "L1a", "executor": "ali-qwen37-pi", "model": "Qwen 3.7+", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 263.0, "f2p": "1/1", "p2p": "0/0", "lines": 60.0, "effective": true, "override": false, "tin": 168600.0, "tcache": 136704.0, "tout": 8526.0, "calls": 16.0, "tools": 21.0, "cost": null}, {"task": "L1a", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 63.0, "f2p": "1/1", "p2p": "0/0", "lines": 70.0, "effective": true, "override": false, "tin": 316746.0, "tcache": 277895.0, "tout": 5617.0, "calls": 7.0, "tools": 7.0, "cost": 0.4787}, {"task": "L1a", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 82.0, "f2p": "1/1", "p2p": "0/0", "lines": 104.0, "effective": true, "override": false, "tin": 249303.0, "tcache": 204342.0, "tout": 3238.0, "calls": null, "tools": 12.0, "cost": null}, {"task": "L1a", "executor": "oai-luna-codex-h", "model": "Luna high", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 76.0, "f2p": "1/1", "p2p": "0/0", "lines": 89.0, "effective": true, "override": false, "tin": 299815.0, "tcache": 272640.0, "tout": 5909.0, "calls": null, "tools": 10.0, "cost": null}, {"task": "L1a", "executor": "oai-luna-codex-m", "model": "Luna medium", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 57.0, "f2p": "1/1", "p2p": "0/0", "lines": 50.0, "effective": true, "override": false, "tin": 258734.0, "tcache": 235776.0, "tout": 4373.0, "calls": null, "tools": 10.0, "cost": null}, {"task": "L1a", "executor": "oai-luna-codex-x", "model": "Luna xhigh", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 201.0, "f2p": "1/1", "p2p": "0/0", "lines": 73.0, "effective": true, "override": false, "tin": 407113.0, "tcache": 372224.0, "tout": 9579.0, "calls": null, "tools": 11.0, "cost": null}, {"task": "L1a", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 353.0, "f2p": "1/1", "p2p": "0/0", "lines": 123.0, "effective": true, "override": false, "tin": 1112696.0, "tcache": 1067968.0, "tout": 21672.0, "calls": 23.0, "tools": 23.0, "cost": 0.4356}, {"task": "L1a", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 174.0, "f2p": "1/1", "p2p": "0/0", "lines": 76.0, "effective": true, "override": false, "tin": 391074.0, "tcache": 359808.0, "tout": 9661.0, "calls": null, "tools": 15.0, "cost": 0.1798}, {"task": "L1a", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 360.0, "f2p": "1/1", "p2p": "0/0", "lines": 95.0, "effective": true, "override": false, "tin": 643946.0, "tcache": 614144.0, "tout": 18776.0, "calls": 30.0, "tools": 32.0, "cost": 0.284}, {"task": "L1b", "executor": "ali-glm5-pi", "model": "GLM-5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 1800.0, "f2p": "0/2", "p2p": "2/2", "lines": 481.0, "effective": false, "override": false, "tin": 2438548.0, "tcache": 2209792.0, "tout": 20723.0, "calls": 57.0, "tools": 78.0, "cost": null}, {"task": "L1b", "executor": "ali-kimi25-pi", "model": "Kimi K2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 1223.0, "f2p": "0/2", "p2p": "2/2", "lines": 320.0, "effective": false, "override": false, "tin": 2490803.0, "tcache": 2302720.0, "tout": 10731.0, "calls": 62.0, "tools": 70.0, "cost": null}, {"task": "L1b", "executor": "ali-minimax25-pi", "model": "MiniMax M2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 1801.0, "f2p": "0/2", "p2p": "2/2", "lines": 210.0, "effective": false, "override": false, "tin": 2920831.0, "tcache": 2509824.0, "tout": 13957.0, "calls": 74.0, "tools": 74.0, "cost": null}, {"task": "L1b", "executor": "ali-qwen37-pi", "model": "Qwen 3.7+", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1278.0, "f2p": "2/2", "p2p": "2/2", "lines": 298.0, "effective": true, "override": false, "tin": 1969282.0, "tcache": 1781760.0, "tout": 23494.0, "calls": 63.0, "tools": 99.0, "cost": null}, {"task": "L1b", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 244.0, "f2p": "2/2", "p2p": "2/2", "lines": 260.0, "effective": true, "override": false, "tin": 2092804.0, "tcache": 2026140.0, "tout": 14522.0, "calls": 32.0, "tools": 32.0, "cost": 1.2287}, {"task": "L1b", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 162.0, "f2p": "2/2", "p2p": "2/2", "lines": 311.0, "effective": true, "override": false, "tin": 710080.0, "tcache": 649788.0, "tout": 7586.0, "calls": null, "tools": 28.0, "cost": null}, {"task": "L1b", "executor": "oai-luna-codex-h", "model": "Luna high", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 149.0, "f2p": "2/2", "p2p": "2/2", "lines": 210.0, "effective": true, "override": false, "tin": 876433.0, "tcache": 798720.0, "tout": 8423.0, "calls": null, "tools": 23.0, "cost": null}, {"task": "L1b", "executor": "oai-luna-codex-m", "model": "Luna medium", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 185.0, "f2p": "2/2", "p2p": "2/2", "lines": 159.0, "effective": true, "override": false, "tin": 840065.0, "tcache": 796928.0, "tout": 5194.0, "calls": null, "tools": 25.0, "cost": null}, {"task": "L1b", "executor": "oai-luna-codex-x", "model": "Luna xhigh", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 190.0, "f2p": "2/2", "p2p": "2/2", "lines": 270.0, "effective": true, "override": false, "tin": 1226621.0, "tcache": 1139712.0, "tout": 15499.0, "calls": null, "tools": 21.0, "cost": null}, {"task": "L1b", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1339.0, "f2p": "2/2", "p2p": "2/2", "lines": 366.0, "effective": true, "override": false, "tin": 13674976.0, "tcache": 13527680.0, "tout": 57202.0, "calls": 124.0, "tools": 125.0, "cost": 3.9751}, {"task": "L1b", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 474.0, "f2p": "2/2", "p2p": "2/2", "lines": 254.0, "effective": true, "override": false, "tin": 4882201.0, "tcache": 4791104.0, "tout": 25627.0, "calls": null, "tools": 77.0, "cost": 1.486}, {"task": "L1b", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1445.0, "f2p": "2/2", "p2p": "2/2", "lines": 431.0, "effective": true, "override": false, "tin": 8172269.0, "tcache": 8055232.0, "tout": 39323.0, "calls": 117.0, "tools": 130.0, "cost": 2.4312}, {"task": "L2a", "executor": "ali-glm5-pi", "model": "GLM-5", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 2701.0, "f2p": "2/2", "p2p": "2/2", "lines": 495.0, "effective": true, "override": false, "tin": 6086117.0, "tcache": 5798400.0, "tout": 17371.0, "calls": 80.0, "tools": 87.0, "cost": null}, {"task": "L2a", "executor": "ali-kimi25-codex", "model": "Kimi K2.5", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 2274.0, "f2p": "2/2", "p2p": "2/2", "lines": 258.0, "effective": true, "override": false, "tin": 20483123.0, "tcache": 20079872.0, "tout": 61103.0, "calls": null, "tools": 266.0, "cost": null}, {"task": "L2a", "executor": "ali-kimi25-pi", "model": "Kimi K2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "1/2", "p2p": "1/2", "lines": 110.0, "effective": false, "override": false, "tin": 2025127.0, "tcache": 1860992.0, "tout": 7126.0, "calls": 41.0, "tools": 49.0, "cost": null}, {"task": "L2a", "executor": "ali-minimax25-codex", "model": "MiniMax M2.5", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1155.0, "f2p": "2/2", "p2p": "2/2", "lines": 120.0, "effective": true, "override": false, "tin": 8198065.0, "tcache": 7624448.0, "tout": 29189.0, "calls": null, "tools": 159.0, "cost": null}, {"task": "L2a", "executor": "ali-minimax25-pi", "model": "MiniMax M2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 2362.0, "f2p": "0/2", "p2p": "0/2", "lines": 166.0, "effective": false, "override": false, "tin": 5195383.0, "tcache": 5017856.0, "tout": 19826.0, "calls": 118.0, "tools": 117.0, "cost": null}, {"task": "L2a", "executor": "ali-qwen37-codex", "model": "Qwen 3.7+", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 565.0, "f2p": "2/2", "p2p": "2/2", "lines": 115.0, "effective": true, "override": false, "tin": 1718890.0, "tcache": 1595776.0, "tout": 19730.0, "calls": null, "tools": 60.0, "cost": null}, {"task": "L2a", "executor": "ali-qwen37-pi", "model": "Qwen 3.7+", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 2557.0, "f2p": "2/2", "p2p": "2/2", "lines": 277.0, "effective": true, "override": false, "tin": 4776043.0, "tcache": 4354432.0, "tout": 19706.0, "calls": 101.0, "tools": 100.0, "cost": null}, {"task": "L2a", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 257.0, "f2p": "2/2", "p2p": "2/2", "lines": 290.0, "effective": true, "override": false, "tin": 2786895.0, "tcache": 2701724.0, "tout": 14907.0, "calls": 37.0, "tools": 38.0, "cost": 1.5196}, {"task": "L2a", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 155.0, "f2p": "2/2", "p2p": "2/2", "lines": 284.0, "effective": true, "override": false, "tin": 859602.0, "tcache": 787598.0, "tout": 6830.0, "calls": null, "tools": 25.0, "cost": null}, {"task": "L2a", "executor": "oai-luna-codex-h", "model": "Luna high", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 129.0, "f2p": "2/2", "p2p": "2/2", "lines": 274.0, "effective": true, "override": false, "tin": 1878349.0, "tcache": 1797120.0, "tout": 11148.0, "calls": null, "tools": 39.0, "cost": null}, {"task": "L2a", "executor": "oai-luna-codex-m", "model": "Luna medium", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 56.0, "f2p": "2/2", "p2p": "2/2", "lines": 144.0, "effective": true, "override": false, "tin": 655873.0, "tcache": 611840.0, "tout": 3941.0, "calls": null, "tools": 17.0, "cost": null}, {"task": "L2a", "executor": "oai-luna-codex-x", "model": "Luna xhigh", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 271.0, "f2p": "2/2", "p2p": "2/2", "lines": 362.0, "effective": true, "override": false, "tin": 5163340.0, "tcache": 5002240.0, "tout": 26237.0, "calls": null, "tools": 67.0, "cost": null}, {"task": "L2a", "executor": "oai-luna-codex-x", "model": "Luna xhigh", "harness": "codex", "round": 2, "status": "RESOLVED", "stop": "DONE", "dur": 497.0, "f2p": "2/2", "p2p": "2/2", "lines": 280.0, "effective": true, "override": false, "tin": 5249015.0, "tcache": 4834048.0, "tout": 38616.0, "calls": null, "tools": 76.0, "cost": null}, {"task": "L2a", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1230.0, "f2p": "2/2", "p2p": "2/2", "lines": 473.0, "effective": true, "override": false, "tin": 13150526.0, "tcache": 12987392.0, "tout": 39131.0, "calls": 116.0, "tools": 127.0, "cost": 3.7773}, {"task": "L2a", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 298.0, "f2p": "2/2", "p2p": "2/2", "lines": 290.0, "effective": true, "override": false, "tin": 1394590.0, "tcache": 1329664.0, "tout": 10620.0, "calls": null, "tools": 30.0, "cost": 0.4833}, {"task": "L2a", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "2/2", "p2p": "2/2", "lines": 427.0, "effective": true, "override": false, "tin": 10912506.0, "tcache": 10762432.0, "tout": 39456.0, "calls": 119.0, "tools": 132.0, "cost": 3.1819}, {"task": "L2b", "executor": "ali-glm5-pi", "model": "GLM-5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "0/1", "p2p": "1/1", "lines": 1472.0, "effective": false, "override": false, "tin": 3346461.0, "tcache": 3107328.0, "tout": 28821.0, "calls": 58.0, "tools": 66.0, "cost": null}, {"task": "L2b", "executor": "ali-kimi25-codex", "model": "Kimi K2.5", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 1675.0, "f2p": "0/1", "p2p": "1/1", "lines": 1273.0, "effective": false, "override": false, "tin": 8706642.0, "tcache": 8440192.0, "tout": 67751.0, "calls": null, "tools": 144.0, "cost": null}, {"task": "L2b", "executor": "ali-kimi25-pi", "model": "Kimi K2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "0/1", "p2p": "1/1", "lines": 1176.0, "effective": false, "override": false, "tin": 4809596.0, "tcache": 4620544.0, "tout": 46975.0, "calls": 95.0, "tools": 95.0, "cost": null}, {"task": "L2b", "executor": "ali-minimax25-codex", "model": "MiniMax M2.5", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 1505.0, "f2p": "0/1", "p2p": "1/1", "lines": 1282.0, "effective": false, "override": false, "tin": 6758982.0, "tcache": 6244480.0, "tout": 72858.0, "calls": null, "tools": 107.0, "cost": null}, {"task": "L2b", "executor": "ali-minimax25-pi", "model": "MiniMax M2.5", "harness": "pi", "round": 1, "status": "FAILED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "0/1", "p2p": "1/1", "lines": 515.0, "effective": false, "override": false, "tin": 4828997.0, "tcache": 4489984.0, "tout": 38610.0, "calls": 108.0, "tools": 108.0, "cost": null}, {"task": "L2b", "executor": "ali-qwen37-codex", "model": "Qwen 3.7+", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 753.0, "f2p": "0/1", "p2p": "1/1", "lines": 863.0, "effective": false, "override": false, "tin": 2165438.0, "tcache": 2017280.0, "tout": 31969.0, "calls": null, "tools": 55.0, "cost": null}, {"task": "L2b", "executor": "ali-qwen37-pi", "model": "Qwen 3.7+", "harness": "pi", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 2458.0, "f2p": "0/1", "p2p": "1/1", "lines": 1014.0, "effective": false, "override": false, "tin": 3478358.0, "tcache": 3279488.0, "tout": 43379.0, "calls": 81.0, "tools": 80.0, "cost": null}, {"task": "L2b", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1207.0, "f2p": "1/1", "p2p": "1/1", "lines": 1655.0, "effective": true, "override": false, "tin": 6820414.0, "tcache": 6661367.0, "tout": 72256.0, "calls": 58.0, "tools": 60.0, "cost": 4.0493}, {"task": "L2b", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 391.0, "f2p": "1/1", "p2p": "1/1", "lines": 1563.0, "effective": true, "override": false, "tin": 1166101.0, "tcache": 1059149.0, "tout": 15171.0, "calls": null, "tools": 25.0, "cost": null}, {"task": "L2b", "executor": "oai-luna-codex-h", "model": "Luna high", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 652.0, "f2p": "0/1", "p2p": "1/1", "lines": 1559.0, "effective": false, "override": false, "tin": 6951430.0, "tcache": 6794240.0, "tout": 39314.0, "calls": null, "tools": 81.0, "cost": null}, {"task": "L2b", "executor": "oai-luna-codex-h", "model": "Luna high", "harness": "codex", "round": 2, "status": "FAILED", "stop": "DONE", "dur": 1447.0, "f2p": "0/1", "p2p": "1/1", "lines": 1844.0, "effective": false, "override": false, "tin": 8052807.0, "tcache": 7739392.0, "tout": 58429.0, "calls": null, "tools": 123.0, "cost": null}, {"task": "L2b", "executor": "oai-luna-codex-m", "model": "Luna medium", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 32.0, "f2p": "0/1", "p2p": "1/1", "lines": 125.0, "effective": false, "override": false, "tin": 282393.0, "tcache": 256768.0, "tout": 3015.0, "calls": null, "tools": 14.0, "cost": null}, {"task": "L2b", "executor": "oai-luna-codex-m", "model": "Luna medium", "harness": "codex", "round": 2, "status": "FAILED", "stop": "DONE", "dur": 331.0, "f2p": "0/1", "p2p": "1/1", "lines": 1059.0, "effective": false, "override": false, "tin": 1182578.0, "tcache": 1048832.0, "tout": 15870.0, "calls": null, "tools": 48.0, "cost": null}, {"task": "L2b", "executor": "oai-luna-codex-x", "model": "Luna xhigh", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 821.0, "f2p": "1/1", "p2p": "1/1", "lines": 1882.0, "effective": true, "override": false, "tin": 9974876.0, "tcache": 9750016.0, "tout": 67643.0, "calls": null, "tools": 81.0, "cost": null}, {"task": "L2b", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 3149.0, "f2p": "1/1", "p2p": "1/1", "lines": 1395.0, "effective": true, "override": false, "tin": 14152676.0, "tcache": 13995520.0, "tout": 76012.0, "calls": 128.0, "tools": 144.0, "cost": 4.1933}, {"task": "L2b", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 1211.0, "f2p": "0/1", "p2p": "1/1", "lines": 1427.0, "effective": false, "override": false, "tin": 9158371.0, "tcache": 9015680.0, "tout": 45818.0, "calls": null, "tools": 88.0, "cost": 2.7454}, {"task": "L2b", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 2700.0, "f2p": "1/1", "p2p": "1/1", "lines": 1587.0, "effective": true, "override": false, "tin": 12770776.0, "tcache": 12620736.0, "tout": 71971.0, "calls": 141.0, "tools": 152.0, "cost": 3.8081}, {"task": "L3a", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 3600.0, "f2p": "1/1", "p2p": "2/2", "lines": 1024.0, "effective": true, "override": false, "tin": 16092344.0, "tcache": 15890785.0, "tout": 68200.0, "calls": 122.0, "tools": 124.0, "cost": 6.1536}, {"task": "L3a", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 518.0, "f2p": "1/1", "p2p": "2/2", "lines": 502.0, "effective": true, "override": false, "tin": 2327618.0, "tcache": 2242575.0, "tout": 14741.0, "calls": null, "tools": 37.0, "cost": null}, {"task": "L3a", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 3600.0, "f2p": "1/1", "p2p": "2/2", "lines": 955.0, "effective": true, "override": false, "tin": 30367181.0, "tcache": 30129024.0, "tout": 121741.0, "calls": 207.0, "tools": 215.0, "cost": 8.7026}, {"task": "L3a", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1534.0, "f2p": "1/1", "p2p": "2/2", "lines": 361.0, "effective": true, "override": false, "tin": 16472400.0, "tcache": 16291584.0, "tout": 49391.0, "calls": null, "tools": 144.0, "cost": 4.7063}, {"task": "L3a", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 3600.0, "f2p": "1/1", "p2p": "2/2", "lines": 673.0, "effective": true, "override": false, "tin": 14799613.0, "tcache": 14636800.0, "tout": 78212.0, "calls": 189.0, "tools": 191.0, "cost": 4.3776}, {"task": "L3b", "executor": "ant-opus-claude", "model": "Opus", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "DONE", "dur": 1671.0, "f2p": "1/1", "p2p": "1/1", "lines": 862.0, "effective": true, "override": false, "tin": 11205672.0, "tcache": 11024388.0, "tout": 57625.0, "calls": 92.0, "tools": 92.0, "cost": 4.8069}, {"task": "L3b", "executor": "az-sol61-codex", "model": "Sol 6.1", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 469.0, "f2p": "0/1", "p2p": "1/1", "lines": 402.0, "effective": false, "override": false, "tin": 2974815.0, "tcache": 2875780.0, "tout": 13012.0, "calls": null, "tools": 46.0, "cost": null}, {"task": "L3b", "executor": "zai-glm53-claude", "model": "GLM-5.3", "harness": "claude", "round": 1, "status": "RESOLVED", "stop": "TIMEOUT", "dur": 3600.0, "f2p": "1/1", "p2p": "1/1", "lines": 1010.0, "effective": true, "override": false, "tin": 39869717.0, "tcache": 39630720.0, "tout": 111816.0, "calls": 273.0, "tools": 277.0, "cost": 11.1306}, {"task": "L3b", "executor": "zai-glm53-codex", "model": "GLM-5.3", "harness": "codex", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 620.0, "f2p": "0/1", "p2p": "1/1", "lines": 208.0, "effective": false, "override": false, "tin": 4367944.0, "tcache": 4256512.0, "tout": 15429.0, "calls": null, "tools": 61.0, "cost": 1.3306}, {"task": "L3b", "executor": "zai-glm53-pi", "model": "GLM-5.3", "harness": "pi", "round": 1, "status": "FAILED", "stop": "DONE", "dur": 3256.0, "f2p": "0/1", "p2p": "1/1", "lines": 427.0, "effective": false, "override": false, "tin": 29277572.0, "tcache": 29059712.0, "tout": 92153.0, "calls": 239.0, "tools": 251.0, "cost": 8.266}], "screen": [{"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 418.0, "p0": 1, "p1": 1, "summary": "The new hir/abap indenter and Format are solid for the class/interface/runtime output that flows through EmitNamed, and the existing suite passes with the regenerated golden file. However the task's auxiliary drivers and reports (tsfront.RegistryRunReport, RegistryCLIReport, RegistryRunCorpusClass, RegistryRunClass, RegistryRunTest, StatementsTestClass, written by cmd/abapiti/abaplint.go) never pass through Format and remain fully unindented, and the indenter puts a second report event header (e.g. START-OF-SELECTION after INITIALIZATION) at depth 2 instead of column zero. Wrapping a multi-statement line is also not idempotent.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "incorrect", "self": true, "dur": 823.0, "p0": 0, "p1": 1, "summary": "The new indent/Format implementation itself is strong: on the full 2111-object abaplint build it is idempotent, keeps every token stream byte-identical to baseline (only whitespace changes), satisfies the CLASS/section/CASE/TRY/END alignment invariants, and never exceeds 255 bytes. But the task explicitly scopes the work to 'auxiliary drivers, and reports' as well, and those generated artifacts (tsfront registry driver classes, zabapiti_registry_*.prog.abap, native/zabaplint.prog.abap) are still written completely unindented because only hir/abap's emit path calls Format. Remaining nits: Format hard-errors on over-long lines containing an inline \" comment before byte 255, and there is some dead/duplicated scanner code.", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "incorrect", "self": true, "dur": 1027.0, "p0": 0, "p1": 1, "summary": "A solid token-aware lexer plus block-frame design: all acceptance constructs I could exercise (classes, interfaces, sections, CASE/WHEN, TRY/CATCH/CLEANUP, continuations, multi-statement lines, literals/templates/escapes, wrapping at 255 bytes, idempotency) behave correctly, the full Go suite passes, and the real emitted corpus is a fixed point of Format. However, one explicit acceptance rule is violated: any report event header that follows an already-open report event (e.g. END-OF-SELECTION or TOP-OF-PAGE after START-OF-SELECTION) is indented two spaces instead of starting at column zero, because statementIndent has no case for report event keywords (only FORM got the required 'return 0'). A few minor edge cases remain (see findings).", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 182.0, "p0": 1, "p1": 0, "summary": "The patch adds indent/Format in hir/abap and sends EmitNamed output through Format, so emitted classes, interfaces and runtime helpers are now indented and wrapped. The task also requires auxiliary drivers and reports to be formatted, and those generators in tsfront (Registry*/Structures*/Statements*/LexerTestClass) still return unindented ABAP that is written out without passing through Format. The indenter also has several keyword-handling gaps.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 951.0, "p0": 0, "p1": 0, "summary": "The change correctly implements consistent ABAP indentation and line wrapping as specified in the task. All indentation rules (class headers/sections/declarations, method bodies, CASE/WHEN, TRY/CATCH/CLEANUP, report events, forms, continuation lines, literal/comment awareness) are properly implemented. Both indent and Format are verified idempotent. All existing and new tests pass. One minor robustness concern exists in the wrap helper.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L2b-abapiti87/zai-glm53-codex-20261012-232158", "task": "L2b", "patch": "GLM-5.3 · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 370.0, "p0": 1, "p1": 3, "summary": "The formatter passes the existing hir/abap tests and handles common class and control-flow indentation. It still changes multiline template values, misreads nested templates, turns wrapped comments into code, and misses GET report events.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L2b-abapiti87/oai-luna-codex-x-20261012-235415", "task": "L2b", "patch": "Luna xhigh · codex", "truth": "RESOLVED", "verdict": "incorrect", "self": false, "dur": 336.0, "p0": 0, "p1": 2, "summary": "The change routes the main generators through Format, and the affected package tests pass. However, the formatter can turn valid ABAP into comments or code, and it misindents some ordinary statements, so it does not meet the semantic-preservation and indentation requirements.", "confirmed": null, "check": null}, {"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": true, "dur": 420.0, "p0": 0, "p1": 0, "summary": "The change adds a statement-aware lexer/indenter (hir/abap/format.go) with indent and Format, routes all EmitNamed output and every tsfront driver/report through Format, and replaces the old per-line wrapper. All acceptance items check out on unit tests and on real generated output (class sections, methods, CASE/WHEN, TRY/CATCH/CLEANUP, report events, continuation lines, shared lines, literals/templates/comments, 255-byte wrapping, idempotency); the full test suite passes and generated files are stable under re-formatting. Remaining issues are in ABAP constructs the project never generates (WITH/ENDWITH, EXEC SQL, SELECT headers with more than 64 words) and in the drivers silently keeping unbreakable lines.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 1480.0, "p0": 0, "p1": 0, "summary": "The change implements indent/Format in hir/abap and routes all generated sources (EmitNamed files plus every tsfront driver/report) through them; I verified each acceptance bullet, ran the project's tests, fuzzed 25k inputs for panics/idempotency/token preservation/255-byte caps, and re-emitted the full 1538-file abaplint corpus on baseline vs. patch: token streams are byte-identical across all 2111 files and the layout matches abaplint's default style. Remaining findings are narrow edge cases that generated code never produces.", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 1298.0, "p0": 0, "p1": 0, "summary": "The change implements indent/Format in hir/abap/format.go with a line/statement lexer that correctly tracks literals, string templates (with embedded expressions and escapes), both comment kinds, colon chains, keyword-named variables, and SELECT/ENDSELECT pairing; all acceptance bullets are covered by tests, verified against the full generated fixture corpus and the tsfront drivers, and cross-checked against real @abaplint/core's Indentation rule, which reports zero issues on all formatted output. 550k+ fuzz iterations (block nesting, reports/events/forms, comments, long-line wrapping) found no idempotency, token-preservation or 255-byte violations except one degenerate case below. The whole test suite passes and the golden file update is mechanical.", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": true, "dur": 292.0, "p0": 0, "p1": 0, "summary": "The patch adds hir/abap/format.go with a small lexer and an indentation state machine. It replaces the old `wrap` with `Format` for every emitted file and routes all tsfront driver classes and reports through it. All tests pass. I generated the full lexer pipeline (71 files, about 25k statements) and checked it against @abaplint/core's own Indent.getExpectedIndents: there were 0 mismatches, every line was at most 255 bytes, and both Format and indent were exact fixed points on the output. Hand-made edge cases also came out right: literals and templates with escaped delimiters, comments, report events, forms, DEFERRED/LOAD class declarations, runtime GET statements, SELECT/ENDSELECT, CATCH SYSTEM-EXCEPTIONS and wrapping between statements.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 365.0, "p0": 0, "p1": 0, "summary": "The patch correctly implements ABAP indentation and line wrapping as specified. It provides `indent` and `Format` functions in `hir/abap/format.go`, routes all generated ABAP through `Format`, handles all acceptance criteria (two-space indentation, class/TRY/CASE rules, report events, literal/comment awareness, continuation lines, 255-byte wrap limit, idempotency), and passes the full test suite with no regressions.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L2b-abapiti87/ant-opus-claude-20261012-110822", "task": "L2b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "incorrect", "self": false, "dur": 183.0, "p0": 1, "p1": 1, "summary": "The formatter passes the existing Go tests, but it misses required continuation indentation when a statement starts later on a shared line and rejects breakable string-template expressions. Driver formatting also silently returns raw source on a formatting error, allowing unindented and overlong ABAP.", "confirmed": true, "check": {"check": "abap.Format(\"IF a = 1. x = f(\\n p = 2 ).\\nENDIF.\\n\")", "patch": "continuation line has no indent", "reference": "continuation indented by two spaces"}}, {"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 334.0, "p0": 0, "p1": 0, "summary": "The change adds hir/abap indent/Format implementing the abaplint two-space style, routes every generator (hir, llvm, ts, tsfront drivers, wasm single/multi-class/interface) through Format, and the golden file diff is whitespace-only; go build and go test ./... pass and all listed acceptance cases (classes, sections, CASE/WHEN, TRY/CATCH/CLEANUP, report events, GET RUN TIME, same-line statements, literals/comments, 255-byte wrapping) behave as specified. Remaining issues are edge cases: wrapping can cut right before a `*` token so the continuation becomes a column-0 comment on re-format (idempotency/semantics), a long trailing \" comment makes Format error instead of wrapping, and some non-block statements (GET TIME STAMP, INTERFACE ... DEFERRED, CLASS ... LOCAL FRIENDS, SELECT without ENDSELECT) are misclassified as block openers/events.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 944.0, "p0": 1, "p1": 1, "summary": "The formatter covers most acceptance rules (TRY/CASE/WHEN, report events, literals, wrapping, mostly idempotent) and is wired into all generators, but every class section after the first is indented at 4 spaces instead of the required 2 (baked into the regenerated golden), ts.Transpile now hard-fails on long string literals that previously compiled, and Format both panics in several drivers on unbreakable lines and loses idempotency/semantics when a wrap lands before a '*' token.", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 1148.0, "p0": 0, "p1": 0, "summary": "The change adds hir/abap indent/Format with correct two-space block semantics (class sections, methods, CASE/WHEN, TRY/CATCH/CLEANUP, report events, forms, continuations, literal/comment-aware statement splitting) and routes every generator (hir/abap, llvm, ts, tsfront drivers, all wasm backends) through Format. Full test suite passes uncached, goldens were regenerated accordingly, and fuzzing plus real wasm/llvm compiles confirm idempotency, <=255-byte lines, and content preservation. Remaining findings are minor edge cases (a hard error instead of wrapping for over-long trailing comments) and cleanup nits.", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 191.0, "p0": 2, "p1": 0, "summary": "The change adds hir/abap indent/Format and routes every generator through Format. The build and all tests pass, but the indenter breaks two explicit acceptance rules on code the project really generates. Every class that has more than one visibility section gets its second and later sections indented at four spaces, and the updated golden file records this wrong output. Runtime GET statements such as `GET TIME STAMP` are treated as report events, which throws off the indentation of the WASI runtime from that point to the end of the class.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 959.0, "p0": 0, "p1": 2, "summary": "The patch implements ABAP indentation and line wrapping with good coverage of block structures, comments, and string literals, and all existing tests pass. However, two acceptance-criteria violations exist: (1) wrapComment has an off-by-one error that can produce lines exceeding the 255-byte limit, and (2) subsequent class sections (PROTECTED/PRIVATE SECTION) are indented at 4 spaces instead of the required 2 when they follow another section.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "task": "L2b", "patch": "Luna high · codex", "truth": "FAILED", "verdict": "incorrect", "self": false, "dur": 224.0, "p0": 1, "p1": 2, "summary": "The change routes the main generators through Format, and tests in the affected Go packages pass, but the formatter misses required indentation rules. Later class sections are indented too deeply, GET TIME STAMP inside a method is mistaken for a report event, and a boundary-length comment wraps to 256 bytes.", "confirmed": null, "check": null}, {"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 683.0, "p0": 0, "p1": 0, "summary": "The change canonicalizes anonymous shape identity by sorted field name, synthesizes shapes for empty and contextual-union literals, routes record-typed literals to maps, preserves readonly per symbol, and keeps JS evaluation order via per-property temporaries that l.expr wraps into Seq (so conditional branches and loop conditions stay lazy). The full test suite passes and probes for assignments, arguments, defaults, static/module initializers, callbacks, spreads, nested/optional contexts, union contexts and side-effect ordering all behave correctly on the patched tree; the only failures found also fail on the baseline. Remaining issues are minor: the readonly flag on a shared shape class depends on which view was lowered first.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 1349.0, "p0": 0, "p1": 0, "summary": "The change lowers anonymous object literals into canonical, content-addressed shape classes (sorted field identity, shared across property orders and readonly/optional views), routes record-like literals to maps, picks union constituents via checker assignability, and preserves JS evaluation order via temps; empty literals use contextual shapes. The full test suite plus adversarial probes (nesting, spreads, conditionals/closures/switch, initializers, records, cross-file shape sharing, readonly/writable view mixing) all verify, emit through ABAP, and run correctly through the Go backend, and the patch also fixes latent baseline bugs (same-key union misselection causing 'string <- i32', a leaked l.hint, and a nil-ctor panic path). Remaining nits are minor and pre-existing.", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 1239.0, "p0": 0, "p1": 1, "summary": "The change convincingly implements the task: anonymous object literals now synthesize canonical, content-addressed shape classes (order-insensitive identity, one shape per layout), empty literals pick a contextual/union shape, record literals stay maps, readonly/optional info is carried as a view, and evaluation order of property initializers is preserved via temp prelude statements that the expression wrapper correctly scopes inside branches. New tests fail on baseline and pass on the patch, and the full repository suite (including ABAP and Go backends) is green. One real regression remains: the empty object type {} now lowers to an empty synthesized shape that objectLiteral treats as authoritative, so valid programs that assign a populated literal to a {}-typed location (clean at baseline) are rejected.", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 446.0, "p0": 0, "p1": 0, "summary": "The patch lets empty and anonymous `{}` types become synthesized shapes, sorts property order so equivalent layouts share one class and constructor ABI, picks the assignable constituent for contextual unions, sends record-typed literals to map construction, and adds Readonly flags. Its new tests and the full suite pass, and ad-hoc probes (nested/array/arrow/map callbacks, ternary and `??` empties, optional args, three-way unions with undefined, static and module initializers, for-loop increments) match or improve on baseline with no regressions found. Remaining issues are minor: readonly metadata on a shared shape depends on which view is lowered first, and every shape literal property now gets a temp.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "correct", "self": false, "dur": 274.0, "p0": 0, "p1": 0, "summary": "The patch successfully extends lowering to handle anonymous TypeScript object literals without named shapes. It correctly implements canonical field ordering for shape identity, preserves readonly/optional metadata without affecting physical layout, handles evaluation order with tempInit, and supports all required contexts (assignments, arguments, returns, nested structures, unions, optionals, records, empty objects). All new and existing tests pass.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L3b-abapiti95/az-sol61-codex-20261013-053019", "task": "L3b", "patch": "Sol 6.1 · codex", "truth": "FAILED", "verdict": "incorrect", "self": true, "dur": 256.0, "p0": 0, "p1": 2, "summary": "The change enables the covered anonymous-shape cases and the frontend tests pass, but two valid literals produce the wrong value after Go emission. Both failures come from evaluating or copying properties at a different point than JavaScript does.", "confirmed": null, "check": null}, {"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": true, "dur": 622.0, "p0": 0, "p1": 0, "summary": "The change factors the shape-synthesis logic into lower_shape.go and adds a member-driven fallback (anonymousLiteral) for literals whose checker type has no lowering, plus empty-literal and record contextual handling and readonly tracking. Added tests and the full suite pass; my own probes (nested/spread/optional/record/readonly views, Readonly<T>, arrays of literals, default params, contextual union/optional) all lower, verify, emit via ABAP and run correctly in Go. The gaps I found (optional spread into an anonymous literal, dead fieldsBy registration, an untested LSP gating tweak) are minor and the remaining unsupported cases I hit are identical on the baseline.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 1283.0, "p0": 0, "p1": 0, "summary": "The change does solve the task: on the baseline commit the new acceptance test fails with blocking diagnostics for nested/empty/readonly anonymous literals, and with the patch it passes, the whole repo test suite is green, and ~30 hand-written semantic probes (assignments, arguments, returns, nesting, spreads, optional/readonly views, record and union contexts, empty literals) lower, verify, and produce correct Go and ABAP output with no regression I could find versus the baseline. Shape sharing is order-insensitive and readonly/optional views reuse one physical class as required. Two minor observations remain: a pre-existing evaluation-order hazard that the patch only partially mitigates, and an unrelated-looking tweak to LSP call handling.", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 1780.0, "p0": 0, "p1": 0, "summary": "The change satisfies the acceptance criteria: anonymous and empty object literals now lower to shared synthesized shape classes (reuse is order-independent and readonly/optional-ref views share one physical class), record and optional contexts are handled, and the new test fails on baseline, passes after, verifies, and emits through both the ABAP and Go backends with the correct runtime result. The whole repository test suite is green, and extensive differential probing against a baseline worktree (~40 hand-written inputs: spreads, duplicates, quoted/keyword keys, optional slots, subset interfaces, records, cross-file reuse, `as const`/`satisfies`, empty contexts) showed no regressions — every remaining failure (for-in over a shape literal, member access through a union of two distinct shapes, method/getter members, optional-vs-required primitive slot mismatches) fails identically on baseline. The main weakness is that the largest new function, anonymousLiteral, appears unreachable in practice: it is never entered by the entire test corpus nor by any input I could construct, so ~200 lines of subtle machinery (flowsTo, pureLiteralValue, the temp-based evaluation-order guard) are effectively untested code.", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": true, "dur": 452.0, "p0": 0, "p1": 0, "summary": "The change adds a structural-shape path (lower_shape.go) for object literals that have no named target: one shared class per field set regardless of property order, readonly kept as a view, empty-literal and record contexts, and nested, argument and return uses. The full test suite passes, the new test matches Node (211), and ad-hoc probes of reordering, readonly views, optional contexts, records, nested arrays, class field initializers and closures returning literals all verify and give Node-identical Go output. The remaining issues are edge cases in the new spread/evaluation-order handling (copied from an existing pattern), one HIR flag inaccuracy and some duplicated code.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 498.0, "p0": 0, "p1": 0, "summary": "The patch correctly extends lowering to handle anonymous TypeScript object literals without named shapes. It synthesizes structural shape classes, reuses them for equivalent layouts regardless of property order, preserves optional/readonly information, and handles all required contexts (assignments, arguments, returns, nested structures, unions, optionals, records, spreads, and empty literals). All existing and new tests pass with no regressions.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "task": "L3b", "patch": "Opus · claude", "truth": "RESOLVED", "verdict": "incorrect", "self": false, "dur": 594.0, "p0": 2, "p1": 0, "summary": "The new lowering handles many structural literals, and the full Go test suite passes. It still fails to lower a returned empty structural object when a caller uses it, and reusing a shape can reverse property initializer effects and produce an incorrect result.", "confirmed": true, "check": {"check": "tslower on `function make(): {} { return {}; }` used by a caller", "patch": "checker type {} is not a lowered declaration", "reference": "lowers without diagnostics"}}, {"critic": "S-fable", "critic_name": "Fable · Claude Code", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 427.0, "p0": 0, "p1": 0, "summary": "The change adds a lexer-aware indent/Format pair in hir/abap that implements abaplint's default two-space scheme (class sections, WHEN, TRY/CATCH, report events, forms, same-line statements, literal/comment awareness) with byte-accurate 255-byte wrapping, and routes every generator (hir emitter, wasm, llvm, ts, tsfront drivers) through Format. All acceptance points are met in my probes, both operations are idempotent, the regenerated golden file is whitespace-only, and the full test suite passes. Remaining issues are edge cases not reachable from current generators: re-indenting a top-level continuation line that begins with '*' turns it into a comment, and INTERFACE DEFERRED / CLASS ... LOCAL FRIENDS incorrectly open blocks.", "confirmed": null, "check": null}, {"critic": "S-glm-pi", "critic_name": "GLM-5.3 · Pi", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "ERROR", "self": false, "dur": 1800.0, "p0": 0, "p1": 0, "summary": "", "confirmed": null, "check": null}, {"critic": "S-glm", "critic_name": "GLM-5.3 · Claude Code", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 1174.0, "p0": 0, "p1": 0, "summary": "The new hir/abap indent/Format implementation satisfies every acceptance bullet (verified by the patch's tests, independent scratch tests, a 1000-case fuzz for termination/idempotency/255-byte limit/token preservation, and Format over all 80 real .abap files in the repo), and all generated-ABAP producers (EmitNamed, ts.Transpile, llvm Compile/CompileMultiClass, tsfront drivers, wasm wrapLongLines) now route through Format; the full Go test suite passes and the golden-file changes are whitespace-only. Remaining findings are unreachable-from-generators edge cases: a quote character inside a full-line \" comment can steal the next statement's indentation level, INTERFACE ... DEFERRED opens a block unlike CLASS ... DEFERRED, and the GET-event heuristic misses the GET node FIELDS ... event form.", "confirmed": null, "check": null}, {"critic": "S-opus", "critic_name": "Opus · Claude Code", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 556.0, "p0": 0, "p1": 1, "summary": "The patch adds indent/Format in hir/abap and routes the HIR emitter, the legacy ts and llvm backends, the wasm line packer and the tsfront drivers through Format. All tests pass. I checked the output against abaplint 2.118's own Indent.getExpectedIndents: there were 0 mismatches over 3435 statements of HIR fixture output and 307 statements of driver output, and also 0 over 1200 statements of llvm/wasm output once each statement was put on its own line. The remaining defects are edge cases: a continuation line that starts with `*` and belongs to a column-zero statement gets turned into a comment, and `INTERFACE ... DEFERRED` opens a block.", "confirmed": null, "check": null}, {"critic": "S-qwen-pi", "critic_name": "Qwen 3.7+ · Pi", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "correct", "self": false, "dur": 301.0, "p0": 0, "p1": 0, "summary": "The patch correctly implements consistent ABAP indentation (indent and Format functions) in hir/abap, integrates formatting into all generation paths (emit, llvm, ts, tsfront drivers, wasm), and passes all existing and new tests. The implementation handles edge cases well: literals/comments/templates are excluded from keyword detection, assignment statements with keyword-named variables are correctly identified, multiline literals preserve their content, full-line * comments stay at column zero, and both operations are idempotent.", "confirmed": null, "check": null}, {"critic": "S-sol", "critic_name": "Sol · Codex", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "task": "L2b", "patch": "Sol 6.1 · codex", "truth": "RESOLVED", "verdict": "incorrect", "self": true, "dur": 459.0, "p0": 0, "p1": 1, "summary": "The change formats the main generation paths, and the full Go test suite passes. A valid long filename in the registry driver now causes a panic because its embedded literal cannot fit within the 255-byte limit after indentation, so the task is not fully solved.", "confirmed": false, "check": {"check": "RegistryRunClass with a 250-character file name", "patch": "panic: unbreakable source line (292 bytes)", "reference": "same panic"}}], "critics": {"S-sol": "Sol · Codex", "S-opus": "Opus · Claude Code", "S-fable": "Fable · Claude Code", "S-glm": "GLM-5.3 · Claude Code", "S-glm-pi": "GLM-5.3 · Pi", "S-qwen-pi": "Qwen 3.7+ · Pi"}};
+const TASKS = ["L1a","L1b","L2a","L2b","L3a","L3b"];
+const LIMIT = {L1a:1800,L1b:1800,L2a:2700,L2b:2700,L3a:3600,L3b:3600};
+const HN = {claude:"Claude Code", codex:"Codex", pi:"Pi"};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtS = s => s == null ? "—" : s >= 60 ? (s >= 3600 ? (s/3600).toFixed(1).replace(".0","") + " h" : Math.round(s/60) + " min") : Math.round(s) + " s";
+
+const r1 = D.runs.filter(r => r.round === 1);
+const execs = [...new Set(r1.map(r => r.executor))].map(id => {
+  const rs = r1.filter(r => r.executor === id);
+  const ok = rs.filter(r => r.effective);
+  return { id, model: rs[0].model, harness: rs[0].harness, rs, n: rs.length, solved: ok.length,
+    strict: ok.filter(r => r.stop !== "TIMEOUT").length, time: rs.reduce((a, r) => a + (r.dur || 0), 0) };
+}).sort((a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time);
+const cell = (ex, t) => r1.find(r => r.executor === ex && r.task === t);
+
+/* tooltip */
+const tip = document.getElementById("tip");
+function showTip(el, x, y) { tip.innerHTML = el.dataset.tip; tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, x + 14)) + "px";
+  tip.style.top = (y + h + 24 > innerHeight ? y - h - 12 : y + 16) + "px"; }
+document.addEventListener("pointermove", e => { const el = e.target.closest("[data-tip]"); el ? showTip(el, e.clientX, e.clientY) : (tip.hidden = true); });
+document.addEventListener("focusin", e => { const el = e.target.closest("[data-tip]"); if (el) { const b = el.getBoundingClientRect(); showTip(el, b.left, b.bottom); } });
+document.addEventListener("focusout", () => tip.hidden = true);
+
+/* facts */
+const l2 = r1.filter(r => r.task.startsWith("L2")), l2ok = l2.filter(r => r.effective).length;
+const glm = id => execs.find(e => e.id === id);
+document.getElementById("facts").innerHTML = [
+  ["Opus · Claude Code", "the only one to solve all 6/6, including both L3 tasks, with almost no timeouts"],
+  ["Sol · Codex is 4–7× faster", "solved 5/6; gave up on the hard L3b after 8 minutes"],
+  ["The harness matters", `same GLM-5.3 model: ${glm("zai-glm53-claude").solved}/6 in Claude Code, ${glm("zai-glm53-pi").solved}/6 in Pi, ${glm("zai-glm53-codex").solved}/6 in Codex`],
+  ["Critics have not helped yet", "pilot: 1/3 solved with and without them, while time grew 2–10×"],
+  ["Best critic so far: Sol", "caught 3 of 3 failures and found 2 bugs the hidden tests missed"],
+].map(([b, s]) => `<div class="fact"><b>${b}</b><span>${s}</span></div>`).join("");
+
+/* TL;DR */
+{
+  const g = id => execs.find(e => e.id === id), sum = (rs, k) => rs.reduce((a, r) => a + (r[k] || 0), 0);
+  const opus = g("ant-opus-claude"), sol = g("az-sol61-codex"), gc = g("zai-glm53-claude"), gp = g("zai-glm53-pi"), gx = g("zai-glm53-codex");
+  const models = new Set(r1.map(r => r.model.replace(/ (medium|high|xhigh)$/, "")));
+  const cost = e => sum(e.rs, "cost"), M = n => (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+  const fast = (opus.time / sol.time).toFixed(1);
+  document.getElementById("tldr").innerHTML = [
+    `<b>What:</b> ${r1.length} agent runs on 6 tasks taken from real merged pull requests in three public repos (open-steamgate, abapiti, minz). Graded by the PR's own hidden tests. Levels go from plain JS/Go (L1) to ABAP code generation (L2) to compiler work (L3).`,
+    `<b>Who:</b> ${execs.length} model + harness combinations, ${models.size} models, 3 harnesses: Claude Code, Codex and Pi. Same brief, same sandbox, time limit 30/45/60 min per level, no human help, one run per cell.`,
+    `<b>Best:</b> Opus in Claude Code solved all 6/6. Sol 6.1 in Codex solved 5/6 and used ${fast}× less total time; it failed the hardest task (L3b).`,
+    `<b>The harness matters as much as the model:</b> GLM-5.3 solved ${gc.solved}/6 in Claude Code (${gc.solved - gc.strict} of them only at the time limit), ${gp.solved}/6 in Pi, ${gx.solved}/6 in Codex.`,
+    `<b>Tokens and cost:</b> Opus used ${M(sum(opus.rs, "tin"))} input tokens (mostly cached) and ${Math.round(sum(opus.rs, "tout") / 1e3)}k output for all 6 tasks, about $${cost(opus).toFixed(0)} at list price. GLM-5.3 in Claude Code used ${M(sum(gc.rs, "tin"))} input and cost about $${cost(gc).toFixed(0)} at list price, despite the cheaper per-token rate. See <a href="#tokens" style="color:var(--accent)">03b</a>.`,
+    `<b>Critics:</b> a blind critic is worth having only if it actively tries to break the patch. Sol found 2 real bugs in Opus patches that passed the hidden tests. The two-critic builder loop did not raise the solve rate in a small pilot.`,
+    `<b>Caveats:</b> n = 1 per cell, all tasks from one author's ABAP-centred ecosystem, costs known for two models only.`,
+  ].map(x => `<li>${x}</li>`).join("");
+}
+
+/* tokens */
+{
+  const sum = (rs, k) => rs.reduce((a, r) => a + (r[k] || 0), 0);
+  const rows = execs.map(e => ({ e, tin: sum(e.rs, "tin"), tc: sum(e.rs, "tcache"), tout: sum(e.rs, "tout"),
+    cost: e.rs.every(r => r.cost != null) ? sum(e.rs, "cost") : null })).sort((a, b) => b.tin - a.tin);
+  const maxIn = Math.max(...rows.map(r => r.tin)), maxOut = Math.max(...rows.map(r => r.tout));
+  const bar = (v, max) => `<span class="tb" style="width:${Math.max(2, Math.round(v / max * 70))}px"></span>`;
+  const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
+  let h = `<thead><tr><th>Agent</th><th>runs</th><th>solved</th><th>input tokens</th><th>cached</th><th>output tokens</th><th>per run (in / out)</th><th>API cost</th><th>per solved</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const e = r.e;
+    h += `<tr><td>${esc(e.model)}<span class="h">${HN[e.harness]}</span></td><td>${e.n}</td><td>${e.solved}</td>
+      <td>${bar(r.tin, maxIn)}${fmt(r.tin)}</td><td>${r.tin ? Math.round(r.tc / r.tin * 100) + "%" : "—"}</td>
+      <td>${bar(r.tout, maxOut)}${fmt(r.tout)}</td><td>${fmt(r.tin / e.n)} / ${fmt(r.tout / e.n)}</td>
+      <td>${r.cost == null ? '<span class="muted">—</span>' : "$" + r.cost.toFixed(2)}</td>
+      <td>${r.cost == null || !e.solved ? '<span class="muted">—</span>' : "$" + (r.cost / e.solved).toFixed(2)}</td></tr>`;
+  }
+  document.getElementById("tok").innerHTML = h + "</tbody>";
+  document.getElementById("tok-note").innerHTML = "Agents did not all run the same tasks: L3 only for finalists, and the Alibaba models in Codex only on L2. Compare the per-run columns, not the totals. Rows are sorted by total input tokens.";
+}
+
+/* matrix */
+{
+  let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="lvl">${t}</th>`).join("")}<th style="text-align:right">solved</th></tr></thead><tbody>`;
+  for (const e of execs) {
+    h += `<tr><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span></td>`;
+    for (const t of TASKS) {
+      const r = cell(e.id, t);
+      if (!r) { h += `<td class="cell none">—</td>`; continue; }
+      const cls = !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
+      const word = {pass:"solved", to:"solved at the limit", fail:"not solved", veto:"tests passed, jury rejected"}[cls];
+      const glyph = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!"}[cls];
+      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b><br>${word}<br>time ${fmtS(r.dur)} of ${fmtS(LIMIT[t])}<br>acceptance tests ${r.f2p}, regression ${r.p2p}<br>patch ${r.lines ?? "—"} lines`;
+      h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${glyph}<small>${Math.round(r.dur)}</small></td>`;
+    }
+    h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
+  }
+  document.getElementById("matrix").innerHTML = h + "</tbody>";
+}
+
+/* bars */
+document.getElementById("bars").innerHTML = execs.map(e => {
+  const to = e.solved - e.strict, fail = e.n - e.solved, w = n => `flex:${n} 1 0`;
+  const tipT = `<b>${esc(e.model)} · ${HN[e.harness]}</b><br>solved ${e.solved} of ${e.n}<br>in time ${e.strict}, at the limit ${to}<br>total time ${fmtS(e.time)}`;
+  return `<div class="bar-row" tabindex="0" data-tip="${esc(tipT)}"><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span></span>
+    <div class="track">${e.strict ? `<div class="seg pass" style="${w(e.strict)}"></div>` : ""}${to ? `<div class="seg to" style="${w(to)}"></div>` : ""}${fail ? `<div class="seg fail" style="${w(fail)}"></div>` : ""}${`<div style="flex:${6 - e.n} 1 0"></div>`}</div>
+    <span class="val">${e.strict}+${to} / ${e.n}</span></div>`;
+}).join("");
+
+/* speed dot plot */
+{
+  const W = 760, L = 54, R = 20, rowH = 58, top = 14, H = top + rowH * TASKS.length + 34;
+  const lo = Math.log10(25), hi = Math.log10(4000), x = s => L + (Math.log10(Math.max(25, s)) - lo) / (hi - lo) * (W - L - R);
+  const off = {claude: -11, codex: 0, pi: 11};
+  let s = "";
+  for (const v of [30, 60, 120, 300, 600, 1200, 1800, 3600]) s += `<line class="grid" x1="${x(v)}" x2="${x(v)}" y1="${top - 6}" y2="${H - 30}"/><text x="${x(v)}" y="${H - 12}" text-anchor="middle">${fmtS(v)}</text>`;
+  TASKS.forEach((t, i) => {
+    const cy = top + rowH * i + rowH / 2;
+    s += `<line class="axis" x1="${L}" x2="${W - R}" y1="${cy + rowH / 2 - 2}" y2="${cy + rowH / 2 - 2}"/><text x="0" y="${cy + 4}" style="font-weight:600;fill:var(--ink)">${t}</text>`;
+    s += `<line class="lim" x1="${x(LIMIT[t])}" x2="${x(LIMIT[t])}" y1="${cy - rowH / 2 + 4}" y2="${cy + rowH / 2 - 6}"/>`;
+    for (const r of r1.filter(r => r.task === t)) {
+      const c = `var(--${r.harness})`, ok = r.effective;
+      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b><br>${ok ? "solved" : "not solved"}${r.stop === "TIMEOUT" ? " (limit)" : ""}<br>${fmtS(r.dur)}`;
+      s += `<circle cx="${x(r.dur)}" cy="${cy + off[r.harness]}" r="5.5" fill="${ok ? c : "var(--panel)"}" stroke="${ok ? "var(--panel)" : c}" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/>`;
+    }
+  });
+  const el = document.getElementById("speed"); el.setAttribute("viewBox", `0 0 ${W} ${H}`); el.style.minWidth = "560px"; el.innerHTML = s;
+}
+
+/* trio */
+{
+  const row = (lab, val, max, txt, color) => `<div class="mini-row"><span>${lab}</span><div class="track"><div class="seg" style="flex:${val} 1 0;background:${color}"></div><div style="flex:${max - val} 1 0"></div></div><span class="val">${txt}</span></div>`;
+  const g = id => execs.find(e => e.id === id);
+  const harness = ["zai-glm53-claude", "zai-glm53-pi", "zai-glm53-codex"].map(id => g(id));
+  const luna = ["oai-luna-codex-m", "oai-luna-codex-h", "oai-luna-codex-x"].map(id => g(id));
+  const fast = ["az-sol61-codex", "ant-opus-claude", "zai-glm53-claude"].map(id => g(id));
+  const maxT = Math.max(...fast.map(e => e.time));
+  document.getElementById("trio").innerHTML = `
+    <div class="chart"><h3>Harness: one model, GLM-5.3</h3>
+      <div class="mini">${harness.map(e => row(HN[e.harness], e.solved, 6, `${e.solved}/6`, `var(--${e.harness})`)).join("")}</div>
+      <p class="small muted">Claude Code solved everything, but 3 of 6 at the time limit. In time: ${harness.map(e => `${HN[e.harness]} ${e.strict}`).join(", ")}.</p></div>
+    <div class="chart"><h3>Effort level: Luna in Codex</h3>
+      <div class="mini">${luna.map(e => row(e.model.replace("Luna ", ""), e.solved, 4, `${e.solved}/4`, "var(--codex)")).join("")}</div>
+      <p class="small muted">Only xhigh solved L2b; medium gave up on it after 32 seconds. Total time: ${luna.map(e => fmtS(e.time)).join(" → ")}.</p></div>
+    <div class="chart"><h3>The price of speed: total time on L1+L2</h3>
+      <div class="mini">${fast.map(e => { const t = e.rs.filter(r => !r.task.startsWith("L3")).reduce((a, r) => a + r.dur, 0); return row(e.model, t, maxT, fmtS(t), `var(--${e.harness})`); }).join("")}</div>
+      <p class="small muted">Sol spends minutes where others spend hours, but failed the hard L3b. Opus is slower but never failed.</p></div>`;
+}
+
+/* pilot dumbbell */
+{
+  const pairs = [["L2b", "oai-luna-codex-m", "Luna medium · L2b"], ["L2b", "oai-luna-codex-h", "Luna high · L2b"], ["L2a", "oai-luna-codex-x", "Luna xhigh · L2a"]];
+  const W = 760, L = 150, R = 70, rowH = 46, H = rowH * 3 + 36, max = 1600, x = s => L + s / max * (W - L - R);
+  let s = "";
+  for (const v of [0, 300, 600, 900, 1200, 1500]) s += `<line class="grid" x1="${x(v)}" x2="${x(v)}" y1="4" y2="${H - 28}"/><text x="${x(v)}" y="${H - 10}" text-anchor="middle">${fmtS(v)}</text>`;
+  pairs.forEach(([t, ex, lab], i) => {
+    const a = D.runs.find(r => r.task === t && r.executor === ex && r.round === 1), b = D.runs.find(r => r.task === t && r.executor === ex && r.round === 2);
+    if (!a || !b) return;
+    const cy = 24 + rowH * i, res = b.effective ? "✓ solved" : "✗ not solved";
+    s += `<text x="0" y="${cy + 4}" style="fill:var(--ink)">${lab}</text><line x1="${x(a.dur)}" x2="${x(b.dur)}" y1="${cy}" y2="${cy}" style="stroke:var(--ink-3);stroke-width:2"/>`;
+    s += `<circle cx="${x(a.dur)}" cy="${cy}" r="6" fill="var(--ink-3)" tabindex="0" data-tip="${esc(`<b>${lab}</b><br>single pass: ${a.effective ? "solved" : "not solved"}, ${fmtS(a.dur)}`)}"/>`;
+    s += `<circle cx="${x(b.dur)}" cy="${cy}" r="6" fill="var(--accent)" tabindex="0" data-tip="${esc(`<b>${lab}</b><br>with critics: ${b.effective ? "solved" : "not solved"}, ${fmtS(b.dur)}<br>${(b.dur / a.dur).toFixed(1)}× longer`)}"/>`;
+    s += `<text x="${x(b.dur) + 12}" y="${cy + 4}" style="fill:${b.effective ? "var(--good)" : "var(--bad)"};font-weight:600">${res}</text>`;
+  });
+  const el = document.getElementById("pilot"); el.setAttribute("viewBox", `0 0 ${W} ${H}`); el.style.minWidth = "560px"; el.innerHTML = s;
+}
+
+/* critic screening */
+{
+  const order = ["L2b-abapiti87/ant-opus-claude-20261012-110822", "L3b-abapiti95/az-sol61-codex-20261013-053019", "L2b-abapiti87/az-sol61-codex-20261012-113203", "L2b-abapiti87/oai-luna-codex-h-20261012-234315", "L3b-abapiti95/ant-opus-claude-20261013-090112", "L2b-abapiti87/zai-glm53-codex-20261012-232158"];
+  const label = run => { const ex = run.split("/")[1].replace(/-\d{8}-\d{6}$/, ""); const r = r1.find(q => q.executor === ex); return r ? `${r.model}<br>${HN[r.harness]}` : ex; };
+  const truthOf = run => { const r = D.runs.find(q => `${q.task}` === run.slice(0, 3) && run.includes(q.executor + "-") && q.round === 1); return r ? r.status : "?"; };
+  const critics = Object.keys(D.critics);
+  let h = `<thead><tr><th></th>${order.map(o => { const t = truthOf(o); return `<th>${o.slice(0, 3)} · ${label(o)}<br><span class="truth ${t === "RESOLVED" ? "ok" : "no"}">${t === "RESOLVED" ? "tests ✓" : "tests ✗"}</span></th>`; }).join("")}<th style="text-align:left">failures caught<br>real bugs · false alarms</th></tr></thead><tbody>`;
+  for (const c of critics) {
+    const rs = D.screen.filter(s => s.critic === c && order.includes(s.run));
+    let caught = 0, nf = 0, found = 0, falseA = 0, open = 0;
+    h += `<tr><td class="who">${esc(D.critics[c])}</td>`;
+    for (const o of order) {
+      const s = rs.find(q => q.run === o);
+      if (!s || !["correct", "incorrect", "uncertain"].includes(s.verdict)) { h += `<td class="vcell pend">${s ? "error" : "…"}</td>`; continue; }
+      const bad = s.truth === "FAILED", says = s.verdict;
+      if (bad) { nf++; if (says === "incorrect") caught++; }
+      else if (says === "incorrect") { s.confirmed === true ? found++ : s.confirmed === false ? falseA++ : open++; }
+      const cls = says === "uncertain" ? "unc" : bad ? (says === "incorrect" ? "agree" : "miss") : says === "correct" ? "agree" : s.confirmed ? "found" : "strict";
+      const word = cls === "found" ? "found bug" : cls === "strict" && s.confirmed === false ? "false alarm" : {correct: "approved", incorrect: "rejected", uncertain: "uncertain"}[says];
+      const chk = s.check ? `<br><br>reference check: ${esc(s.check.check)}<br>patch: ${esc(s.check.patch)}<br>reference: ${esc(s.check.reference)}` : "";
+      const tt = `<b>${esc(D.critics[c])}</b> → ${esc(s.patch)} (${s.task})<br>verdict: ${word}${s.self ? " · own model family" : ""}<br>P0 ${s.p0}, P1 ${s.p1} · ${fmtS(s.dur)}<br><span style="opacity:.8">${esc(s.summary.slice(0, 260))}</span>${chk}`;
+      h += `<td class="vcell ${cls}" tabindex="0" data-tip="${esc(tt)}">${word}<small>${s.self ? "self · " : ""}${fmtS(s.dur)}</small></td>`;
+    }
+    h += `<td class="stat">${nf ? `${caught}/${nf}` : "–"}<br>${found} · ${falseA}${open ? ` <span class="muted">(+${open} unchecked)</span>` : ""}</td></tr>`;
+  }
+  document.getElementById("crit").innerHTML = h + "</tbody>";
+}
+
+document.getElementById("foot").innerHTML = `Data: <code>data/runs.csv</code>, <code>data/critic-screen.csv</code>, <code>data/critic-adjudication.json</code>. Built ${esc(D.generated)} by <code>bin/summary-report.py</code>. All times are wall-clock, from handing over the brief to the agent stopping.`;
+</script>

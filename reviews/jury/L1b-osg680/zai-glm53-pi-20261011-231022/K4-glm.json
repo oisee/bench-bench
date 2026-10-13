@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change is correct and thoroughly verified: differential fuzzing against Node 26.9.0 shows nodeutf8.Decode and the composed abap.DecodeBase64 byte-identical to Buffer.from(...).toString() on ~155k inputs (exhaustive short strings plus random long ones, covering both alphabets, padding, foreign bytes, overlongs, surrogates, truncation and maximal-subpart U+FFFD). The NATIVE wiring, semantics rows, ABAP Unit tests, CI list and docs all match the existing encode_base64 pattern, and the specified public API osg/gogen/nodeutf8.Decode(b string) string exists with the required behavior.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/nodeutf8.go",
+      "line": 1,
+      "claim": "The WHATWG UTF-8 decoder is now duplicated: go/apc's private utf8Decode (apc/apc.go:382) is algorithmically identical to nodeutf8.Decode. Now that a public package exists, apc could import it and drop ~50 lines of parallel logic that can drift; the duplication is documented in both places and the two copies currently agree.",
+      "repro": "diff <(sed -n '382,433p' tools/gogen/go/apc/apc.go) <(sed -n '33,88p' tools/gogen/go/nodeutf8/nodeutf8.go)"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "bf625cf4a1",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 393
+}

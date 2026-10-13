@@ -1,0 +1,70 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..9f5e8f5 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,17 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("every literal of a statement is trimmed, empty and blank ones included", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('a  ', '', '   ', ' \tb\n ', 'c''  ''  ')"))
++      .to.equal("VALUES ('a', '', '', ' \tb\n', 'c''  ''')");
++    expect(trimLiterals(`'x "  '`)).to.equal(`'x "'`);
++  });
++
++  it("a literal of 15 million characters is trimmed without overflowing the stack", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const big = "x".repeat(15_000_000);
++    expect(trimLiterals("VALUES ('" + big + " ''y''   ', 'z ')") === "VALUES ('" + big + " ''y''', 'z')").to.equal(true);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..39003e3 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,41 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  A scan, not a regex: `/'((?:[^']|'')*)'/g` keeps a backtracking frame per
++ *  character of a literal and overflowed the stack on a ~15 MB one (an
++ *  RAWSTRING or a media row written as hex). The scan pairs quotes the way
++ *  that regex did, including its backtracking when a literal never closes:
++ *  the match then ends at the first quote of the last `''` seen, if any. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const parts = [];
++  let copied = 0;
++  let from = 0;
++  for (;;) {
++    const open = sql.indexOf("'", from);
++    if (open < 0) break;
++    let close = -1;
++    let lastPair = -1;
++    for (let at = open + 1; ;) {
++      const q = sql.indexOf("'", at);
++      if (q < 0) { close = lastPair; break; }
++      if (sql.charCodeAt(q + 1) === 39) { lastPair = q; at = q + 2; continue; }
++      close = q;
++      break;
++    }
++    if (close < 0) break;
++    let end = close;
++    while (end > open + 1 && sql.charCodeAt(end - 1) === 32) end--;
++    if (end < close) {
++      parts.push(sql.slice(copied, end));
++      copied = close;
++    }
++    from = close + 1;
++  }
++  if (copied === 0) return sql;
++  parts.push(sql.slice(copied));
++  return parts.join("");
+ }
+ 
+ /**

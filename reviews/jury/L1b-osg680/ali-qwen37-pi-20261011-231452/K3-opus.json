@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change maps CL_HTTP_UTILITY=>DECODE_BASE64 (static and via IF_HTTP_UTILITY) to a new abap.DecodeBase64, which reuses the existing Node-compatible DecodeXBase64 and adds a WHATWG-style nodeutf8.Decode. I fuzzed it differentially against Node: 200k random byte strings for nodeutf8.Decode and 50k random base64-ish strings for DecodeBase64 (mixed alphabets, '=', spaces, junk), with 0 mismatches. A scratch ABAP unit class covering named, positional and variable arguments plus strlen of multibyte results passes under osgo. Only cosmetic issues remain.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/abap/http_utility_test.go",
+      "line": 16,
+      "claim": "The new test file is not gofmt-clean: trailing comment alignment in the table differs from gofmt output.",
+      "repro": "cd tools/gogen/go && gofmt -l abap/http_utility_test.go"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/nodeutf8.go",
+      "line": 108,
+      "claim": "The 'truncated at end' and 'invalid continuation' branches both append the same U+FFFD, so the if/else-if/else could collapse to two cases. The local 'first' flag is also redundant, because lo/hi are already reset to 0x80..0xBF after the first continuation byte. This is harmless but adds noise.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "c41628ea8d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 79
+}

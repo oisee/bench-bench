@@ -1,0 +1,15 @@
+not compiled: ZCL_AJSON=>CREATE_FROM: ZCL_AJSON=>CREATE_FROM LO_MUTATOR_QUEUE: REF TO LCL_MUTATOR_QUEUE, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~SETX: ZCL_AJSON=>ZIF_AJSON~SETX LV_DEC: type DecFloat34Type is outside the subset; ZCL_AJSON=>ZIF_AJSON~TO_ABAP: ZCL_AJSON=>ZIF_AJSON~TO_ABAP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program
+ok   Go ZCL_GOGEN_T_C2I8: 42/8000000000/-17/9223372036854775807/-9223372036854775808/ovf
+ok   JS ZCL_GOGEN_T_C2I8: 42/8000000000/-17/9223372036854775807/-9223372036854775808/ovf
+ok   refused :12: ZIF_GOGEN_T_RF~MV_V: VALUE on an interface DATA does not activate on A4H
+ok   refused :13: ZIF_GOGEN_T_RF->MV_RO: a write to a READ-ONLY attribute through an interface reference (a syntax error on A4H)
+ok   refused :14: ZCL_GOGEN_T_RF_OBJ->ZIF_GOGEN_T_RF~MV_RO: a write to a READ-ONLY attribute outside ZCL_GOGEN_T_RF_OBJ (a syntax error on A4H)
+ok   refused :15: ZIF_GOGEN_T_RF->CO_K: a constant through an interface reference is not in the subset
+ok   refused :17: ZIF_GOGEN_T_RF->MV_X: a write to a READ-ONLY attribute through an interface reference (a syntax error on A4H)
+ok   refused :22: FIND form: FIND REGEX lv_p IN lv_xs IN BYTE MODE MATCH OFFSET lv_o.
+ok   refused sort :54: SHOW: a STANDARD table is not type-compatible with SORTED parameter IT (A4H refusal)
+ok   refused ZCL_GOGEN_T_RF_OWN left out by abaplint's syntax check
+ok   refused delfrom :23: DELETE TABLE lt FROM wa inside a LOOP over the same table: the loop index and its field symbol were not adjusted
+ok   refused delfrom :26: DELETE TABLE lt FROM <row> inside a LOOP over the same table: the loop index and its field symbol were not adjusted
+ok   refused delfrom :30: DELETE TABLE lt FROM wa inside a LOOP over the same table: the loop index and its field symbol were not adjusted
+ok   refused RESUMABLE until continuation support is implemented

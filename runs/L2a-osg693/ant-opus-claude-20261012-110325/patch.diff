@@ -1,0 +1,290 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..81f1ee2 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -195,6 +195,50 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts a character value to int8 by ParseI's rules, exactly over
++// the whole signed 64-bit range: blanks around it, one sign, digits with at
++// most one point, the fraction rounded half away from zero. Past int8's
++// range (after rounding) is CX_SY_CONVERSION_OVERFLOW, anything else
++// CX_SY_CONVERSION_NO_NUMBER. Blanks are 0.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	// 19 digits and a rounding step stay below 2^64
++	if len(whole) > 19 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	var n uint64
++	for i := 0; i < len(whole); i++ {
++		n = n*10 + uint64(whole[i]-'0')
++	}
++	if frac != "" && frac[0] >= '5' {
++		n++
++	}
++	limit := uint64(math.MaxInt64)
++	if neg {
++		limit++
++	}
++	if n > limit {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	if neg {
++		return int64(-n)
++	}
++	return int64(n)
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/move.go b/tools/gogen/go/abap/move.go
+index 5e2a9dd..07831dd 100644
+--- a/tools/gogen/go/abap/move.go
++++ b/tools/gogen/go/abap/move.go
+@@ -88,9 +88,13 @@ func MoveData(dst, src Data) {
+ 			return
+ 		}
+ 	case '8':
+-		if sk == '8' {
++		switch sk {
++		case '8':
+ 			*dst.P.(*int64) = *src.P.(*int64)
+ 			return
++		case 'C', 'g':
++			*dst.P.(*int64) = ParseI8(*src.P.(*string))
++			return
+ 		}
+ 	case 'g':
+ 		p := dst.P.(*string)
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..e0aa0fb
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,47 @@
++package abap
++
++import (
++	"math"
++	"testing"
++)
++
++func TestParseI8(t *testing.T) {
++	for _, c := range []struct {
++		in   string
++		want int64
++	}{
++		{"", 0}, {"   ", 0}, {" 12 ", 12}, {"+12", 12}, {"-12", -12}, {"12-", -12}, {"- 12", -12},
++		{"0012", 12}, {"2.5", 3}, {"-2.5", -3}, {"2.4", 2}, {"-0.5", -1}, {".5", 1}, {"5.", 5},
++		{"9223372036854775807", math.MaxInt64}, {"-9223372036854775808", math.MinInt64},
++		{" 9223372036854775807 ", math.MaxInt64}, {"9223372036854775806.5", math.MaxInt64},
++		{"9223372036854775807.4", math.MaxInt64}, {"-9223372036854775808.4", math.MinInt64},
++		{"-9223372036854775807.5", math.MinInt64}, {"00009223372036854775807", math.MaxInt64},
++		{"1234567890123456789", 1234567890123456789},
++	} {
++		if got := ParseI8(c.in); got != c.want {
++			t.Errorf("ParseI8(%q) = %d, want %d", c.in, got, c.want)
++		}
++	}
++	for _, c := range []struct{ in, class string }{
++		{"9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"},
++		{"-9223372036854775809", "CX_SY_CONVERSION_OVERFLOW"},
++		{"9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"99999999999999999999", "CX_SY_CONVERSION_OVERFLOW"},
++		{"9999999999999999999.9", "CX_SY_CONVERSION_OVERFLOW"},
++		{"abc", "CX_SY_CONVERSION_NO_NUMBER"}, {"-", "CX_SY_CONVERSION_NO_NUMBER"},
++		{".", "CX_SY_CONVERSION_NO_NUMBER"}, {"1E3", "CX_SY_CONVERSION_NO_NUMBER"},
++		{"12 3", "CX_SY_CONVERSION_NO_NUMBER"}, {"+-1", "CX_SY_CONVERSION_NO_NUMBER"},
++		{"1.5.2", "CX_SY_CONVERSION_NO_NUMBER"}, {"12a", "CX_SY_CONVERSION_NO_NUMBER"},
++	} {
++		func() {
++			defer func() {
++				e, ok := recover().(ArithmeticError)
++				if !ok || e.Class != c.class {
++					t.Errorf("ParseI8(%q) raised %v, want %s", c.in, e, c.class)
++				}
++			}()
++			ParseI8(c.in)
++		}()
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..8824b7c 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,24 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++// text into int8 by ParseI's rules, as a BigInt so every value is exact
++// (go/abap/conv.go ParseI8)
++export function ParseI8(v) {
++  const t = String(v).replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  if (whole.length > 19) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  let n = whole === "" ? 0n : BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n++;
++  if (neg) n = -n;
++  if (n > 9223372036854775807n || n < -9223372036854775808n) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+@@ -993,6 +1011,7 @@ export function MoveData(dst, src) {
+       break;
+     case "8":
+       if (sk === "8") return dst.set(v);
++      if (sk === "C" || sk === "g") return dst.set(ParseI8(v));
+       break;
+     case "g":
+       if (sk === "g" || sk === "C") return dst.set(v);
+diff --git a/tools/gogen/parsei8.test.mjs b/tools/gogen/parsei8.test.mjs
+new file mode 100644
+index 0000000..14af9bb
+--- /dev/null
++++ b/tools/gogen/parsei8.test.mjs
+@@ -0,0 +1,96 @@
++import {test} from "node:test";
++import assert from "node:assert/strict";
++import {spawnSync} from "node:child_process";
++import {mkdtempSync, rmSync, writeFileSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {basename, dirname, join} from "node:path";
++import {fileURLToPath} from "node:url";
++import {compileProgram} from "./frontend.mjs";
++import {emitGo} from "./emit-go.mjs";
++import {emitJs} from "./emit-js.mjs";
++import {ParseI8} from "./js/abap.mjs";
++import {libraryPath} from "../osd-lib-path.mjs";
++import {home} from "./home.mjs";
++
++const here = dirname(fileURLToPath(import.meta.url));
++const core = `${libraryPath(home, "open-abap-core")}/src`;
++const MAX = 9223372036854775807n, MIN = -9223372036854775808n;
++
++test("ParseI8 in the JS runtime: exact, rounded half away from zero", () => {
++  for (const [v, want] of [
++    ["", 0n], ["   ", 0n], [" 12 ", 12n], ["+12", 12n], ["-12", -12n], ["12-", -12n], ["- 12", -12n],
++    ["0012", 12n], ["2.5", 3n], ["-2.5", -3n], ["2.4", 2n], ["-0.5", -1n], [".5", 1n], ["5.", 5n],
++    ["9223372036854775807", MAX], ["-9223372036854775808", MIN], [" 9223372036854775807 ", MAX],
++    ["9223372036854775806.5", MAX], ["9223372036854775807.4", MAX], ["-9223372036854775808.4", MIN],
++    ["-9223372036854775807.5", MIN], ["00009223372036854775807", MAX], ["1234567890123456789", 1234567890123456789n],
++  ]) assert.equal(ParseI8(v), want, v);
++  for (const [v, cls] of [
++    ["9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"], ["-9223372036854775809", "CX_SY_CONVERSION_OVERFLOW"],
++    ["9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"], ["-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["99999999999999999999", "CX_SY_CONVERSION_OVERFLOW"], ["9999999999999999999.9", "CX_SY_CONVERSION_OVERFLOW"],
++    ["abc", "CX_SY_CONVERSION_NO_NUMBER"], ["-", "CX_SY_CONVERSION_NO_NUMBER"], [".", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["1E3", "CX_SY_CONVERSION_NO_NUMBER"], ["12 3", "CX_SY_CONVERSION_NO_NUMBER"], ["+-1", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["1.5.2", "CX_SY_CONVERSION_NO_NUMBER"], ["12a", "CX_SY_CONVERSION_NO_NUMBER"],
++  ]) assert.throws(() => ParseI8(v), (e) => e.cls === cls, v);
++});
++
++const SOURCE = `
++CLASS zcl_gogen_t_s2i8 DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++  PRIVATE SECTION.
++    CLASS-METHODS to_i8 IMPORTING iv_text TYPE string RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++CLASS zcl_gogen_t_s2i8 IMPLEMENTATION.
++  METHOD to_i8.
++    DATA lv_i8 TYPE int8.
++    TRY.
++        lv_i8 = iv_text.
++        rv = |{ lv_i8 }|.
++      CATCH cx_sy_conversion_overflow.
++        rv = 'OV'.
++      CATCH cx_sy_conversion_no_number.
++        rv = 'NN'.
++    ENDTRY.
++  ENDMETHOD.
++  METHOD run.
++    DATA lt_text TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
++    DATA lv_text TYPE string.
++    APPEND \`9223372036854775807\` TO lt_text.
++    APPEND \` -9223372036854775808 \` TO lt_text.
++    APPEND \`9223372036854775808\` TO lt_text.
++    APPEND \`9223372036854775806.5\` TO lt_text.
++    APPEND \`9223372036854775807.5\` TO lt_text.
++    APPEND \`-2.5\` TO lt_text.
++    APPEND \`\` TO lt_text.
++    APPEND \`abc\` TO lt_text.
++    LOOP AT lt_text INTO lv_text.
++      rv = rv && to_i8( lv_text ) && \`;\`.
++    ENDLOOP.
++  ENDMETHOD.
++ENDCLASS.
++`;
++const WANT = "9223372036854775807;-9223372036854775808;OV;9223372036854775807;OV;-3;0;NN;";
++
++test("string to int8 assignment in generated Go and JS", async () => {
++  const sourceDir = mkdtempSync(join(tmpdir(), "gogen-s2i8-"));
++  const goDir = mkdtempSync(join(here, "go", "cmd", "gogen-s2i8-test-"));
++  try {
++    writeFileSync(join(sourceDir, "zcl_gogen_t_s2i8.clas.abap"), SOURCE);
++    const program = compileProgram({folders: [sourceDir, core], objects: ["ZCL_GOGEN_T_S2I8", "CX_ROOT", "CX_STATIC_CHECK", "CX_DYNAMIC_CHECK", "CX_NO_CHECK", "CL_MESSAGE_HELPER"]});
++    assert.deepEqual(program.partial.filter((p) => p.startsWith("ZCL_GOGEN_T_S2I8")), []);
++    const js = emitJs(program, new URL("./js/abap.mjs", import.meta.url).href);
++    assert.match(js, /abap\.ParseI8\(/);
++    const m = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
++    assert.equal(m.ZCL_GOGEN_T_S2I8.RUN({sy: {index: 0, tabix: 0, subrc: 0, dbcnt: 0}}), WANT);
++    const go = emitGo(program);
++    assert.match(go, /abap\.ParseI8\(/);
++    writeFileSync(join(goDir, "zz_generated.go"), go);
++    writeFileSync(join(goDir, "zz_generated_test.go"), `package main\nimport ("testing"; "osg/gogen/abap")\nfunc TestS2I8(t *testing.T) { if got := ZCL_GOGEN_T_S2I8_RUN(&abap.Session{}); got != ${JSON.stringify(WANT)} { t.Fatalf("got %q", got) } }\n`);
++    const run = spawnSync("go", ["test", "-vet=off", `./cmd/${basename(goDir)}`], {cwd: join(here, "go"), encoding: "utf8", timeout: 120000});
++    assert.equal(run.status, 0, run.stderr || run.stdout);
++  } finally {
++    rmSync(sourceDir, {recursive: true, force: true});
++    rmSync(goDir, {recursive: true, force: true});
++  }
++});

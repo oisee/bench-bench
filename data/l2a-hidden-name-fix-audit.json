@@ -1,0 +1,805 @@
+{
+  "fix": "l2a-hidden-test-name-v1",
+  "cases": [
+    {
+      "run": "L2a-osg693/ali-glm5-pi-20261012-223621",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L2a-osg693/ali-kimi25-codex-20261013-024629",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ali-kimi25-pi-20261012-122800",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ali-minimax25-codex-20261013-040234",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ali-minimax25-pi-20261012-215622",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 1
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 1
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ali-qwen37-codex-20261013-022347",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ali-qwen37-pi-20261012-110325",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/ant-opus-claude-20261012-110325",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/az-sol61-codex-20261012-112835",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/oai-luna-codex-h-20261012-221145",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/oai-luna-codex-m-20261012-221017",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/oai-luna-codex-x-20261012-221437",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L2a-osg693/oai-luna-codex-x-reviewed-20261013-121456",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L2a-osg693/zai-glm53-claude-20261012-123419",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    },
+    {
+      "run": "L2a-osg693/zai-glm53-codex-20261012-134820",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 1
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L2a-osg693/zai-glm53-pi-20261012-110325",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+            "rc": 0
+          },
+          {
+            "cmd": "node tools/gogen/semantics.mjs",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": false
+    }
+  ]
+}

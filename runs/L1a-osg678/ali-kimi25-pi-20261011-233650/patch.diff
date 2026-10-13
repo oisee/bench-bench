@@ -1,0 +1,50 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..db6543e 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,44 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const result = [];
++  let i = 0;
++  while (i < sql.length) {
++    const quoteIdx = sql.indexOf("'", i);
++    if (quoteIdx === -1) {
++      result.push(sql.slice(i));
++      break;
++    }
++    result.push(sql.slice(i, quoteIdx));
++    const literalStart = quoteIdx;
++    let j = quoteIdx + 1;
++    while (j < sql.length) {
++      if (sql[j] === "'") {
++        if (j + 1 < sql.length && sql[j + 1] === "'") {
++          j += 2;
++        } else {
++          const literalEnd = j + 1;
++          let contentEnd = j;
++          while (contentEnd > literalStart + 1 && sql[contentEnd - 1] === ' ') {
++            contentEnd--;
++          }
++          result.push(sql.slice(literalStart, contentEnd));
++          if (contentEnd <= literalEnd - 1) {
++            result.push("'");
++          }
++          i = literalEnd;
++          break;
++        }
++      } else {
++        j++;
++      }
++    }
++    if (j >= sql.length) {
++      result.push(sql.slice(literalStart));
++      break;
++    }
++  }
++  return result.join("");
+ }
+ 
+ /**

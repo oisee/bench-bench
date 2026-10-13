@@ -1,0 +1,166 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..fc20bab 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..613f55b 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..c0ae35d 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -195,6 +195,44 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts a character value to int8, as A4H does (parity-wave2,
++// ZCL_GOGEN_T_C2NUM): same rules as ParseI but for int8's full range.
++// Blanks are 0. The fraction rounds half away from zero; past int8's range
++// is CX_SY_CONVERSION_OVERFLOW, anything else CX_SY_CONVERSION_NO_NUMBER.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	if len(whole) > 19 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	var n int64
++	for i := 0; i < len(whole); i++ {
++		n = n*10 + int64(whole[i]-'0')
++	}
++	if frac != "" && frac[0] >= '5' {
++		n++
++	}
++	if neg {
++		n = -n
++	}
++	if n > math.MaxInt64 || n < math.MinInt64 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	return n
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+@@ -658,6 +696,17 @@ func IToString(v int32) string {
+ 	return strconv.FormatInt(int64(v), 10) + " "
+ }
+ 
++// I8ToString is the move of an int8 into a string, same rules as IToString.
++func I8ToString(v int64) string {
++	if v < 0 {
++		return strconv.FormatInt(-v, 10) + "-"
++	}
++	return strconv.FormatInt(v, 10) + " "
++}
++
++// Concat is the two-operand CONCATENATE, measured on A4H: the text joined
++// and sy-subrc 0 (no room for the result, it is cut and sy-subrc 4).
++
+ // Uccp is cl_abap_conv_out_ce=>uccpi: the code point of a character; the
+ // blank c, stored empty, is 32 (measured on A4H).
+ func Uccp(v string) int32 {
+diff --git a/tools/gogen/go/abap/data.go b/tools/gogen/go/abap/data.go
+index 250b854..0dda615 100644
+--- a/tools/gogen/go/abap/data.go
++++ b/tools/gogen/go/abap/data.go
+@@ -211,6 +211,8 @@ func DataString(d Data) string {
+ 		return *d.P.(*string)
+ 	case 'I':
+ 		return IToString(*d.P.(*int32))
++	case '8':
++		return I8ToString(*d.P.(*int64))
+ 	case 'P':
+ 		return PToString(*d.P.(*string), d.T.Len%100)
+ 	}
+diff --git a/tools/gogen/go/abap/move.go b/tools/gogen/go/abap/move.go
+index 5e2a9dd..913e409 100644
+--- a/tools/gogen/go/abap/move.go
++++ b/tools/gogen/go/abap/move.go
+@@ -88,8 +88,16 @@ func MoveData(dst, src Data) {
+ 			return
+ 		}
+ 	case '8':
+-		if sk == '8' {
+-			*dst.P.(*int64) = *src.P.(*int64)
++		p := dst.P.(*int64)
++		switch sk {
++		case '8':
++			*p = *src.P.(*int64)
++			return
++		case 'F':
++			*p = F2I8(*src.P.(*float64))
++			return
++		case 'C', 'g':
++			*p = ParseI8(*src.P.(*string))
+ 			return
+ 		}
+ 	case 'g':
+@@ -101,6 +109,9 @@ func MoveData(dst, src Data) {
+ 		case 'I':
+ 			*p = IToString(*src.P.(*int32))
+ 			return
++		case '8':
++			*p = I8ToString(*src.P.(*int64))
++			return
+ 		}
+ 	case 'C':
+ 		if sk == 'I' {
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..5581e27 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,24 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++const I8_MAX = 9223372036854775807n;
++const I8_MIN = -9223372036854775808n;
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  if (whole.length > 19) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  let n = whole === "" ? 0n : BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n++;
++  if (neg) n = -n;
++  if (n > I8_MAX || n < I8_MIN) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its

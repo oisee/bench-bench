@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change implements indent/Format in hir/abap/format.go with a line/statement lexer that correctly tracks literals, string templates (with embedded expressions and escapes), both comment kinds, colon chains, keyword-named variables, and SELECT/ENDSELECT pairing; all acceptance bullets are covered by tests, verified against the full generated fixture corpus and the tsfront drivers, and cross-checked against real @abaplint/core's Indentation rule, which reports zero issues on all formatted output. 550k+ fuzz iterations (block nesting, reports/events/forms, comments, long-line wrapping) found no idempotency, token-preservation or 255-byte violations except one degenerate case below. The whole test suite passes and the golden file update is mechanical.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 117,
+      "claim": "When wrapping splits a line at a between-statement cut, `best.next < len(stmts)` is taken to mean a statement starts later on this line, but cut.next is len(stmts) at scan time, i.e. the index of the next statement anywhere in the file (often on a later line). If the remainder of the line starts with something that never starts a statement - a stray second '.' (empty statement) after the closing period - the piece's indentation is taken from the unrelated later-line statement (e.g. ENDMETHOD, giving column 0 instead of 2), so a second Format pass moves the piece and Format is not idempotent. Trigger requires two consecutive periods on a >255-byte line, which this repo's emitters never generate; the empty-statement case is the only reachable form since trailing '\"' comments are guarded.",
+      "repro": "cat > /tmp/repro.go <<'EOF'\npackage main\n\nimport (\n\t\"fmt\"\n\t\"github.com/oisee/abapiti/hir/abap\"\n)\n\nfunc main() {\n\tsrc := \"METHOD m.\\nx |e f| 'v' =>s 'a b' p+q |j \\\\{ k| o= 'l''m' f( y ->r( ) `c d` 'v' : ) y , 'v' , |e f| ) |h \\\\| i| w y DATA 'l''m' && =1 : w ->r( ) x =>s , f( n w y DATA && |e f| n |{ x } g| |j \\\\{ k| ->r( ) |{ x } g| |h \\\\| i| |h \\\\| i| && . .\\nENDMETHOD.\\n\"\n\tonce, _ := abap.Format(src)\n\ttwice, _ := abap.Format(once)\n\tfmt.Printf(\"idempotent: %v\\nonce line 3: %q\\ntwice line 3: %q\\n\", once == twice, once, twice)\n}\nEOF\ncd /tmp && mkdir -p rp && mv repro.go rp/ && cd rp && cat > go.mod <<'EOF'\nmodule rp\n\ngo 1.22\n\nrequire github.com/oisee/abapiti v0.0.0\n\nreplace github.com/oisee/abapiti => /work\nEOF\ngo mod tidy >/dev/null && go run . # prints idempotent: false; the wrapped stray '.' is at column 0 in run 1 and column 2 in run 2"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/emit_test.go",
+      "line": 237,
+      "claim": "The .clas.testclasses.abap fixture scaffolding written by TestFixtures is generated ABAP that still bypasses Format (PRIVATE SECTION./METHOD bodies at column 0); it is the only emitted ABAP in the corpus that real abaplint's default Indentation rule flags (10 issues, all in these files, zero elsewhere). Test-local output only, consistent with the baseline, but inconsistent with 'generated ABAP must pass through Format'.",
+      "repro": "cd /work/hir/abap && ABAPITI_TEST_OUT=/tmp/genout go test -run TestFixtures . && grep -n 'PRIVATE SECTION' /tmp/genout/TestFixtures/z_virtual_fixt_a960646a5fe1fd.clas.testclasses.abap # column 0, unlike the formatted .clas.abap files"
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "7d6bdb3cca",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1298
+}

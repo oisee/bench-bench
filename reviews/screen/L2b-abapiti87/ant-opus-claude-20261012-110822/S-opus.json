@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The patch adds hir/abap/format.go with a small lexer and an indentation state machine. It replaces the old `wrap` with `Format` for every emitted file and routes all tsfront driver classes and reports through it. All tests pass. I generated the full lexer pipeline (71 files, about 25k statements) and checked it against @abaplint/core's own Indent.getExpectedIndents: there were 0 mismatches, every line was at most 255 bytes, and both Format and indent were exact fixed points on the output. Hand-made edge cases also came out right: literals and templates with escaped delimiters, comments, report events, forms, DEFERRED/LOAD class declarations, runtime GET statements, SELECT/ENDSELECT, CATCH SYSTEM-EXCEPTIONS and wrapping between statements.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/registry_driver.go",
+      "line": 21,
+      "claim": "formatABAP silently discards Format errors and returns the unformatted source. If a driver ever contains an unbreakable line longer than 255 bytes, it is emitted unindented and over-long without any diagnostic, so the driver-side guarantee that generated ABAP passes through Format is not enforced. hir/abap EmitNamed, by contrast, does propagate the error. Not a regression, because drivers were never wrapped before.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 76,
+      "claim": "Full-line '*' comments and lines that start inside string-template text longer than 255 bytes make Format fail with 'unbreakable source line'. The old wrap would have split them, which corrupts semantics anyway, so failing is arguably better; it is just a behaviour change worth knowing about.",
+      "repro": "Format(\"* \" + strings.Repeat(\"a \", 150) + \"\\n\") returns error"
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "7d6bdb3cca",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 292
+}

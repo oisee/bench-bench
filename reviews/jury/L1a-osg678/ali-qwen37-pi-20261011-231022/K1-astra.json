@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The iterative scanner removes the stack-overflow risk while preserving the specified trimming behavior for quote-balanced fragments and statements. The focused write-boundary suite passed, over one million short balanced inputs matched the original implementation, and four 15-million-character cases produced the expected results.",
+  "findings": [],
+  "critic": "K1-astra",
+  "anon": "efb95d2ecd",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 62
+}

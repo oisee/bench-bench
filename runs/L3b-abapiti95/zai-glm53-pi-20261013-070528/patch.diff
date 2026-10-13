@@ -1,0 +1,427 @@
+diff --git a/tsfront/lower_expr.go b/tsfront/lower_expr.go
+index c57868d..7c36570 100644
+--- a/tsfront/lower_expr.go
++++ b/tsfront/lower_expr.go
+@@ -1682,7 +1682,10 @@ func (l *lowerer) binary(n *ast.Node) *hir.Expr {
+ 			if base.Kind == hir.Optional {
+ 				base = base.Args[0]
+ 			}
+-			if base.Kind == hir.Array && b.Right.Kind == ast.KindArrayLiteralExpression && len(b.Right.AsArrayLiteralExpression().Elements.Nodes) == 0 {
++			if (base.Kind == hir.Array && b.Right.Kind == ast.KindArrayLiteralExpression && len(b.Right.AsArrayLiteralExpression().Elements.Nodes) == 0) ||
++				(base.Kind == hir.OrderedMap && b.Right.Kind == ast.KindObjectLiteralExpression && len(b.Right.AsObjectLiteralExpression().Properties.Nodes) == 0) {
++				// An empty collection literal takes the left operand's layout:
++				// `m || {}` falls back to an empty record of the same shape.
+ 				l.hint = base
+ 			}
+ 			y := l.expr(b.Right)
+@@ -2131,12 +2134,18 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 		}
+ 	}
+ 	if target == nil {
+-		// Without a hint, derive the shape from the checker's type of the
+-		// literal (a synthesized shape class or a record map).
++		// Without a hint, derive the representation from the checker's own
++		// type of the literal: a synthesized shape class, or the record map
++		// when the literal is index-signature shaped (computed keys) and must
++		// not be forced into a class layout.
+ 		if t := l.ck.GetTypeAtLocation(n); t != nil {
+ 			before := len(l.diags)
+ 			mapped := l.mapCheckerType(n, t)
+-			if len(l.diags) == before && mapped.Kind != hir.Void {
++			if !hasBlocking(l.diags[before:]) && mapped.Kind != hir.Void {
++				if mapped.Kind == hir.OrderedMap {
++					l.diagf(n, "note-record-literal", "record-shaped object literal lowered as a map")
++					return l.recordLiteral(n, mapped)
++				}
+ 				l.hint = mapped
+ 				target = shapeClassOf(l.out.Classes, mapped)
+ 			} else {
+diff --git a/tsfront/lower_types.go b/tsfront/lower_types.go
+index a697fe5..3388dd1 100644
+--- a/tsfront/lower_types.go
++++ b/tsfront/lower_types.go
+@@ -553,6 +553,13 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 			if c := l.synthFromProperties(n, props); c != nil {
+ 				return hir.Ref(c.Name)
+ 			}
++		} else if l.emptyObjectLayout(t) {
++			// An anonymous {} carries no members at all: it has the one empty
++			// structural shape, shared by every empty layout (a literal, a
++			// nested property, an empty contextual view).
++			if c := l.synthFromProperties(n, nil); c != nil {
++				return hir.Ref(c.Name)
++			}
+ 		}
+ 		l.diagf(n, "unsupported-type", "checker type %s is not a lowered declaration", l.ck.TypeToString(t))
+ 		return hir.T(hir.Void)
+@@ -566,6 +573,28 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 	return hir.T(hir.Void)
+ }
+ 
++// emptyObjectLayout reports whether t is an anonymous object type with no
++// members of any kind: no properties, no index signatures and no call or
++// construct signatures. Only such a type is the empty structural shape;
++// callable or index-signature objects keep their own representation.
++func (l *lowerer) emptyObjectLayout(t *checker.Type) bool {
++	if t == nil || t.Alias() != nil {
++		return false
++	}
++	if sym := t.Symbol(); sym != nil {
++		// Only a literal's own anonymous symbol (or a transient one) carries
++		// no named identity; anything else is a named type of its own.
++		if sym.Flags&^(ast.SymbolFlagsObjectLiteral|ast.SymbolFlagsTypeLiteral|ast.SymbolFlagsTransient) != 0 {
++			return false
++		}
++	}
++	if len(l.ck.GetPropertiesOfType(t)) != 0 || len(l.ck.GetIndexInfosOfType(t)) != 0 {
++		return false
++	}
++	return len(l.ck.GetSignaturesOfType(t, checker.SignatureKindCall)) == 0 &&
++		len(l.ck.GetSignaturesOfType(t, checker.SignatureKindConstruct)) == 0
++}
++
+ // synthFromProperties builds a shape class from a list of property symbols.
+ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Class {
+ 	var fields []hir.Field
+diff --git a/tsfront/stmts_anonymous_test.go b/tsfront/stmts_anonymous_test.go
+new file mode 100644
+index 0000000..eca8f1c
+--- /dev/null
++++ b/tsfront/stmts_anonymous_test.go
+@@ -0,0 +1,336 @@
++package tsfront
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++)
++
++// Anonymous object literals whose structural type has no named class or
++// alias: they still need a lowered representation. These tests pin the
++// structural shapes (one class per field layout, property order aside), the
++// positions they appear in, the empty layout, the record fallbacks and the
++// readonly/optional views.
++
++// shapeSignature lists the lowered field layout of a synthesized shape class.
++func shapeSignature(c *hir.Class) string {
++	var fields []string
++	for _, f := range c.Fields {
++		optional := ""
++		if f.Type.Kind == hir.Optional {
++			optional = "?"
++		}
++		fields = append(fields, f.Name+optional+":"+f.Type.String())
++	}
++	return strings.Join(fields, ",")
++}
++
++// anonymousShapes returns the signatures of the synthesized shape classes in
++// lowering order.
++func anonymousShapes(prog *hir.Program) []string {
++	var out []string
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") {
++			out = append(out, shapeSignature(c))
++		}
++	}
++	return out
++}
++
++// goRun executes a parameterless static probe method on the Go backend.
++func goRun(t *testing.T, prog *hir.Program, method string) string {
++	t.Helper()
++	return runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", method)))
++}
++
++func TestStatementsAnonymousShapeSharedAcrossPropertyOrder(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static first() { return {a: 1, b: "two"}; }
++ static second() { return {b: "three", a: 4}; }
++ static other() { return {a: 1, b: 2}; }
++}
++`}, []string{"probe.ts"})
++	shapes := anonymousShapes(prog)
++	if len(shapes) != 2 {
++		t.Fatalf("expected one shape for {a:number,b:string} and one for {a:number,b:number}, got %v", shapes)
++	}
++	if shapes[0] != "a:number,b:string" {
++		t.Errorf("first layout %q", shapes[0])
++	}
++	if shapes[1] != "a:number,b:number" {
++		t.Errorf("second layout %q", shapes[1])
++	}
++	// Both literals construct the very same class.
++	same := 0
++	for _, c := range prog.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") || c.Ctor == nil {
++			continue
++		}
++		if len(c.Ctor.Params) == 2 && c.Ctor.Params[0].Name == "a" && c.Ctor.Params[1].Name == "b" &&
++			c.Ctor.Params[0].Type.Kind == hir.Number && c.Ctor.Params[1].Type.Kind == hir.String {
++			same++
++		}
++	}
++	if same != 1 {
++		t.Errorf("the string-field shape must exist once, found %d", same)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousShapePositions(t *testing.T) {
++	// The same anonymous layout flows through an assignment, an argument, a
++	// return value, a nested structure and an array element.
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static take(o: {a: number, nested: {n: number}}): number { return o.a + o.nested.n; }
++ static make(): {a: number, nested: {n: number}} { return {a: 1, nested: {n: 2}}; }
++ static run(): number {
++   let x: {a: number, nested: {n: number}} | undefined;
++   x = {nested: {n: 5}, a: 4};
++   const rows = [{a: 10, nested: {n: 20}}];
++   return Probe.take(x) + Probe.take(Probe.make()) + Probe.take(rows[0]);
++ }
++}
++`}, []string{"probe.ts"})
++	if got := goRun(t, prog, "run"); got != "42\n" {
++		t.Fatalf("Go run: %q", got)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousEmptyLiteral(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(): number {
++   const alone = {};
++   const nested = {inner: {}};
++   return 1;
++ }
++}
++`}, []string{"probe.ts"})
++	// One empty layout: the standalone literal and the nested property share
++	// the same empty shape class.
++	var empty int
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 0 {
++			empty++
++		}
++	}
++	if empty != 1 {
++		t.Fatalf("expected exactly one empty structural shape, found %d", empty)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousEmptyLiteralUsesContextualShape(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export interface Optional { a?: number; b?: string }
++export class Holder { field: Optional | undefined; constructor() { this.field = {}; } }
++export class Probe {
++ static run(holder: Holder): number {
++   const local: Optional = {};
++   let other: Optional | undefined = {};
++   return (local.a === undefined ? 1 : 2) + (other === undefined ? 10 : 20) + (holder.field === undefined ? 100 : 200);
++ }
++}
++`}, []string{"probe.ts"})
++	// The contextual shape is reused; no synthesized layout appears.
++	for _, sig := range anonymousShapes(prog) {
++		t.Errorf("synthesized an anonymous shape %q although a contextual shape exists", sig)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousEmptyRecordFallback(t *testing.T) {
++	// `m || {}` and `for (const k in m || {})` fall back to an empty record
++	// of the left operand's layout, not to a class shape.
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(m: {[k: string]: number} | undefined): number {
++   let seen = 0;
++   const x = m || {};
++   for (const k in x) { seen = seen + 1; }
++   for (const k in m || {}) { seen = seen + 10; }
++   return seen + (x["missing"] === undefined ? 100 : 200);
++ }
++ static undefinedRecord(): number { return Probe.run(undefined); }
++ static filledRecord(): number {
++   const m: {[k: string]: number} = {"one": 1};
++   return Probe.run(m);
++ }
++}
++`}, []string{"probe.ts"})
++	if shapes := anonymousShapes(prog); len(shapes) != 0 {
++		t.Fatalf("empty record fallback synthesized shapes: %v", shapes)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	// An absent record keeps its absence; a filled one iterates once per
++	// loop, and the fallback map still answers missing keys with undefined.
++	if got := goRun(t, prog, "undefinedRecord"); got != "100\n" {
++		t.Fatalf("Go undefined: %q", got)
++	}
++	if got := goRun(t, prog, "filledRecord"); got != "111\n" {
++		t.Fatalf("Go filled: %q", got)
++	}
++}
++
++func TestStatementsAnonymousRecordLiteralIsMap(t *testing.T) {
++	// A literal with computed keys is record-shaped: it lowers to a map even
++	// without a contextual hint, never into a class layout.
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(key: string): number {
++   const x = {[key]: 1, "fixed": 2};
++   return (x["fixed"] === undefined ? 0 : x["fixed"]) + (x[key] === undefined ? 0 : x[key]);
++ }
++}
++`}, []string{"probe.ts"})
++	if shapes := anonymousShapes(prog); len(shapes) != 0 {
++		t.Fatalf("record literal forced into shapes: %v", shapes)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	if got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s(str(\"fixed\")), %s(str(\"other\")))",
++		goEntry("probe.ts.Probe", "run"), goEntry("probe.ts.Probe", "run"))); got != "4 3\n" {
++		t.Fatalf("Go run: %q", got)
++	}
++}
++
++func TestStatementsAnonymousReadonlyViewSharesLayout(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++type View = Readonly<{a: number, b: string}>;
++export class Probe {
++ static one(): View { return {a: 1, b: "x"}; }
++ static two(): {readonly a: number, readonly b: string} { return {b: "y", a: 2}; }
++ static mutable(): {a: number, b: string} { return {a: 3, b: "z"}; }
++}
++`}, []string{"probe.ts"})
++	shapes := anonymousShapes(prog)
++	if len(shapes) != 1 || shapes[0] != "a:number,b:string" {
++		t.Fatalf("readonly views must share the mutable layout, got %v", shapes)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousOptionalFieldKeptAbsent(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(): string {
++   const x = {a: 1, b: "set"};
++   const y: {a: number, b?: string} = {a: 2};
++   return x.b + "|" + (y.b === undefined ? "absent" : y.b);
++ }
++}
++`}, []string{"probe.ts"})
++	shapes := anonymousShapes(prog)
++	// The required string and the absent-able string are different physical
++	// layouts: two shapes, and the optional one keeps its absence.
++	if len(shapes) != 2 {
++		t.Fatalf("expected one required and one optional layout, got %v", shapes)
++	}
++	kept := false
++	for _, sig := range shapes {
++		if strings.Contains(sig, "b?:optional<string>") {
++			kept = true
++		}
++	}
++	if !kept {
++		t.Errorf("optional property lost its absence: %v", shapes)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	if got := goRun(t, prog, "run"); got != "set|absent\n" {
++		t.Fatalf("Go run: %q", got)
++	}
++}
++
++func TestStatementsAnonymousOptionalShapeSynthesized(t *testing.T) {
++	// Without any named target, the optional property still lowers as an
++	// absent-able field of the synthesized shape.
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(): string {
++   const y = {a: 2, b: undefined as string | undefined};
++   return y.b === undefined ? "absent" : y.b;
++ }
++}
++`}, []string{"probe.ts"})
++	shapes := anonymousShapes(prog)
++	if len(shapes) != 1 || !strings.Contains(shapes[0], "b?:optional<string>") {
++		t.Fatalf("expected the synthesized shape to keep b absent-able, got %v", shapes)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	if got := goRun(t, prog, "run"); got != "absent\n" {
++		t.Fatalf("Go run: %q", got)
++	}
++}
++
++func TestStatementsAnonymousContextualUnionAndOptional(t *testing.T) {
++	// Anonymous literals in a union or optional context: the literal keeps
++	// its structural shape and flows into the lowered union/optional view.
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export interface A { a: number }
++export interface B { b: string }
++export class P {
++ x: A | undefined;
++ static take(x: A | B): number { return 1; }
++ static pick(c: boolean): A | B { return c ? {a: 1} : {b: "s"}; }
++ static run(p: P, c: boolean): number {
++   p.x = {a: 1};
++   const local: {a: number} | undefined = c ? {a: 1} : undefined;
++   return P.take({a: 1}) + (p.x === undefined ? 0 : p.x.a) + (local === undefined ? 0 : local.a);
++ }
++}
++`}, []string{"probe.ts"})
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestStatementsAnonymousNestedLiteralShapes(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++ static run(): string {
++   const x = {inner: {leaf: {n: 1}}, list: [{n: 2}]};
++   return x.inner.leaf.n + ":" + x.list[0].n;
++ }
++}
++`}, []string{"probe.ts"})
++	// The leaf layout is synthesized once and shared by the nested literal
++	// and the array element.
++	var leaves int
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 1 && c.Fields[0].Name == "n" {
++			leaves++
++		}
++	}
++	if leaves != 1 {
++		t.Fatalf("expected one shared leaf shape, found %d (%v)", leaves, anonymousShapes(prog))
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	if got := goRun(t, prog, "run"); got != "1:2\n" {
++		t.Fatalf("Go run: %q", got)
++	}
++}

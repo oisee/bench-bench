@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The change handles very large, balanced literals and the focused test suite passes. It changes the established behavior for a short fragment that ends with an unmatched quote: a complete earlier pair no longer has its trailing spaces removed.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/sql-literals.mjs",
+      "line": 42,
+      "claim": "When the final two quotes can be read as an escape but have no later closing quote, the scanner abandons the entire span. The previous regex backtracks to the first of those quotes as the close of a literal and trims its trailing spaces, so this changes trimLiterals behavior on short fragments.",
+      "repro": "Input: trimLiterals(\"'a  ''\"). Current result: \"'a  ''\". Baseline result: \"'a''\"."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "228580eee4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 77
+}

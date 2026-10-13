@@ -1,0 +1,48 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The patch adds indent/Format in hir/abap and routes the HIR emitter, the legacy ts and llvm backends, the wasm line packer and the tsfront drivers through Format. All tests pass. I checked the output against abaplint 2.118's own Indent.getExpectedIndents: there were 0 mismatches over 3435 statements of HIR fixture output and 307 statements of driver output, and also 0 over 1200 statements of llvm/wasm output once each statement was put on its own line. The remaining defects are edge cases: a continuation line that starts with `*` and belongs to a column-zero statement gets turned into a comment, and `INTERFACE ... DEFERRED` opens a block.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 255,
+      "claim": "indent sets a continuation line to its statement's indentation level. When that level is 0 and the continuation line starts with a `*` operator, the line moves to column 0 and becomes a full-line comment. That changes program semantics: the statement's tail and its period become a comment, so the statement merges with the next one. The wrap step guards against putting `*` at column 0, but indent does not.",
+      "repro": "printf 'REPORT z.\\nDATA y TYPE i.\\ny = 3\\n  * 2.\\nWRITE y.\\n' | Format -> line 4 becomes '* 2.' (a comment), leaving 'y = 3 WRITE y.'"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 213,
+      "claim": "The same root cause also affects wrapping. wrap only checks the current line's prefix before cutting in front of `*`. If the cut is inside a later, shallower statement on the same line, the next indent pass moves the continuation to that statement's level 0, and the `*` operator becomes a comment.",
+      "repro": "src = \"IF a = 1.\\nx = 1. ENDIF. yb = \" + strings.Repeat(\"a + \", 58) + \"a * 2.\\nz = 3.\\n\"; Format(src) produces a line '* 2.' at column 0"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 184,
+      "claim": "`INTERFACE lif DEFERRED.` and `INTERFACE lif LOAD.` push an INTERFACE block that is never closed. Every following statement is indented by 2 until the next CLASS/FORM/event resets the stack. abaplint expects column 0 here. The patch excludes DEFERRED/LOAD for CLASS but not for INTERFACE.",
+      "repro": "Format(\"REPORT z.\\nINTERFACE lif DEFERRED.\\nDATA x TYPE REF TO lif.\\nPARAMETERS p TYPE i.\\n\") -> DATA/PARAMETERS indented by 2; abaplint Indent expects 0"
+    },
+    {
+      "severity": "P3",
+      "file": "wasm/linepacker.go",
+      "line": 158,
+      "claim": "wrapLongLines now panics with compileError when nesting or Format fails. Its caller CompileInterface (wasm/names.go:135) has no catchCompileError recover, so such a failure crashes instead of returning. llvm.Compile and the tsfront drivers also panic on a Format error. Unbreakable lines that used to be passed through to the CLI's --allow-long-lines reporting now abort. The doc comment above the function still describes the removed behaviour (continuation lines indented further, trailing comment kept last).",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 222,
+      "claim": "The block-opener logic is packed into very long one-line boolean chains, e.g. the IF/DO/.../SELECT case relies on && binding tighter than ||, and the GET exclusion list is one line. This is hard to read and maintain. wrap can also leave trailing spaces at a cut when there is a run of spaces.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "cdd25b0d0f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 556
+}

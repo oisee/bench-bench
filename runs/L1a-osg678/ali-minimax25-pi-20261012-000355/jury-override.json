@@ -1,0 +1,1 @@
+{"jury_override": true, "override_note": "P0 reproduced: trimLiterals still throws RangeError on a literal with 200000 internal spaces followed by a non-space (push(...spread)); hidden tests do not cover it"}

@@ -1,0 +1,6 @@
+# github.com/oisee/abapiti/hir/abap [github.com/oisee/abapiti/hir/abap.test]
+hir/abap/indent_test.go:62:9: undefined: indent
+hir/abap/indent_test.go:66:5: undefined: indent
+hir/abap/indent_test.go:108:12: undefined: indent
+FAIL	github.com/oisee/abapiti/hir/abap [build failed]
+FAIL

@@ -1,0 +1,361 @@
+diff --git a/minzc/pkg/hir/hir.go b/minzc/pkg/hir/hir.go
+index 4f79c53..01d8e35 100644
+--- a/minzc/pkg/hir/hir.go
++++ b/minzc/pkg/hir/hir.go
+@@ -365,7 +365,7 @@ func (*VarRefExpr) hirExpr()          {}
+ func (e *VarRefExpr) ExprTy() mir2.Ty { return e.Ty }
+ 
+ // BinExpr is a binary operation.
+-// Op is one of: + - * / % & | ^ << >> == != < <= > >=
++// Op is one of: + - * / % & | ^ << >> == != < <= > >= && ||
+ type BinExpr struct {
+ 	Op   string
+ 	L, R Expr
+diff --git a/minzc/pkg/hir/lower.go b/minzc/pkg/hir/lower.go
+index 6f9ca55..1d3a7bc 100644
+--- a/minzc/pkg/hir/lower.go
++++ b/minzc/pkg/hir/lower.go
+@@ -1928,6 +1928,11 @@ func (l *lowerer) lowerCondExpr(ex *CondExpr) mir2.Reg {
+ 
+ // lowerBinExpr lowers a binary expression.
+ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
++	switch ex.Op {
++	case "&&", "||":
++		return l.lowerLogicalExpr(ex)
++	}
++
+ 	// Comparison operators → produce a flag (ClassFlag).
+ 	switch ex.Op {
+ 	case "==", "!=", "<", "<=", ">", ">=":
+@@ -1977,6 +1982,54 @@ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
+ 	}
+ }
+ 
++func (l *lowerer) lowerLogicalExpr(ex *BinExpr) mir2.Reg {
++	entry := l.bld.Cur
++	evalBlock := l.bld.SwitchToNewBlock(l.fresh("logical_eval"))
++	joinBlock := l.bld.SwitchToNewBlock(l.fresh("logical_join"))
++	result := l.bld.BlockParam(joinBlock, mir2.TyBool, classForExpr(mir2.TyBool))
++	l.bld.SwitchTo(entry)
++
++	cond := l.lowerCond(ex.L)
++	shortCircuit := l.bld.Const(0, mir2.TyBool, classForExpr(mir2.TyBool))
++	if ex.Op == "||" {
++		shortCircuit = l.bld.Const(1, mir2.TyBool, classForExpr(mir2.TyBool))
++		l.bld.BrIf(cond, joinBlock.Label, []mir2.Reg{shortCircuit}, evalBlock.Label, nil)
++	} else {
++		l.bld.BrIf(cond, evalBlock.Label, nil, joinBlock.Label, []mir2.Reg{shortCircuit})
++	}
++
++	l.bld.SwitchTo(evalBlock)
++	if value, ok := literalBool(ex.R); ok {
++		var literalValue int64
++		if value {
++			literalValue = 1
++		}
++		literalResult := l.bld.Const(literalValue, mir2.TyBool, classForExpr(mir2.TyBool))
++		l.bld.Jmp(joinBlock.Label, literalResult)
++		l.bld.SwitchTo(joinBlock)
++		return result
++	}
++
++	right := l.lowerCond(ex.R)
++	rightFalse := l.bld.Const(0, mir2.TyBool, classForExpr(mir2.TyBool))
++	rightTrue := l.bld.Const(1, mir2.TyBool, classForExpr(mir2.TyBool))
++	l.bld.BrIf(right, joinBlock.Label, []mir2.Reg{rightTrue}, joinBlock.Label, []mir2.Reg{rightFalse})
++
++	l.bld.SwitchTo(joinBlock)
++	return result
++}
++
++func literalBool(e Expr) (value bool, ok bool) {
++	switch literal := e.(type) {
++	case *BoolLitExpr:
++		return literal.Val, true
++	case *IntLitExpr:
++		return literal.Val != 0, true
++	default:
++		return false, false
++	}
++}
++
+ // lowerUnaryExpr lowers a unary expression.
+ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
+ 	xReg := l.lowerExpr(ex.X)
+diff --git a/minzc/pkg/mir2/z80codegen.go b/minzc/pkg/mir2/z80codegen.go
+index 1136a80..a66a14e 100644
+--- a/minzc/pkg/mir2/z80codegen.go
++++ b/minzc/pkg/mir2/z80codegen.go
+@@ -6689,6 +6689,7 @@ func (g *z80cg) genTerm(f *Func, t Term) {
+ 		}
+ 
+ 	case *TermBrIf:
++		constVal, isConstCond := g.constVals[t.Cond]
+ 		cc := g.condCode(f, t.Cond)
+ 
+ 		// Build block-arg copies for each edge.
+@@ -6708,7 +6709,13 @@ func (g *z80cg) genTerm(f *Func, t Term) {
+ 		// CGT = NC && NZ (a > b); CLE = C || Z (a ≤ b).
+ 		// Note: CLE/CGT need two jumps — first uses JR, second uses JR too.
+ 		// MZA auto-promotes any JR to JP when out of range.
+-		if cc == "CLE" {
++		if isConstCond {
++			if constVal != 0 {
++				g.emitf("    JRS %s", thenLbl)
++			} else {
++				g.emitf("    JRS %s", elseLbl)
++			}
++		} else if cc == "CLE" {
+ 			// a ≤ b: branch to then if C (a<b) or Z (a==b).
+ 			g.emitf("    JRS C, %s", thenLbl)
+ 			g.emitf("    JRS Z, %s", thenLbl)
+diff --git a/minzc/pkg/nanz/logical_test.go b/minzc/pkg/nanz/logical_test.go
+new file mode 100644
+index 0000000..65c5209
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_test.go
+@@ -0,0 +1,142 @@
++package nanz_test
++
++import (
++	"testing"
++
++	"github.com/minz/minzc/pkg/hir"
++	"github.com/minz/minzc/pkg/nanz"
++	"github.com/minz/minzc/pkg/pipeline"
++)
++
++func TestLogicalOperatorsShortCircuit(t *testing.T) {
++	src := `
++global effects: u8 = 0
++
++fun bump(value: u8) -> u8 {
++    effects = effects + 1
++    return value
++}
++
++fun and_skips_right() -> u8 {
++    let result: bool = false && bump(true) != 0
++    if result { return 255 }
++    return effects
++}
++
++fun and_evaluates_right() -> u8 {
++    let result: bool = true && bump(true) != 0
++    if !result { return 255 }
++    return effects
++}
++
++fun or_skips_right() -> u8 {
++    let result: bool = true || bump(false) != 0
++    if !result { return 255 }
++    return effects
++}
++
++fun or_evaluates_right() -> u8 {
++    let result: bool = false || bump(true) != 0
++    if !result { return 255 }
++    return effects
++}
++
++fun while_condition() -> u8 {
++    var index: u8 = 0
++    while index < 2 && bump(true) != 0 {
++        index = index + 1
++    }
++    return effects
++}
++
++fun canonical_value() -> bool {
++    return false || true
++}
++
++fun canonical_runtime(value: u8) -> bool {
++    return value != 0 && value < 10
++}
++
++assert and_skips_right() == 0
++assert and_evaluates_right() == 1
++assert or_skips_right() == 0
++assert or_evaluates_right() == 1
++assert while_condition() == 2
++assert canonical_value() == 1
++assert canonical_runtime(2) == 1
++assert canonical_runtime(0) == 0
++`
++	module, err := nanz.Parse(src, "logical_short_circuit.nanz")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	if _, err := pipeline.CompileHIR(module); err != nil {
++		t.Fatalf("compile: %v", err)
++	}
++}
++
++func TestLogicalOperatorPrecedence(t *testing.T) {
++	src := `
++fun and_before_or() -> bool {
++    return false && true || true
++}
++
++fun bitwise_before_logical() -> bool {
++    return false & true || true
++}
++
++fun bitwise_chain() -> bool {
++    return false | false xor true & true == true
++}
++
++fun arithmetic_shift_chain() -> u8 {
++    return 1 + 2 << 3 * 4
++}
++`
++	module, err := nanz.Parse(src, "logical_precedence.nanz")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++
++	andBeforeOr := findReturnedBinary(module, "and_before_or")
++	andBeforeOrLeft, andBeforeOrLeftOk := andBeforeOr.L.(*hir.BinExpr)
++	if andBeforeOr == nil || andBeforeOr.Op != "||" || !andBeforeOrLeftOk || andBeforeOrLeft.Op != "&&" {
++		t.Fatalf("expected (false && true) || true, got %#v", andBeforeOr)
++	}
++	bitwiseBeforeLogical := findReturnedBinary(module, "bitwise_before_logical")
++	bitwiseBeforeLogicalLeft, bitwiseBeforeLogicalLeftOk := bitwiseBeforeLogical.L.(*hir.BinExpr)
++	if bitwiseBeforeLogical == nil || bitwiseBeforeLogical.Op != "||" || !bitwiseBeforeLogicalLeftOk || bitwiseBeforeLogicalLeft.Op != "&" {
++		t.Fatalf("expected (false & true) || true, got %#v", bitwiseBeforeLogical)
++	}
++	bitwiseChain := findReturnedBinary(module, "bitwise_chain")
++	bitwiseXor, bitwiseXorOk := bitwiseChain.R.(*hir.BinExpr)
++	bitwiseAnd, bitwiseAndOk := bitwiseXor.R.(*hir.BinExpr)
++	bitwiseEquality, bitwiseEqualityOk := bitwiseAnd.R.(*hir.BinExpr)
++	if bitwiseChain == nil || bitwiseChain.Op != "|" || !bitwiseXorOk || bitwiseXor.Op != "^" ||
++		!bitwiseAndOk || bitwiseAnd.Op != "&" || !bitwiseEqualityOk || bitwiseEquality.Op != "==" {
++		t.Fatalf("expected false | (false xor (true & (true == true))), got %#v", bitwiseChain)
++	}
++	shiftChain := findReturnedBinary(module, "arithmetic_shift_chain")
++	shiftAdd, shiftAddOk := shiftChain.L.(*hir.BinExpr)
++	shiftMul, shiftMulOk := shiftChain.R.(*hir.BinExpr)
++	if shiftChain == nil || shiftChain.Op != "<<" || !shiftAddOk || shiftAdd.Op != "+" ||
++		!shiftMulOk || shiftMul.Op != "*" {
++		t.Fatalf("expected (1 + 2) << (3 * 4), got %#v", shiftChain)
++	}
++}
++
++func findReturnedBinary(module *hir.Module, functionName string) *hir.BinExpr {
++	function := module.FuncByName(functionName)
++	if function == nil {
++		return nil
++	}
++	var result *hir.BinExpr
++	for _, statement := range function.Body.Body {
++		if returned, ok := statement.(*hir.ReturnStmt); ok {
++			if binary, ok := returned.Val.(*hir.BinExpr); ok {
++				result = binary
++			}
++		}
++	}
++	return result
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..7614369 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -111,7 +111,9 @@ const (
+ 	tokSlash      // /
+ 	tokPercent    // %
+ 	tokAmp        // &
++	tokAndAnd     // &&
+ 	tokPipe       // |
++	tokOrOr       // ||
+ 	tokCaret      // ^ (also used as pointer dereference)
+ 	tokTilde      // ~
+ 	tokLtLt       // <<
+@@ -218,6 +220,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokColonColon, "::", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAndAnd, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokOrOr, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+@@ -4397,23 +4407,25 @@ type binop struct {
+ }
+ 
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	tokOrOr:   {"||", 1},
++	tokAndAnd: {"&&", 2},
++	tokPipe:   {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4442,7 +4454,7 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			continue
+ 		}
+ 		// |> value pipe: expr |> f → f(expr), expr |> f(a) → f(expr, a)
+-		if t.kind == tokPipeGt && minPrec < 1 {
++		if t.kind == tokPipeGt && minPrec < 3 {
+ 			p.l.next() // consume |>
+ 			rhs, err := p.parseUnary()
+ 			if err != nil {
+@@ -4471,10 +4483,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -5469,6 +5481,8 @@ func matchOpOverload(ovs []opOverload, lTy, rTy mir2.Ty) (opOverload, bool) {
+ 
+ func resultTy(l, r mir2.Ty, op string) mir2.Ty {
+ 	switch op {
++	case "&&", "||":
++		return mir2.TyBool
+ 	case "==", "!=", "<", "<=", ">", ">=":
+ 		return mir2.TyBool
+ 	}

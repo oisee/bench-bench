@@ -1,0 +1,69 @@
+{
+  "verdict": "correct",
+  "quality": 3,
+  "summary": "The change adds hir/abap indent/Format implementing the abaplint two-space style, routes every generator (hir, llvm, ts, tsfront drivers, wasm single/multi-class/interface) through Format, and the golden file diff is whitespace-only; go build and go test ./... pass and all listed acceptance cases (classes, sections, CASE/WHEN, TRY/CATCH/CLEANUP, report events, GET RUN TIME, same-line statements, literals/comments, 255-byte wrapping) behave as specified. Remaining issues are edge cases: wrapping can cut right before a `*` token so the continuation becomes a column-0 comment on re-format (idempotency/semantics), a long trailing \" comment makes Format error instead of wrapping, and some non-block statements (GET TIME STAMP, INTERFACE ... DEFERRED, CLASS ... LOCAL FRIENDS, SELECT without ENDSELECT) are misclassified as block openers/events.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 437,
+      "claim": "lastSafeSpace may cut immediately before a `*` token, so the wrapped continuation line starts with `*`. On the next Format pass indentABAP treats that line as a full-line comment and moves it to column 0, so Format is not idempotent and the statement's tail silently turns into a comment; at report level (indent 0) even the first pass emits `* zz + 1.` at column 0, which ABAP itself reads as a comment.",
+      "repro": "Format(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\nIF a = 1.\\nx = \" + strings.Repeat(\"a\",243) + \" * zz + bbb.\\nENDIF.\\nENDMETHOD.\\nENDCLASS.\\n\") then Format again: second output has `* zz + bbb.` at column 0 and ENDIF mis-indented. Also Format(\"REPORT z.\\nx = \"+strings.Repeat(\"a\",250)+\" * zz + 1.\\nWRITE x.\\n\") yields a column-0 `* zz + 1.` line."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 372,
+      "claim": "A statement with a long trailing \" comment cannot be wrapped: lastSafeSpace stops at the comment start, the remainder line begins with `\"`, and the loop returns 'unbreakable source line' instead of wrapping the comment text (wrapComment already exists for that). llvm and wasm emit trailing comments (e.g. `\" offset to field %s`), so a long one aborts code generation (panic in llvm.Compile / wasm.CompileInterface).",
+      "repro": "Format(\"METHOD m.\\nx = 1. \\\"\" + strings.Repeat(\"word \", 70) + \"\\nENDMETHOD.\\n\") returns err 'unbreakable source line (353 bytes)'."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 197,
+      "claim": "isReportEvent treats every GET except RUN/PARAMETER/REFERENCE as a report event, so runtime statements like `GET TIME STAMP FIELD ts.`, `GET TIME.`, `GET BIT`, `GET BADI`, `GET CURSOR`, `GET PF-STATUS` are put at column 0 and open an event block, mis-indenting the surrounding FORM/METHOD body.",
+      "repro": "Format(\"FORM f.\\nGET TIME STAMP FIELD ts.\\nWRITE ts.\\nENDFORM.\\n\") gives `GET TIME STAMP FIELD ts.` at column 0 instead of two spaces."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 296,
+      "claim": "`INTERFACE x DEFERRED.` unconditionally opens an INTERFACE block, and `CLASS x DEFINITION LOCAL FRIENDS ...` / `CLASS x DEFINITION LOAD.` open a CLASS block (only ' DEFERRED' is excluded). Everything after such a forward declaration is indented one extra level until an unmatched END statement appears.",
+      "repro": "Format(\"INTERFACE zif DEFERRED.\\nCLASS zcl DEFINITION.\\nPUBLIC SECTION.\\nINTERFACES zif.\\nENDCLASS.\\n\") indents CLASS/ENDCLASS by two spaces; same with \"CLASS zcl DEFINITION LOCAL FRIENDS ltcl.\\nCLASS ltcl DEFINITION.\\nENDCLASS.\\n\"."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 57,
+      "claim": "A forward declaration (CLASS ... DEFINITION DEFERRED) inside a report event body is forced to column 0 and pops the event, so following event statements lose their indentation; abaplint keeps a deferred declaration as an ordinary statement inside the event.",
+      "repro": "Format(\"START-OF-SELECTION.\\nCLASS lcl DEFINITION DEFERRED.\\nWRITE 'x'.\\n\") emits both lines at column 0."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 348,
+      "claim": "SELECT is treated as a block opener unless it contains ' SINGLE ' or ' INTO TABLE '; aggregate selects (SELECT COUNT(*) ... INTO @DATA(n).), APPENDING TABLE, INTO CORRESPONDING FIELDS OF TABLE etc. have no ENDSELECT and leave a dangling block that indents the rest of the routine.",
+      "repro": "Format(\"FORM f.\\nSELECT COUNT(*) FROM t INTO @DATA(n).\\nWRITE n.\\nENDFORM.\\n\") indents WRITE by four spaces."
+    },
+    {
+      "severity": "P3",
+      "file": "wasm/multiclass.go",
+      "line": 318,
+      "claim": "CompileMultiClass formats MainClass, ChunkClasses, Interfaces and StateClass, then r.Files() formats each of them again; and the chunk cost estimate still uses the old wrapLongLines (240-byte wrap, no re-indent) while the final output is produced by Format (255-byte wrap plus indentation), so line budgets are computed against a different layout than what is emitted.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "llvm/llvm2abap.go",
+      "line": 727,
+      "claim": "formatABAP (and wasm.CompileInterface) panic on a Format error instead of propagating it; before this change llvm.Compile never failed, so an unbreakable line now crashes the tool rather than returning an error like the other call sites.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-fable",
+  "critic_model": "anthropic/fable",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 334
+}

@@ -1,0 +1,76 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..23c4dbb 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -94,6 +94,22 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     expect(trimLiterals("VALUES ('  a b  ')")).to.equal("VALUES ('  a b')");
+   });
+ 
++  it("trims only ordinary spaces at each single-quoted literal's close", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("''")).to.equal("''");
++    expect(trimLiterals("'   '")).to.equal("''");
++    expect(trimLiterals("VALUES (' a\t b\n  ', 'c  ', \"d  \")"))
++      .to.equal("VALUES (' a\t b\n', 'c', \"d  \")");
++    expect(trimLiterals("\"a 'b  ' c\"")).to.equal("\"a 'b' c\"");
++  });
++
++  it("keeps a fifteen-million-character literal on the stack-free path", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const literal = "'" + "a".repeat(15_000_000) + "   '";
++    const expected = literal.slice(0, -4) + "'";
++    expect(trimLiterals(literal)).to.equal(expected);
++  });
++
+   it("and nothing outside a literal is touched", async () => {
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..a4f1a81 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,43 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  let result = "";
++  let keptFrom = 0;
++  let inLiteral = false;
++  let trailingSpaces = 0;
++  let index = 0;
++
++  while (index < sql.length) {
++    if (sql[index] !== "'") {
++      if (inLiteral && sql[index] === " ") trailingSpaces++;
++      else if (trailingSpaces !== 0) trailingSpaces = 0;
++      index++;
++      continue;
++    }
++
++    if (!inLiteral) {
++      result += sql.slice(keptFrom, index) + "'";
++      index++;
++      keptFrom = index;
++      trailingSpaces = 0;
++      inLiteral = true;
++      continue;
++    }
++
++    if (sql[index + 1] === "'") {
++      index += 2;
++      trailingSpaces = 0;
++      continue;
++    }
++
++    result += sql.slice(keptFrom, index - trailingSpaces) + "'";
++    index++;
++    keptFrom = index;
++    trailingSpaces = 0;
++    inLiteral = false;
++  }
++
++  return result + sql.slice(keptFrom);
+ }
+ 
+ /**

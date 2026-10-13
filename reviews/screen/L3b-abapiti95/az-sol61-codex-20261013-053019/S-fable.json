@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change canonicalizes anonymous shape identity by sorted field name, synthesizes shapes for empty and contextual-union literals, routes record-typed literals to maps, preserves readonly per symbol, and keeps JS evaluation order via per-property temporaries that l.expr wraps into Seq (so conditional branches and loop conditions stay lazy). The full test suite passes and probes for assignments, arguments, defaults, static/module initializers, callbacks, spreads, nested/optional contexts, union contexts and side-effect ordering all behave correctly on the patched tree; the only failures found also fail on the baseline. Remaining issues are minor: the readonly flag on a shared shape class depends on which view was lowered first.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_types.go",
+      "line": 642,
+      "claim": "When an existing shape class is reused, only l.fields[p] gets the readonly flag; the class's own Field.Readonly keeps whatever the first synthesizing view had. Lowering a mutable view before the readonly one therefore yields a shape whose fields are not readonly, so the new TestAnonymousObjectReadonlyAndOptional only passes because make() precedes view(). Since Field.Readonly also feeds number-range tracking (Private||Readonly), emitted field types can vary with declaration order. Sound, but order-dependent.",
+      "repro": "Swap the two function declarations in TestAnonymousObjectReadonlyAndOptional (declare view before make): the 'readonly property was lost' assertion fails."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_expr.go",
+      "line": 2268,
+      "claim": "Every property of a shape.-prefixed literal is hoisted into a temporary, even pure literals or single-property objects, which bloats emitted Go/ABAP with Seq blocks and locals; only properties followed by a later-evaluated, earlier-ordered side-effecting initializer need a temp.",
+      "repro": "hir.Dump of `take({z: 0, a: 1})` shows `seq (new shape(...(t1), (t2)))` with two VarDecl temporaries for constants."
+    }
+  ],
+  "critic": "S-fable",
+  "critic_model": "anthropic/fable",
+  "anon": "a613a81551",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 683
+}

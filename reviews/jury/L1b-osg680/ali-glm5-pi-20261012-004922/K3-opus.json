@@ -1,0 +1,33 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The change adds a Go runtime function abap.DecodeBase64 and a nodeutf8 package, but never wires CL_HTTP_UTILITY=>DECODE_BASE64 into the gogen frontend's kernel-call table, so ABAP calls are still NOT_COMPILED. The UTF-8 decoder also diverges from Node whenever a sequence with an invalid second byte (E0 80, ED A0, F0 8F, F4 90) is interrupted by a non-continuation byte mid-stream, emitting one U+FFFD where Node emits one per byte.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 736,
+      "claim": "No mapping for CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (next to ENCODE_BASE64's {fn: \"abap.EncodeBase64\", args: [\"UNENCODED:string\"]}) was added, so the new abap.DecodeBase64 is unreachable from compiled ABAP; the call still hits the @KERNEL line and reports NOT_COMPILED. The hidden acceptance test ZCL_OSGT_DECODE_BASE64 fails for this reason.",
+      "repro": "A class whose method does `rv = cl_http_utility=>decode_base64( iv ).` plus a unit test, then `node tools/osgo-unit.mjs /tmp/b64case --class ZCL_OSGT_DECODE_BASE64` -> `NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159): @KERNEL`"
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 81,
+      "claim": "The decoder checks only the generic 80..BF continuation range for the second byte and does not check the lead byte's own range (E0:A0-BF, ED:80-9F, F0:90-BF, F4:80-8F). When an invalid prefix like E0 80 or F4 90 80 is then broken by a non-continuation byte, it emits a single U+FFFD for the whole prefix. Node (WHATWG maximal-subpart) emits one per byte. A differential fuzz over 200k short byte strings found 5328 mismatches with Node.",
+      "repro": "nodeutf8.Decode(\"\\xE0\\x80A\") == \"\\uFFFDA\" but Node Buffer.from('e08041','hex').toString() == \"\\uFFFD\\uFFFDA\"; likewise \\xED\\xA0A and \\xF4\\x90\\x80A (Node: 3 U+FFFD + A, Go: 1)"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 125,
+      "claim": "Overlong, surrogate and out-of-range handling is split three ways (decodeSequence after completion, wouldBeValid at EOF, nothing mid-stream), which is how the mid-stream case was missed. Validating the second byte against the lead byte's range when it arrives would cover all three paths at once. The tests cover the EOF and complete-sequence cases only.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "b21ac024f4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 91
+}

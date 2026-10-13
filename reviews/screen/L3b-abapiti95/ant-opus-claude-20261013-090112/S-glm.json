@@ -1,0 +1,34 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change satisfies the acceptance criteria: anonymous and empty object literals now lower to shared synthesized shape classes (reuse is order-independent and readonly/optional-ref views share one physical class), record and optional contexts are handled, and the new test fails on baseline, passes after, verifies, and emits through both the ABAP and Go backends with the correct runtime result. The whole repository test suite is green, and extensive differential probing against a baseline worktree (~40 hand-written inputs: spreads, duplicates, quoted/keyword keys, optional slots, subset interfaces, records, cross-file reuse, `as const`/`satisfies`, empty contexts) showed no regressions — every remaining failure (for-in over a shape literal, member access through a union of two distinct shapes, method/getter members, optional-vs-required primitive slot mismatches) fails identically on baseline. The main weakness is that the largest new function, anonymousLiteral, appears unreachable in practice: it is never entered by the entire test corpus nor by any input I could construct, so ~200 lines of subtle machinery (flowsTo, pureLiteralValue, the temp-based evaluation-order guard) are effectively untested code.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 367,
+      "claim": "anonymousLiteral (with flowsTo, pureLiteralValue, literalMember and the tempInit ordering logic) is dead code in practice: it requires the literal's own checker type to fail mapping while every member still lowers, and no corpus test or hand-written input reaches it with a successful lowering - including the patch's own acceptance test, whose diagnostics contain no note-structural-shape. If it ever becomes reachable it will run essentially untested.",
+      "repro": "In a scratch copy of the repo add `fmt.Fprintf(os.Stderr, \"ANON-LITERAL reached\\n\")` at the top of anonymousLiteral and run `go test ./tsfront/ ./hir/...` - it prints nothing (0 entries)."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 384,
+      "claim": "The source-order evaluation guard is incomplete: only PropertyAssignment initializers are counted as impure, never spread expressions, and it takes no action when exactly one member is impure. A literal like {x: f(\"m\"), ...g()} evaluates the spread g() before f(\"m\"), reversing JavaScript's evaluation order. This currently manifests only through the pre-existing named-shape path (same wrong order on baseline), but the new code's stated intent ('evaluate the members in source order') does not cover it.",
+      "repro": "class Probe { static log = \"\"; static f(t: string, v: number): {x: number} { Probe.log += t; return {x: v}; } static run(): number { const s = {x: Probe.f(\"m\", 1), ...Probe.f(\"s\", 2)}; return Probe.log === \"ms\" ? 1 : 2; } } - Go backend prints 2 (log was \"sm\"); Node gives \"ms\". Same result on baseline."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 280,
+      "claim": "The shape path registers l.fieldsBy under the key `parentName.field` while the only reader (fieldOf, tsfront/lower.go:512) looks up `fileName + \" \" + parentName.field` (as lower_class.go:349 writes), so this registration can never be found - a dead write carried over from the old synthFromProperties.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "b5fbc69523",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1780
+}

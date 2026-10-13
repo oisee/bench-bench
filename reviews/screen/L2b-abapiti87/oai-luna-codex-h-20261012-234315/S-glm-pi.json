@@ -1,0 +1,48 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The formatter covers most acceptance rules (TRY/CASE/WHEN, report events, literals, wrapping, mostly idempotent) and is wired into all generators, but every class section after the first is indented at 4 spaces instead of the required 2 (baked into the regenerated golden), ts.Transpile now hard-fails on long string literals that previously compiled, and Format both panics in several drivers on unbreakable lines and loses idempotency/semantics when a wrap lands before a '*' token.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 329,
+      "claim": "Class section headers after the first are indented at the previous section's body level (4 spaces) instead of the class body level (2 spaces), violating the acceptance rule 'Class sections have two leading spaces and their declarations have four'. indentABAP computes the line's depth before applyStatement pops the open SECTION block, so only PUBLIC SECTION (which arrives with no SECTION on the stack) gets 2 spaces; PROTECTED/PRIVATE SECTION get 4. This affects virtually every generated class definition, and the wrong output was baked into the regenerated golden testdata, hiding it from tests.",
+      "repro": "sed -n '1,8p' hir/abap/testdata/global_definitions_v750.txt  # shows '  PUBLIC SECTION.' but '    PROTECTED SECTION.' / '    PRIVATE SECTION.' — also: feeding 'CLASS c DEFINITION.\\nPUBLIC SECTION.\\nDATA a.\\nPROTECTED SECTION.\\nENDCLASS.\\n' through abap.Format yields '    PROTECTED SECTION.' (4 spaces)"
+    },
+    {
+      "severity": "P1",
+      "file": "ts/ts2abap.go",
+      "line": 71,
+      "claim": "Regression: ts.Transpile now returns an error ('unbreakable source line') for sources containing a string literal longer than ~250 characters, because the transpiler emits such literals as one ABAP token and wrapABAP refuses to split inside it. Before the patch these inputs transpiled successfully (the long line was simply emitted).",
+      "repro": "cat >/tmp/tsrepro/main.go building AST JSON {kind:SourceFile,children:[{kind:ClassDeclaration,name:Demo,children:[{kind:MethodDeclaration,name:f,visibility:public,body:[{kind:VariableDeclaration,name:s,init:{kind:StringLiteral,value:'a'*300}}]}]}]} and calling ts.Transpile → 'err: zcl_demo: unbreakable source line (307 bytes)'; with git stash (baseline) the same input returns a class with no error"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 42,
+      "claim": "Format is not idempotent and can corrupt the program when line wrapping breaks immediately before a '*' token (multiplication). wrapABAP then emits a continuation line starting with '*'; on the next pass indentABAP treats any line whose trimmed text starts with '*' as a full-line comment, moves it to column 0 (making it a real ABAP comment), leaves the statement unterminated, and misindents following lines. This is reachable in production because wasm.CompileMultiClass formats the sources and cmd/abapiti then calls result.Files(), which formats them a second time.",
+      "repro": "abap.Format on 'METHOD m.\\nDATA x TYPE i.\\nx = ' + strings.Repeat(\"1\",247) + ' * 2.\\nENDMETHOD.\\n' then Format the result again: first pass ends with '  * 2.' continuation, second pass emits '* 2.' at column 0 (now a comment, statement x = ... left without a period); outputs differ, violating the required idempotency"
+    },
+    {
+      "severity": "P2",
+      "file": "tsfront/abap_format.go",
+      "line": 11,
+      "claim": "Format failures are converted to panics in paths that previously could not fail: tsfront drivers (LexerTestClass, StatementsTestClass, Registry*, Structures*) returned b.String() directly, llvm.Compile returned plain source, and wasm.CompileInterface used wrapLongLines which deliberately leaves unbreakable segments long instead of erroring. Any generated line over 255 bytes with no breakable space outside literals now panics these code paths (llvm.Compile is called directly by the abapiti CLI).",
+      "repro": "Any >255-byte line whose only spaces are inside a literal, e.g. abap.Format(\"WRITE '\" + strings.Repeat(\"a b \",70) + \"'.\\n\") returns 'unbreakable source line (285 bytes)'; routed through tsfront.formatGeneratedABAP / llvm formatABAP / wasm.CompileInterface this panics instead of the baseline behavior (return source / keep segment long)"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/emit.go",
+      "line": 2141,
+      "claim": "Dead code: the old wrap() is no longer called anywhere after EmitNamed switched to Format; it should be removed.",
+      "repro": "grep -rn '\\bwrap(' --include='*.go' hir/abap/ | grep -v wrapABAP  # only the definition remains"
+    }
+  ],
+  "critic": "S-glm-pi",
+  "critic_model": "zai/glm-5.3",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 944
+}

@@ -1,0 +1,12 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The patch correctly implements consistent ABAP indentation (indent and Format functions) in hir/abap, integrates formatting into all generation paths (emit, llvm, ts, tsfront drivers, wasm), and passes all existing and new tests. The implementation handles edge cases well: literals/comments/templates are excluded from keyword detection, assignment statements with keyword-named variables are correctly identified, multiline literals preserve their content, full-line * comments stay at column zero, and both operations are idempotent.",
+  "findings": [],
+  "critic": "S-qwen-pi",
+  "critic_model": "alibaba/qwen3.7-plus",
+  "anon": "cdd25b0d0f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 301
+}

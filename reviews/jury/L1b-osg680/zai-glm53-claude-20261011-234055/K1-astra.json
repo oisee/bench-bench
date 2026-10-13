@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The compiler mapping and UTF-8 decoder are well scoped, and the Go tests pass; an additional comparison against Node matched all 165,536 tested byte strings. However, the reused Base64 helper differs from Node for non-ASCII encoded input, leaving the explicit Node-compatibility requirement incomplete.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 19,
+      "claim": "Delegating to DecodeXBase64 does not preserve Node's handling of non-ASCII characters in the encoded string. That helper filters UTF-8 bytes, whereas Node interprets the low byte of each UTF-16 code unit when decoding Base64. Consequently, characters whose low byte is an alphabet character or '=' can change the decoded text or terminate decoding in Node, but are discarded here. The new DecodeBase64 therefore returns different text for these inputs despite the task's explicit Node-compatibility requirement.",
+      "repro": "Input encoded = \"Y\\u0151==\" (Yő==): abap.DecodeBase64(&abap.Session{}, encoded) returns \"\", while node -e 'console.log(JSON.stringify(Buffer.from(\"Y\\u0151==\", \"base64\").toString()))' prints \"a\". Also, input \"YQ😀QUJD\" returns Go text \"a\\x04\\x14$\", whereas Buffer.from(\"YQ😀QUJD\", \"base64\").toString() returns \"a\". Both differences were reproduced using go run /tmp/bench-review-b64.go from tools/gogen/go."
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "629c52bcba",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 76
+}

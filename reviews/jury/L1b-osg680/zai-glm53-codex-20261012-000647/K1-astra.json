@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The native binding and UTF-8 decoder are well scoped; Go tests pass, and 165,793 differential UTF-8 cases matched Node. However, the reused Base64 parser mishandles non-ASCII input relative to Node, leaving the explicit Base64 compatibility requirement incomplete.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 16,
+      "claim": "DecodeBase64 delegates to DecodeXBase64, which filters UTF-8 bytes, whereas Node interprets the low bytes of UTF-16 code units when parsing Base64. Consequently, non-ASCII characters can represent alphabet characters or padding in Node but are discarded here. For example, Y😀WJhcA== decodes to an empty string in Node but to abap here; řWJhcA== decodes to abap in Node but to X�\\ here. The Base64 stage must reproduce Node's input interpretation before the new UTF-8 decoder runs.",
+      "repro": "From the repository root:\nnode -e 'console.log(JSON.stringify(Buffer.from(\"Y😀WJhcA==\", \"base64\").toString()))'\n# Expected: \"\"\ncat > /tmp/review-b64-repro.go <<'GO'\npackage main\nimport (\"fmt\"; \"osg/gogen/abap\")\nfunc main() { fmt.Printf(\"%q\\n\", abap.DecodeBase64(nil, \"Y😀WJhcA==\")) }\nGO\n(cd tools/gogen/go && go run /tmp/review-b64-repro.go)\n# Actual: \"abap\""
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "47fdacba85",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 82
+}

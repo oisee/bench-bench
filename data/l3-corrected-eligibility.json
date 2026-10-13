@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-10-13T12:03:18.081538+00:00",
+  "reason": "L2a hidden TestParseI8 name collision corrected and all 16 L2a runs regraded",
+  "grade_fix": "l2a-hidden-test-name-v1",
+  "historical_lock": [
+    "az-sol61-codex",
+    "ant-opus-claude",
+    "zai-glm53-claude",
+    "zai-glm53-pi"
+  ],
+  "corrected_rule": "All L1+L2 passes; at most four baseline finalists by geometric mean of task-normalized time. At most one Alibaba Codex wildcard, requiring both L2 passes, by normalized L2 time. L2 jury scores are unavailable and are not used.",
+  "best_duration_s": {
+    "L1a-osg678": 57,
+    "L1b-osg680": 149,
+    "L2a-osg693": 56,
+    "L2b-abapiti87": 391
+  },
+  "full_pass_candidates": [
+    "az-sol61-codex",
+    "ant-opus-claude",
+    "oai-luna-codex-x",
+    "zai-glm53-claude",
+    "zai-glm53-pi"
+  ],
+  "l2_only_pass_candidates": [],
+  "corrected_selection": [
+    {
+      "executor": "az-sol61-codex",
+      "speed_ratio": 1.442,
+      "evidence": {
+        "L1a-osg678": "L1a-osg678/az-sol61-codex-20261012-102353",
+        "L1b-osg680": "L1b-osg680/az-sol61-codex-20261012-102532",
+        "L2a-osg693": "L2a-osg693/az-sol61-codex-20261012-112835",
+        "L2b-abapiti87": "L2b-abapiti87/az-sol61-codex-20261012-113203"
+      }
+    },
+    {
+      "executor": "ant-opus-claude",
+      "speed_ratio": 2.25,
+      "evidence": {
+        "L1a-osg678": "L1a-osg678/ant-opus-claude-20261011-231022",
+        "L1b-osg680": "L1b-osg680/ant-opus-claude-20261011-231131",
+        "L2a-osg693": "L2a-osg693/ant-opus-claude-20261012-110325",
+        "L2b-abapiti87": "L2b-abapiti87/ant-opus-claude-20261012-110822"
+      }
+    },
+    {
+      "executor": "oai-luna-codex-x",
+      "speed_ratio": 2.6,
+      "evidence": {
+        "L1a-osg678": "L1a-osg678/oai-luna-codex-x-20261012-111213",
+        "L1b-osg680": "L1b-osg680/oai-luna-codex-x-20261012-111547",
+        "L2a-osg693": "L2a-osg693/oai-luna-codex-x-20261012-221437",
+        "L2b-abapiti87": "L2b-abapiti87/oai-luna-codex-x-20261012-235415"
+      }
+    },
+    {
+      "executor": "zai-glm53-claude",
+      "speed_ratio": 9.961,
+      "evidence": {
+        "L1a-osg678": "L1a-osg678/zai-glm53-claude-20261011-233454",
+        "L1b-osg680": "L1b-osg680/zai-glm53-claude-20261011-234055",
+        "L2a-osg693": "L2a-osg693/zai-glm53-claude-20261012-123419",
+        "L2b-abapiti87": "L2b-abapiti87/zai-glm53-claude-20261012-125544"
+      }
+    }
+  ],
+  "added": [
+    "oai-luna-codex-x"
+  ],
+  "displaced": [
+    "zai-glm53-pi"
+  ]
+}

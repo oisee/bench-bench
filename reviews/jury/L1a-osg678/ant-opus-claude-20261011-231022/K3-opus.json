@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The regex is replaced by a linear indexOf-based scan. It pairs quotes exactly as the old regex did, including the backtracking case where a literal never closes, and trims only trailing ordinary spaces. 500k random fuzz inputs over quotes, spaces, tabs, newlines and double quotes matched the original regex output exactly, and 15M-character literals (plain, space-only, unclosed, and dense with '' pairs) complete in tens of ms.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 30,
+      "claim": "Comment grammar nit: 'an RAWSTRING' should be 'a RAWSTRING'. No functional impact.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "27b9c00c43",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 41
+}

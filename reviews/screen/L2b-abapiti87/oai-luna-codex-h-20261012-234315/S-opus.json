@@ -1,0 +1,55 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The change adds hir/abap indent/Format and routes every generator through Format. The build and all tests pass, but the indenter breaks two explicit acceptance rules on code the project really generates. Every class that has more than one visibility section gets its second and later sections indented at four spaces, and the updated golden file records this wrong output. Runtime GET statements such as `GET TIME STAMP` are treated as report events, which throws off the indentation of the WASI runtime from that point to the end of the class.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 59,
+      "claim": "PROTECTED SECTION / PRIVATE SECTION after an earlier section are printed at the current body depth (4 spaces), not 2. The line depth is worked out before applyStatement pops the previous SECTION block, and section headers have no special case in the lineDepth logic. The acceptance rule 'Class sections have two leading spaces' fails for almost every generated class. The updated golden testdata records this wrong output (e.g. global_definitions_v750.txt lines 6-7: '    PROTECTED SECTION.' / '    PRIVATE SECTION.'). The WASI wasm output has the same problem ('    PRIVATE SECTION.' at line 63).",
+      "repro": "indent(\"CLASS c DEFINITION.\\nPUBLIC SECTION.\\nDATA a TYPE i.\\nPROTECTED SECTION.\\nDATA b TYPE i.\\nPRIVATE SECTION.\\nENDCLASS.\\n\") -> '    PROTECTED SECTION.' and '    PRIVATE SECTION.' (expected 2 spaces); also: sed -n 1,8p hir/abap/testdata/global_definitions_v750.txt"
+    },
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 192,
+      "claim": "isReportEvent treats any `GET x` as a report event unless x is RUN/PARAMETER/REFERENCE. Runtime statements such as `GET TIME STAMP FIELD`, `GET TIME`, `GET BIT`, `GET CURSOR` and `GET LOCALE` are therefore put at column 0, and applyStatement pushes an EVENT block on top of the METHOD/CASE/IF stack. From then on, wrong depths cascade through the rest of the class. Real case: the WASI runtime helper in wasm/wasi.go:260 emits `GET TIME STAMP FIELD lv_ts.` inside a method. The formatted output puts it at column 0, the lines after it at 2 spaces, and later WHEN/ENDIF/ENDCASE lines are misaligned. This violates 'runtime GET statements do not open report events' and the block-alignment rules.",
+      "repro": "indent(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\nGET TIME STAMP FIELD ts.\\nIF a = 1.\\nx = 1.\\nENDIF.\\nENDMETHOD.\\nENDCLASS.\\n\") -> 'GET TIME STAMP FIELD ts.' at col 0, 'IF' at 2 spaces, 'ENDMETHOD' at 2 with no body indent. Real output: compile buildWASIModule() via wasm.Compile and look near 'GET TIME STAMP' (lines 318-360 of the result)."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 290,
+      "claim": "Only `DEFERRED` is recognised as a non-block CLASS form. `CLASS c DEFINITION LOAD.` and `CLASS c DEFINITION LOCAL FRIENDS d.` open a CLASS block, and `INTERFACE i DEFERRED.` / `INTERFACE i LOAD.` always open an INTERFACE block. Everything after them is indented one level too deep, and the matching ENDCLASS aligns wrongly.",
+      "repro": "indent(\"CLASS c DEFINITION LOCAL FRIENDS d.\\nCLASS d DEFINITION.\\nPUBLIC SECTION.\\nENDCLASS.\\n\") -> 'CLASS d DEFINITION.' indented 2 spaces; same with \"INTERFACE zif DEFERRED.\\n...\""
+    },
+    {
+      "severity": "P2",
+      "file": "wasm/names.go",
+      "line": 137,
+      "claim": "The wasm backend's wrapLongLines never failed: it left an unbreakable segment long. It has been replaced by abap.Format, which returns an error when it finds no safe space before byte 255. lastSafeSpace also stops at the first `\"`, so a long trailing comment after a short code part cannot be split. CompileInterface (and llvm Compile and the tsfront drivers) now panic on such input, where they used to return output.",
+      "repro": "abap.Format(\"x = '\" + strings.Repeat(\"a\", 300) + \"'.\\n\") returns error 'unbreakable source line'; wrapLongLines on the same input returned it unchanged"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 246,
+      "claim": "Block statements outside the small keyword list are not indented: TEST-SEAM/END-TEST-SEAM, CATCH SYSTEM-EXCEPTIONS/ENDCATCH, DEFINE/END-OF-DEFINITION, WITH/ENDWITH, PROVIDE, ON CHANGE OF. The formatter also keeps duplicate event-keyword lists in isReportEvent and applyStatement, so the two can drift apart.",
+      "repro": "indent(\"METHOD m.\\nTEST-SEAM s.\\nx = 1.\\nEND-TEST-SEAM.\\nENDMETHOD.\\n\") -> body not indented"
+    },
+    {
+      "severity": "P3",
+      "file": "wasm/multiclass.go",
+      "line": 36,
+      "claim": "Chunk classes, interfaces, the state class and the main class are formatted in CompileMultiClass and then formatted again in CompileResult.Files' add(). The result is correct only because Format is idempotent. It is wasted work on very large generated sources.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 191
+}

@@ -1,0 +1,48 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change adds a lexer-aware indent/Format pair in hir/abap that implements abaplint's default two-space scheme (class sections, WHEN, TRY/CATCH, report events, forms, same-line statements, literal/comment awareness) with byte-accurate 255-byte wrapping, and routes every generator (hir emitter, wasm, llvm, ts, tsfront drivers) through Format. All acceptance points are met in my probes, both operations are idempotent, the regenerated golden file is whitespace-only, and the full test suite passes. Remaining issues are edge cases not reachable from current generators: re-indenting a top-level continuation line that begins with '*' turns it into a comment, and INTERFACE DEFERRED / CLASS ... LOCAL FRIENDS incorrectly open blocks.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 305,
+      "claim": "indent() re-indents a continuation line whose first token is the '*' operator to column zero when the statement sits at depth 0 (report level, between classes), turning the multiplication into a full-line comment and changing program semantics. wrap() guards against creating this situation but indent() does not, so Format(\"x = a\\n * b.\") is unsafe even though the task requires semantics to be preserved.",
+      "repro": "indent(\"x = a\\n * b.\\ny = 1.\\n\") returns \"x = a\\n* b.\\ny = 1.\\n\" (second line is now a comment)"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 172,
+      "claim": "Only CLASS ... DEFERRED/LOAD are recognised as non-block forward declarations. 'INTERFACE lif DEFERRED.' pushes an INTERFACE block that is never popped, and 'CLASS lcl DEFINITION LOCAL FRIENDS ...' pushes a CLASS block, so every following statement up to the next event/form/class is indented one extra level (abaplint treats both as plain statements). Not emitted by current generators.",
+      "repro": "indent(\"REPORT z.\\nINTERFACE lif DEFERRED.\\nDATA a TYPE i.\\n\") -> DATA line indented by 2; same for \"CLASS lcl DEFINITION LOCAL FRIENDS zcl_x.\\nDATA a TYPE i.\\n\""
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 171,
+      "claim": "A 'CLASS ... DEFINITION DEFERRED.' statement is forced to column zero even inside an event body, where abaplint keeps it at the body indentation (2). Cosmetic divergence from the reference style.",
+      "repro": "indent(\"START-OF-SELECTION.\\nWRITE 'a'.\\nCLASS lcl DEFINITION DEFERRED.\\nWRITE 'b'.\\n\") puts the CLASS line at column 0 between two lines indented by 2"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 215,
+      "claim": "SELECT loop detection is a keyword heuristic: any SELECT containing ' TABLE ' is treated as non-blocking, so 'SELECT ... PACKAGE SIZE n INTO TABLE itab ... ENDSELECT' is not indented as a block (ENDSELECT ends up at body level). Generated code does not emit SELECT, so this is latent.",
+      "repro": "indent(\"METHOD m.\\nSELECT * FROM t PACKAGE SIZE 10 INTO TABLE @DATA(itab).\\nx = 1.\\nENDSELECT.\\nENDMETHOD.\\n\")"
+    },
+    {
+      "severity": "P3",
+      "file": "wasm/linepacker.go",
+      "line": 158,
+      "claim": "wrapLongLines now panics (compileError) on nesting or wrapping failures; CompileInterface (wasm/names.go:135) calls it without a catchCompileError recover, so a failure there would crash instead of returning an error. hasLongLine is left as dead code after the rewrite.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-fable",
+  "critic_model": "anthropic/fable",
+  "anon": "cdd25b0d0f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 427
+}

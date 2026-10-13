@@ -1,0 +1,34 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The patch lets empty and anonymous `{}` types become synthesized shapes, sorts property order so equivalent layouts share one class and constructor ABI, picks the assignable constituent for contextual unions, sends record-typed literals to map construction, and adds Readonly flags. Its new tests and the full suite pass, and ad-hoc probes (nested/array/arrow/map callbacks, ternary and `??` empties, optional args, three-way unions with undefined, static and module initializers, for-loop increments) match or improve on baseline with no regressions found. Remaining issues are minor: readonly metadata on a shared shape depends on which view is lowered first, and every shape literal property now gets a temp.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tsfront/lower_types.go",
+      "line": 641,
+      "claim": "Readonly on the shared shape class's fields is fixed by whichever view synthesizes the class first. Later views only update l.fields. If a mutable view of the same layout appears before a readonly view, the readonly information never reaches the class fields. That loses the 'preserve readonly property information' requirement depending on declaration order. The reverse order also marks fields Readonly that mutable views write, and number_ranges then treats them like private or readonly fields.",
+      "repro": "Lower `export function view(v:{label:string;count?:number}):{label:string;count?:number}{return v;} export function make():{readonly label:string;count?:number}{return {label:\"value\"};}` (the readonly test from anonymous_shape_test.go with the two functions swapped): the single shape.* class has label Readonly=false."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_expr.go",
+      "line": 2268,
+      "claim": "Every property of a `shape.*` literal is hoisted into a fresh temp through tempInit, even when the initializers are side-effect-free literals or already in canonical order. This bloats the emitted ABAP and Go (one DATA/var per property per literal). Temps would only be needed when source order differs from canonical order and an initializer can have side effects.",
+      "repro": "Emit ABAP for `const v = {a: 1, b: 2};` and see two extra temporaries for constant arguments."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_types.go",
+      "line": 553,
+      "claim": "The broadened mapCheckerType condition now turns any anonymous property-less type into an empty data shape. This includes the TS `{}` type, which means 'any non-nullish value', and construct-signature-only type literals, since only call signatures are excluded. A primitive passed to a `{}` parameter then produces invalid HIR (classref<shape.e3b0...> <- i32) with no frontend diagnostic. Baseline was also invalid here, so this is not a regression, but the mapping is semantically wrong for `{}`.",
+      "repro": "export function f(x: {}): number { return 1; } export class Probe { static run(): number { return f(5); } }  -> hir.Verify: call argument type mismatch classref<shape.e3b0...> <- i32"
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "a613a81551",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 446
+}

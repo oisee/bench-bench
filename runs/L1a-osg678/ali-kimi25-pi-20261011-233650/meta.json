@@ -1,0 +1,10 @@
+{
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "kimi-k2.5",
+  "effort": "high",
+  "harness_version": "1.0.2",
+  "started_at": "2026-10-11T23:36:53+01:00",
+  "finished_at": "2026-10-11T23:42:56+01:00",
+  "exit_code": "0"
+}

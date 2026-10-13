@@ -1,0 +1,37 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 290,
+  "grade_fix": "l2a-hidden-test-name-v1",
+  "task": "L2a-osg693",
+  "level": "L2",
+  "executor": "zai-glm53-codex",
+  "harness": "codex",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 298,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "codex-cli 0.162.1"
+}

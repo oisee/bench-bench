@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change maps cl_http_utility=>decode_base64 to a new Go host function, abap.DecodeBase64. That function reuses the existing Node-compatible DecodeXBase64 and feeds its bytes to a new nodeutf8.Decode, which follows the WHATWG UTF-8 decoder. I ran two differential fuzz tests against Node 26.9: 200k random byte strings through nodeutf8.Decode, and 100k random Base64-ish strings through DecodeBase64. Neither found a single mismatch. go vet, the go tests and semantics.mjs (Go and JS rows for ZCL_GOGEN_T_D64) all pass.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 741,
+      "claim": "The comments call the mapping 'not measured on a system' (no A4H measurement), and decode_base64 on a real system converts through the system code page, not Node's UTF-8. That matches the task's stated oracle, but the comment wording is terse ('either' refers to the ENCODE comment above it) and could be clearer about the possible gap with real SAP.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "629c52bcba",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 55
+}

@@ -1,0 +1,277 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..f6e030b 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -195,6 +195,46 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts a character value to int8, as A4H does: the same rules
++// as ParseI (blanks, one sign, digits with at most one point, fraction
++// rounds half away from zero) but with int8's 64-bit signed range.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	if len(whole) > 19 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	var n uint64
++	for i := 0; i < len(whole); i++ {
++		n = n*10 + uint64(whole[i]-'0')
++	}
++	if frac != "" && frac[0] >= '5' {
++		n++
++	}
++	if neg {
++		if n > 9223372036854775808 {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++		return -int64(n)
++	}
++	if n > 9223372036854775807 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	return int64(n)
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/move.go b/tools/gogen/go/abap/move.go
+index 5e2a9dd..6af418f 100644
+--- a/tools/gogen/go/abap/move.go
++++ b/tools/gogen/go/abap/move.go
+@@ -92,6 +92,10 @@ func MoveData(dst, src Data) {
+ 			*dst.P.(*int64) = *src.P.(*int64)
+ 			return
+ 		}
++		if sk == 'C' || sk == 'g' {
++			*dst.P.(*int64) = ParseI8(*src.P.(*string))
++			return
++		}
+ 	case 'g':
+ 		p := dst.P.(*string)
+ 		switch sk {
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..22af0ad
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,142 @@
++package abap
++
++import (
++	"math"
++	"testing"
++)
++
++func TestParseI8(t *testing.T) {
++	tests := []struct {
++		in   string
++		want int64
++	}{
++		{"", 0},
++		{"   ", 0},
++		{"0", 0},
++		{"42", 42},
++		{"-42", -42},
++		{"+42", 42},
++		{"  42  ", 42},
++		{"  -42  ", -42},
++		{"- 42", -42},
++		{"42-", -42}, // trailing minus sign
++		{"9223372036854775807", math.MaxInt64},
++		{"-9223372036854775808", math.MinInt64},
++		{"+9223372036854775807", math.MaxInt64},
++		{"0000000000000000042", 42},
++		{"3.14", 3},
++		{"3.5", 4},
++		{"-3.5", -4},
++		{"2.5", 3},
++		{"-2.5", -3},
++		{"0.5", 1},
++		{"-0.5", -1},
++		{"0.4", 0},
++		{"-0.4", 0},
++	}
++	for _, tt := range tests {
++		got := ParseI8(tt.in)
++		if got != tt.want {
++			t.Errorf("ParseI8(%q) = %d, want %d", tt.in, got, tt.want)
++		}
++	}
++}
++
++func TestParseI8Overflow(t *testing.T) {
++	overflows := []string{
++		"9223372036854775808",
++		"-9223372036854775809",
++		"99999999999999999999",
++		"10000000000000000000",
++	}
++	for _, s := range overflows {
++		func() {
++			defer func() {
++				r := recover()
++				if r == nil {
++					t.Errorf("ParseI8(%q) should have panicked", s)
++					return
++				}
++				e, ok := r.(ArithmeticError)
++				if !ok || e.Class != "CX_SY_CONVERSION_OVERFLOW" {
++					t.Errorf("ParseI8(%q) panic = %v, want CX_SY_CONVERSION_OVERFLOW", s, r)
++				}
++			}()
++			ParseI8(s)
++		}()
++	}
++}
++
++func TestParseI8NoNumber(t *testing.T) {
++	noNumbers := []string{
++		"abc",
++		"12abc",
++		"++5",
++		"--5",
++		"+-5",
++		".",
++	}
++	for _, s := range noNumbers {
++		func() {
++			defer func() {
++				r := recover()
++				if r == nil {
++					t.Errorf("ParseI8(%q) should have panicked", s)
++					return
++				}
++				e, ok := r.(ArithmeticError)
++				if !ok || e.Class != "CX_SY_CONVERSION_NO_NUMBER" {
++					t.Errorf("ParseI8(%q) panic = %v, want CX_SY_CONVERSION_NO_NUMBER", s, r)
++				}
++			}()
++			ParseI8(s)
++		}()
++	}
++}
++
++func TestParseI8ExactEndpoints(t *testing.T) {
++	// Verify both endpoints are preserved exactly
++	if v := ParseI8("9223372036854775807"); v != math.MaxInt64 {
++		t.Errorf("max int64: got %d", v)
++	}
++	if v := ParseI8("-9223372036854775808"); v != math.MinInt64 {
++		t.Errorf("min int64: got %d", v)
++	}
++}
++
++func TestParseI8RoundedOverflow(t *testing.T) {
++	// 9223372036854775807.5 rounds to 9223372036854775808 which overflows
++	func() {
++		defer func() {
++			r := recover()
++			if r == nil {
++				t.Error("ParseI8(9223372036854775807.5) should have panicked")
++				return
++			}
++			e, ok := r.(ArithmeticError)
++			if !ok || e.Class != "CX_SY_CONVERSION_OVERFLOW" {
++				t.Errorf("ParseI8(9223372036854775807.5) panic = %v, want CX_SY_CONVERSION_OVERFLOW", r)
++			}
++		}()
++		ParseI8("9223372036854775807.5")
++	}()
++	// -9223372036854775808.5 rounds to -9223372036854775809 which overflows
++	func() {
++		defer func() {
++			r := recover()
++			if r == nil {
++				t.Error("ParseI8(-9223372036854775808.5) should have panicked")
++				return
++			}
++			e, ok := r.(ArithmeticError)
++			if !ok || e.Class != "CX_SY_CONVERSION_OVERFLOW" {
++				t.Errorf("ParseI8(-9223372036854775808.5) panic = %v, want CX_SY_CONVERSION_OVERFLOW", r)
++			}
++		}()
++		ParseI8("-9223372036854775808.5")
++	}()
++	// -9223372036854775807.5 rounds to -9223372036854775808 which is exactly MinInt64, should NOT overflow
++	if v := ParseI8("-9223372036854775807.5"); v != math.MinInt64 {
++		t.Errorf("ParseI8(-9223372036854775807.5) = %d, want %d", v, math.MinInt64)
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..399d52a 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,26 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++const I8_MIN = -(1n << 63n), I8_MAX = (1n << 63n) - 1n;
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  if (whole.length > 19) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  let n = whole === "" ? 0n : BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n++;
++  if (neg) {
++    if (n > 9223372036854775808n) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++    return -n;
++  }
++  if (n > I8_MAX) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+@@ -993,6 +1013,7 @@ export function MoveData(dst, src) {
+       break;
+     case "8":
+       if (sk === "8") return dst.set(v);
++      if (sk === "C" || sk === "g") return dst.set(ParseI8(v));
+       break;
+     case "g":
+       if (sk === "g" || sk === "C") return dst.set(v);

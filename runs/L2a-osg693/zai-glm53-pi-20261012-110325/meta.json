@@ -1,0 +1,8 @@
+{
+  "harness": "pi",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "effort": "high",
+  "harness_version": "1.0.2",
+  "started_at": "2026-10-12T11:03:32+01:00"
+}

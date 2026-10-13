@@ -1,0 +1,41 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The formatter passes the existing hir/abap tests and handles common class and control-flow indentation. It still changes multiline template values, misreads nested templates, turns wrapped comments into code, and misses GET report events.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "hir/abap/format.go",
+      "line": 175,
+      "claim": "Indenting a continuation that is inside a multiline string template replaces its original leading spaces, changing the literal value instead of preserving it.",
+      "repro": "abap.Format(\"CLASS z IMPLEMENTATION.\\nMETHOD run.\\nDATA x TYPE string.\\nx = |first\\n  second|.\\nENDMETHOD.\\nENDCLASS.\\n\") changes the two spaces before second to four; abaplint parses the input without errors."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 76,
+      "claim": "The scanner treats the opening pipe of a nested string template as the end of the outer template, so a period and IF inside the nested literal create a false block and corrupt following indentation.",
+      "repro": "abap.Format(\"CLASS z IMPLEMENTATION.\\nMETHOD run.\\nDATA x TYPE string.\\nx = |{ |x. IF.| }|.\\nDATA y TYPE i.\\nENDMETHOD.\\nENDCLASS.\\n\") emits six spaces before DATA y and four before ENDMETHOD; abaplint parses the input without errors."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 469,
+      "claim": "Wrapping a full-line * comment writes its continuation without a comment marker, turning comment text into ABAP code and breaking Format idempotence.",
+      "repro": "abap.Format(\"CLASS z IMPLEMENTATION.\\nMETHOD run.\\n* \" + strings.Repeat(\"comment \", 40) + \"\\nDATA x TYPE i.\\nENDMETHOD.\\nENDCLASS.\\n\") returns a second comment line beginning with \"comment\", not \"*\"; formatting that output again changes it."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 401,
+      "claim": "GET logical-database report events are never recognized as event headers, leaving their bodies at column zero instead of two spaces.",
+      "repro": "abap.Format(\"REPORT z.\\nGET node.\\nWRITE node-field.\\nFORM f.\\nWRITE 'x'.\\nENDFORM.\\n\") leaves WRITE node-field. unindented; abaplint parses GET node. as a Get statement."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "1d75959d9b",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 370
+}

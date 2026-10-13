@@ -1,0 +1,481 @@
+diff --git a/tools/gogen/go/abap/b64decode_test.go b/tools/gogen/go/abap/b64decode_test.go
+index c690cca..39514f4 100644
+--- a/tools/gogen/go/abap/b64decode_test.go
++++ b/tools/gogen/go/abap/b64decode_test.go
+@@ -19,3 +19,50 @@ func TestDecodeXBase64(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestDecodeBase64(t *testing.T) {
++	tests := []struct {
++		name    string
++		encoded string
++		want    string
++	}{
++		// Basic decoding
++		{"empty", "", ""},
++		{"hello", "aGVsbG8=", "hello"},
++		{"open sesame", "b3BlbiBzZXNhbWU=", "open sesame"},
++
++		// Unpadded input
++		{"unpadded", "b3BlbiBzZXNhbWU", "open sesame"},
++
++		// URL-safe alphabet
++		{"URL-safe", "_-__", "\uFFFD\uFFFD\uFFFD"}, // decodes to bytes FF BE FF -> all invalid UTF-8
++
++		// Whitespace ignored
++		{"whitespace", "Y WJhcA==", "abap"},
++
++		// Other characters ignored
++		{"ignored chars", "Y@WJhcA==", "abap"},
++
++		// UTF-8 text
++		{"UTF-8 text", "5LiW55WM", "世界"},
++		{"UTF-8 emoji", "8J+Zgg==", "🙂"},
++
++		// Malformed UTF-8 (bytes 80 61 -> U+FFFD + 'a')
++		{"malformed UTF-8", "gGE=", "\uFFFDa"},
++
++		// Overlong UTF-8 sequence (C0 80 = overlong NUL -> 2 U+FFFD)
++		{"overlong UTF-8", "wIA=", "\uFFFD\uFFFD"},
++
++		// Surrogate (ED A0 80 -> 3 U+FFFD)
++		{"surrogate", "7aCA", "\uFFFD\uFFFD\uFFFD"},
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			got := DecodeBase64(&Session{}, tc.encoded)
++			if got != tc.want {
++				t.Errorf("DecodeBase64(%q) = %q, want %q", tc.encoded, got, tc.want)
++			}
++		})
++	}
++}
+\ No newline at end of file
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..769a8f2 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,13 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: the bytes of a Base64
++// string, interpreted as UTF-8 text. Padded and unpadded Base64 produce
++// the same decoded text. Standard and URL-safe alphabets follow Node's
++// Buffer.from(s, "base64") behavior. Malformed UTF-8 produces Node-
++// compatible U+FFFD replacements.
++func DecodeBase64(s *Session, encoded string) string {
++	bytes := DecodeXBase64(s, encoded)
++	return nodeutf8.Decode(bytes)
++}
+\ No newline at end of file
+diff --git a/tools/gogen/go/nodeutf8/decode.go b/tools/gogen/go/nodeutf8/decode.go
+new file mode 100644
+index 0000000..57ed9c1
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode.go
+@@ -0,0 +1,247 @@
++// Package nodeutf8 provides Node-compatible UTF-8 decoding with U+FFFD
++// replacement for malformed sequences, matching Buffer.from(bytes).toString().
++package nodeutf8
++
++import (
++	"unicode/utf8"
++)
++
++// Decode interprets a string of raw bytes as UTF-8 text, using the same
++// replacement-character behavior as Node's Buffer.toString():
++//   - Valid UTF-8 sequences decode to their corresponding characters.
++//   - An incomplete sequence at end of input emits one U+FFFD if the partial
++//     sequence could become valid, or one U+FFFD per byte if it would be
++//     overlong or out of range even if completed.
++//   - A sequence that is complete but invalid (overlong, surrogate, or
++//     out of range) emits one U+FFFD per byte.
++//   - A sequence with an invalid continuation byte emits one U+FFFD for the
++//     start byte, then the bad byte is reprocessed.
++//   - A continuation byte without a start byte emits one U+FFFD.
++func Decode(b string) string {
++	if utf8.ValidString(b) {
++		return b
++	}
++
++	var out []byte
++	// Track multi-byte sequence state
++	var seq [4]byte
++	n := 0 // bytes in current sequence
++
++	for i := 0; i < len(b); i++ {
++		c := b[i]
++
++		if n == 0 {
++			// Starting fresh
++			if c < 0x80 {
++				// ASCII
++				if out == nil {
++					out = make([]byte, 0, len(b))
++				}
++				out = append(out, c)
++				continue
++			}
++
++			// Continuation byte without start
++			if c >= 0x80 && c <= 0xBF {
++				if out == nil {
++					out = make([]byte, 0, len(b)+4)
++				}
++				out = utf8.AppendRune(out, 0xFFFD)
++				continue
++			}
++
++			// C0, C1: always overlong
++			if c == 0xC0 || c == 0xC1 {
++				if out == nil {
++					out = make([]byte, 0, len(b)+4)
++				}
++				out = utf8.AppendRune(out, 0xFFFD)
++				continue
++			}
++
++			// F5-FF: invalid start
++			if c >= 0xF5 {
++				if out == nil {
++					out = make([]byte, 0, len(b)+4)
++				}
++				out = utf8.AppendRune(out, 0xFFFD)
++				continue
++			}
++
++			// Start of a valid multi-byte sequence
++			seq[0] = c
++			n = 1
++			continue
++		}
++
++		// We're in a multi-byte sequence
++		seq[n] = c
++		n++
++
++		// Check if this is a valid continuation byte
++		if c < 0x80 || c > 0xBF {
++			// Invalid continuation: emit U+FFFD for the start byte,
++			// then reprocess this byte
++			if out == nil {
++				out = make([]byte, 0, len(b)+4)
++			}
++			out = utf8.AppendRune(out, 0xFFFD)
++			n = 0
++			i-- // reprocess this byte
++			continue
++		}
++
++		// Valid continuation so far, check if we need more
++		expected := expectedLen(seq[0])
++		if n < expected {
++			// Need more bytes
++			continue
++		}
++
++		// We have a complete sequence, check if it's valid
++		r := decodeSequence(seq[:n])
++
++		if r < 0 {
++			// Invalid sequence (overlong, surrogate, out of range):
++			// emit U+FFFD for each byte
++			if out == nil {
++				out = make([]byte, 0, len(b)+4)
++			}
++			for j := 0; j < n; j++ {
++				out = utf8.AppendRune(out, 0xFFFD)
++			}
++			n = 0
++			continue
++		}
++
++		// Valid sequence
++		if out == nil {
++			out = make([]byte, 0, len(b))
++		}
++		out = utf8.AppendRune(out, r)
++		n = 0
++	}
++
++	// Handle incomplete sequence at end of input
++	if n > 0 {
++		if out == nil {
++			out = make([]byte, 0, n*3)
++		}
++		// Check if the partial sequence would be valid if completed
++		if wouldBeValid(seq[:n]) {
++			out = utf8.AppendRune(out, 0xFFFD)
++		} else {
++			// Would be overlong or out of range: emit one per byte
++			for j := 0; j < n; j++ {
++				out = utf8.AppendRune(out, 0xFFFD)
++			}
++		}
++	}
++
++	if out == nil {
++		return b
++	}
++	return string(out)
++}
++
++// expectedLen returns the expected length of a sequence starting with b
++func expectedLen(b byte) int {
++	switch {
++	case b >= 0xC2 && b <= 0xDF:
++		return 2
++	case b >= 0xE0 && b <= 0xEF:
++		return 3
++	case b >= 0xF0 && b <= 0xF4:
++		return 4
++	default:
++		return 1
++	}
++}
++
++// decodeSequence decodes a complete UTF-8 sequence.
++// Returns -1 if the sequence is invalid (overlong, surrogate, out of range).
++func decodeSequence(b []byte) rune {
++	switch len(b) {
++	case 2:
++		return rune(b[0]&0x1F)<<6 | rune(b[1]&0x3F)
++	case 3:
++		r := rune(b[0]&0x0F)<<12 | rune(b[1]&0x3F)<<6 | rune(b[2]&0x3F)
++		if r < 0x800 {
++			return -1 // overlong
++		}
++		if r >= 0xD800 && r <= 0xDFFF {
++			return -1 // surrogate
++		}
++		return r
++	case 4:
++		r := rune(b[0]&0x07)<<18 | rune(b[1]&0x3F)<<12 | rune(b[2]&0x3F)<<6 | rune(b[3]&0x3F)
++		if r < 0x10000 {
++			return -1 // overlong
++		}
++		if r > 0x10FFFF {
++			return -1 // out of range
++		}
++		return r
++	default:
++		return rune(b[0])
++	}
++}
++
++// wouldBeValid checks if a partial sequence could become valid if completed.
++func wouldBeValid(b []byte) bool {
++	if len(b) == 0 {
++		return false
++	}
++
++	first := b[0]
++	partialLen := len(b)
++
++	switch {
++	case first >= 0xC2 && first <= 0xDF:
++		// 2-byte sequence: always valid if we got a valid continuation
++		return partialLen == 1 || (partialLen == 2 && b[1] >= 0x80 && b[1] <= 0xBF)
++
++	case first == 0xE0:
++		// E0 xx yy: second byte must be >= A0 to avoid overlong
++		if partialLen == 1 {
++			return true // could still get valid continuation
++		}
++		return b[1] >= 0xA0 && b[1] <= 0xBF
++
++	case first >= 0xE1 && first <= 0xEC:
++		// These are always valid if continuations are in range
++		return true
++
++	case first == 0xED:
++		// ED xx yy: second byte must be <= 9F to avoid surrogates
++		if partialLen == 1 {
++			return true
++		}
++		return b[1] >= 0x80 && b[1] <= 0x9F
++
++	case first >= 0xEE && first <= 0xEF:
++		// These are always valid if continuations are in range
++		return true
++
++	case first == 0xF0:
++		// F0 xx yy zz: second byte must be >= 90 to avoid overlong
++		if partialLen == 1 {
++			return true
++		}
++		return b[1] >= 0x90 && b[1] <= 0xBF
++
++	case first >= 0xF1 && first <= 0xF3:
++		// These are always valid if continuations are in range
++		return true
++
++	case first == 0xF4:
++		// F4 xx yy zz: second byte must be <= 8F to stay in range
++		if partialLen == 1 {
++			return true
++		}
++		return b[1] >= 0x80 && b[1] <= 0x8F
++
++	default:
++		return false
++	}
++}
+\ No newline at end of file
+diff --git a/tools/gogen/go/nodeutf8/decode_test.go b/tools/gogen/go/nodeutf8/decode_test.go
+new file mode 100644
+index 0000000..e3ec5e4
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode_test.go
+@@ -0,0 +1,137 @@
++package nodeutf8
++
++import (
++	"testing"
++)
++
++func TestDecode(t *testing.T) {
++	tests := []struct {
++		name  string
++		input string
++		want  string
++	}{
++		// Valid ASCII
++		{"empty", "", ""},
++		{"ASCII", "hello", "hello"},
++
++		// Valid UTF-8
++		{"valid 2-byte", "\xC2\x80", "\u0080"},
++		{"valid 3-byte", "\xE0\xA0\x80", "\u0800"},
++		{"valid 4-byte", "\xF0\x90\x80\x80", "\U00010000"},
++		{"UTF-8 text", "Hello, 世界!", "Hello, 世界!"},
++
++		// Isolated continuation bytes (emit one U+FFFD each)
++		{"isolated continuation", "\x80", "\uFFFD"},
++		{"two continuations", "\x80\x80", "\uFFFD\uFFFD"},
++		{"continuation then ASCII", "\x80a", "\uFFFDa"},
++
++		// Incomplete sequences that could become valid (emit one U+FFFD)
++		{"incomplete 2-byte C2", "\xC2", "\uFFFD"},
++		{"incomplete 3-byte E0 A0 (valid partial)", "\xE0\xA0", "\uFFFD"},
++		{"incomplete 4-byte F0 90 80 (valid partial)", "\xF0\x90\x80", "\uFFFD"},
++		{"incomplete F4 80 (valid partial)", "\xF4\x80", "\uFFFD"},
++
++		// Incomplete sequences that would be invalid (emit U+FFFD per byte)
++		{"incomplete E0 80 (overlong partial)", "\xE0\x80", "\uFFFD\uFFFD"},
++		{"incomplete E0 9F (overlong partial)", "\xE0\x9F", "\uFFFD\uFFFD"},
++		{"incomplete F0 80 (overlong partial)", "\xF0\x80", "\uFFFD\uFFFD"},
++		{"incomplete F0 8F (overlong partial)", "\xF0\x8F", "\uFFFD\uFFFD"},
++		{"incomplete F4 90 (out of range partial)", "\xF4\x90", "\uFFFD\uFFFD"},
++
++		// Overlong sequences (emit one U+FFFD per byte)
++		{"overlong 2-byte C0 80", "\xC0\x80", "\uFFFD\uFFFD"},
++		{"overlong 2-byte C1 80", "\xC1\x80", "\uFFFD\uFFFD"},
++		{"overlong 3-byte E0 80 80", "\xE0\x80\x80", "\uFFFD\uFFFD\uFFFD"},
++		{"overlong 4-byte F0 80 80 80", "\xF0\x80\x80\x80", "\uFFFD\uFFFD\uFFFD\uFFFD"},
++
++		// Surrogates (emit one U+FFFD per byte)
++		{"surrogate ED A0 80", "\xED\xA0\x80", "\uFFFD\uFFFD\uFFFD"},
++		{"surrogate ED BF BF", "\xED\xBF\xBF", "\uFFFD\uFFFD\uFFFD"},
++
++		// Out of range (emit one U+FFFD per byte)
++		{"out of range F4 90 80 80", "\xF4\x90\x80\x80", "\uFFFD\uFFFD\uFFFD\uFFFD"},
++
++		// Invalid start bytes (emit one U+FFFD)
++		{"invalid F5", "\xF5", "\uFFFD"},
++		{"invalid FF", "\xFF", "\uFFFD"},
++
++		// Invalid continuation in middle of sequence
++		// E0 41 A0: E0 starts 3-byte, 41 is not continuation -> U+FFFD, then 'A', then A0 is continuation without start -> U+FFFD
++		{"bad continuation E0 41 A0", "\xE0\x41\xA0", "\uFFFDA\uFFFD"},
++		// E0 A0 41: E0 A0 is valid partial, 41 breaks it -> U+FFFD, then 'A'
++		{"bad continuation E0 A0 41", "\xE0\xA0\x41", "\uFFFDA"},
++
++		// Mixed valid and invalid
++		{"valid then invalid", "\xC2\x80\x80", "\u0080\uFFFD"},
++		{"invalid then valid", "\x80\xC2\x80", "\uFFFD\u0080"},
++		{"valid invalid valid", "a\x80b", "a\uFFFDb"},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := Decode(tt.input)
++			if got != tt.want {
++				t.Errorf("Decode(%q) = %q (len %d), want %q (len %d)",
++					tt.input, got, len(got), tt.want, len(tt.want))
++				// Show character by character
++				t.Logf("Got:  %v", chars(got))
++				t.Logf("Want: %v", chars(tt.want))
++			}
++		})
++	}
++}
++
++func chars(s string) []string {
++	var result []string
++	for _, r := range s {
++		result = append(result, string(r))
++	}
++	return result
++}
++
++// TestDecodeMatchesNode verifies our implementation matches Node.js behavior.
++// These test cases were generated by running Node.js to get expected output.
++func TestDecodeMatchesNode(t *testing.T) {
++	// These cases were verified against Node.js:
++	// node -e "console.log(JSON.stringify(Buffer.from([...]).toString()))"
++	nodeCases := []struct {
++		bytes []byte
++		want  string
++	}{
++		// From Node tests above
++		{[]byte{0x80, 0x61}, "\uFFFDa"},
++		{[]byte{0xC2}, "\uFFFD"},
++		{[]byte{0xC0, 0x80}, "\uFFFD\uFFFD"},
++		{[]byte{0xED, 0xA0, 0x80}, "\uFFFD\uFFFD\uFFFD"},
++		{[]byte{0xF4, 0x90, 0x80, 0x80}, "\uFFFD\uFFFD\uFFFD\uFFFD"},
++		{[]byte{0xE0, 0x80}, "\uFFFD\uFFFD"},
++		{[]byte{0xE0}, "\uFFFD"},
++		{[]byte{0xC2, 0x80}, "\u0080"},
++		{[]byte{0xC2, 0x30}, "\uFFFD0"},
++		{[]byte{0xE0, 0xA0, 0x30}, "\uFFFD0"},
++		{[]byte{0xE0, 0xA0, 0x80}, "\u0800"},
++		{[]byte{0xF0, 0x90, 0x80, 0x80}, "\U00010000"},
++		{[]byte{0xF0, 0x90, 0x80}, "\uFFFD"},
++		{[]byte{0xFF}, "\uFFFD"},
++		{[]byte{0xFE}, "\uFFFD"},
++		{[]byte{0xE0, 0x41}, "\uFFFDA"},
++		{[]byte{0xE0, 0x41, 0x41}, "\uFFFDAA"},
++		{[]byte{0xE0, 0xA0, 0x41}, "\uFFFDA"},
++		{[]byte{0xE0, 0x80, 0x80}, "\uFFFD\uFFFD\uFFFD"},
++		{[]byte{0xF0, 0x80, 0x80, 0x80}, "\uFFFD\uFFFD\uFFFD\uFFFD"},
++		{[]byte{0xE0, 0x9F}, "\uFFFD\uFFFD"},
++		{[]byte{0xF0, 0x80}, "\uFFFD\uFFFD"},
++		{[]byte{0xF0, 0x8F}, "\uFFFD\uFFFD"},
++		{[]byte{0xF0, 0x90}, "\uFFFD"},
++		{[]byte{0xF4, 0x80}, "\uFFFD"},
++		{[]byte{0xF4, 0x90}, "\uFFFD\uFFFD"},
++	}
++
++	for _, tt := range nodeCases {
++		got := Decode(string(tt.bytes))
++		if got != tt.want {
++			t.Errorf("Decode(%x) = %q (len %d), want %q (len %d)",
++				tt.bytes, got, len(got), tt.want, len(tt.want))
++		}
++	}
++}
+\ No newline at end of file

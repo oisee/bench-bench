@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change maps CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 to a new abap.DecodeBase64 native, which reuses the existing Node-compatible DecodeXBase64 and passes the bytes to a new nodeutf8.Decode. nodeutf8.Decode implements the WHATWG/V8 maximal-subpart UTF-8 decoder. A differential fuzz of 200k random byte strings and 100k mixed Base64 strings (standard/URL-safe alphabets, padding, junk characters) against Node's Buffer gave 0 mismatches. The Go tests, the new emit-go test and the listed acceptance/regression tests all pass.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/nodeutf8_test.go",
+      "line": 14,
+      "claim": "The expected value for the 'two bytes' case is an invisible literal U+0080 (bytes C2 80), so it reads as an empty string in the source; \"\\u0080\" would make the intent clear.",
+      "repro": "sed -n 14p tools/gogen/go/nodeutf8/nodeutf8_test.go | od -c"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/emit-go.test.mjs",
+      "line": 116,
+      "claim": "The test creates its scratch Go package inside the tracked tree (go/cmd/gogen-b64-test-*). The finally block removes it, but a killed or timed-out run leaves a stray package that later `go test ./...` runs will pick up.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "47fdacba85",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 52
+}

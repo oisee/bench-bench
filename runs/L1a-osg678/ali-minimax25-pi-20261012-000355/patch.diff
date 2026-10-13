@@ -1,0 +1,73 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..a2cc2b6 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,66 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Uses an iterative approach to handle very large literals (15M+ chars)
++ *  without stack overflow. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const result = [];
++  let i = 0;
++  const len = sql.length;
++
++  while (i < len) {
++    const char = sql[i];
++
++    if (char === "'") {
++      // Start of a literal - copy opening quote
++      result.push(char);
++      i++;
++
++      // Track spaces immediately before the closing quote
++      const trailingSpaces = [];
++
++      // Process literal content
++      while (i < len) {
++        const current = sql[i];
++
++        if (current === "'") {
++          // Check for escaped quote ('')
++          if (i + 1 < len && sql[i + 1] === "'") {
++            // Escaped quote - flush any trailing spaces first
++            result.push(...trailingSpaces);
++            trailingSpaces.length = 0;
++            result.push(current, current);
++            i += 2;
++          } else {
++            // End of literal - don't include trailing spaces before closing quote
++            i++;
++            break;
++          }
++        } else if (current === " ") {
++          // Space - might be trailing, collect it
++          trailingSpaces.push(current);
++          i++;
++        } else {
++          // Non-space character - flush any trailing spaces
++          result.push(...trailingSpaces);
++          trailingSpaces.length = 0;
++          result.push(current);
++          i++;
++        }
++      }
++
++      // Add closing quote
++      result.push("'");
++    } else {
++      // Outside a literal - copy as-is
++      result.push(char);
++      i++;
++    }
++  }
++
++  return result.join("");
+ }
+ 
+ /**

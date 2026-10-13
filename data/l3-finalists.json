@@ -1,0 +1,170 @@
+{
+  "generated_at": "2026-10-13T05:04:16.111871+00:00",
+  "rule": "All L1+L2 passes; at most four baseline finalists by geometric mean of task-normalized time. At most one Alibaba Codex wildcard, requiring both L2 passes, by normalized L2 time. L2 jury scores are unavailable and are not used.",
+  "l2_graded_cells": 30,
+  "full_pass_candidates": [
+    "az-sol61-codex",
+    "ant-opus-claude",
+    "zai-glm53-claude",
+    "zai-glm53-pi"
+  ],
+  "l2_only_pass_candidates": [],
+  "selected": [
+    {
+      "executor": "az-sol61-codex",
+      "route": "4/4 L1+L2",
+      "speed_ratio": 1.442,
+      "evidence": {
+        "L1a-osg678": {
+          "run_id": "L1a-osg678/az-sol61-codex-20261012-102353",
+          "passed": true,
+          "duration_s": 82,
+          "total_tokens": 252541,
+          "jury_n": 4,
+          "score": 100.0
+        },
+        "L1b-osg680": {
+          "run_id": "L1b-osg680/az-sol61-codex-20261012-102532",
+          "passed": true,
+          "duration_s": 162,
+          "total_tokens": 717666,
+          "jury_n": 4,
+          "score": 97.9
+        },
+        "L2a-osg693": {
+          "run_id": "L2a-osg693/az-sol61-codex-20261012-112835",
+          "passed": true,
+          "duration_s": 155,
+          "total_tokens": 866432,
+          "jury_n": 0,
+          "score": null
+        },
+        "L2b-abapiti87": {
+          "run_id": "L2b-abapiti87/az-sol61-codex-20261012-113203",
+          "passed": true,
+          "duration_s": 391,
+          "total_tokens": 1181272,
+          "jury_n": 0,
+          "score": null
+        }
+      }
+    },
+    {
+      "executor": "ant-opus-claude",
+      "route": "4/4 L1+L2",
+      "speed_ratio": 2.25,
+      "evidence": {
+        "L1a-osg678": {
+          "run_id": "L1a-osg678/ant-opus-claude-20261011-231022",
+          "passed": true,
+          "duration_s": 63,
+          "total_tokens": 322363,
+          "jury_n": 3,
+          "score": 100.0
+        },
+        "L1b-osg680": {
+          "run_id": "L1b-osg680/ant-opus-claude-20261011-231131",
+          "passed": true,
+          "duration_s": 244,
+          "total_tokens": 2107326,
+          "jury_n": 3,
+          "score": 88.8
+        },
+        "L2a-osg693": {
+          "run_id": "L2a-osg693/ant-opus-claude-20261012-110325",
+          "passed": true,
+          "duration_s": 257,
+          "total_tokens": 2801802,
+          "jury_n": 0,
+          "score": null
+        },
+        "L2b-abapiti87": {
+          "run_id": "L2b-abapiti87/ant-opus-claude-20261012-110822",
+          "passed": true,
+          "duration_s": 1207,
+          "total_tokens": 6892670,
+          "jury_n": 0,
+          "score": null
+        }
+      }
+    },
+    {
+      "executor": "zai-glm53-claude",
+      "route": "4/4 L1+L2",
+      "speed_ratio": 9.961,
+      "evidence": {
+        "L1a-osg678": {
+          "run_id": "L1a-osg678/zai-glm53-claude-20261011-233454",
+          "passed": true,
+          "duration_s": 353,
+          "total_tokens": 1134368,
+          "jury_n": 3,
+          "score": 97.9
+        },
+        "L1b-osg680": {
+          "run_id": "L1b-osg680/zai-glm53-claude-20261011-234055",
+          "passed": true,
+          "duration_s": 1339,
+          "total_tokens": 13732178,
+          "jury_n": 3,
+          "score": 92.6
+        },
+        "L2a-osg693": {
+          "run_id": "L2a-osg693/zai-glm53-claude-20261012-123419",
+          "passed": true,
+          "duration_s": 1230,
+          "total_tokens": 13189657,
+          "jury_n": 0,
+          "score": null
+        },
+        "L2b-abapiti87": {
+          "run_id": "L2b-abapiti87/zai-glm53-claude-20261012-125544",
+          "passed": true,
+          "duration_s": 3149,
+          "total_tokens": null,
+          "jury_n": 0,
+          "score": null
+        }
+      }
+    },
+    {
+      "executor": "zai-glm53-pi",
+      "route": "4/4 L1+L2",
+      "speed_ratio": 11.95,
+      "evidence": {
+        "L1a-osg678": {
+          "run_id": "L1a-osg678/zai-glm53-pi-20261011-230403",
+          "passed": true,
+          "duration_s": 360,
+          "total_tokens": 662722,
+          "jury_n": 3,
+          "score": 100.0
+        },
+        "L1b-osg680": {
+          "run_id": "L1b-osg680/zai-glm53-pi-20261011-231022",
+          "passed": true,
+          "duration_s": 1445,
+          "total_tokens": 8211592,
+          "jury_n": 3,
+          "score": 90.5
+        },
+        "L2a-osg693": {
+          "run_id": "L2a-osg693/zai-glm53-pi-20261012-110325",
+          "passed": true,
+          "duration_s": 2700,
+          "total_tokens": 10951962,
+          "jury_n": 0,
+          "score": null
+        },
+        "L2b-abapiti87": {
+          "run_id": "L2b-abapiti87/zai-glm53-pi-20261012-114913",
+          "passed": true,
+          "duration_s": 2700,
+          "total_tokens": 12842747,
+          "jury_n": 0,
+          "score": null
+        }
+      }
+    }
+  ]
+}

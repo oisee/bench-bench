@@ -1,0 +1,113 @@
+--- FAIL: TestIndentBlocksAndLexicalContexts (0.00s)
+    format_test.go:58: indent mismatch
+        --- got ---
+        CLASS lcl DEFINITION DEFERRED.
+        CLASS lcl DEFINITION.
+          PUBLIC SECTION.
+            METHODS run.
+        ENDCLASS.
+        CLASS lcl IMPLEMENTATION.
+          METHOD run.
+            CASE x.
+            WHEN 1.
+              TRY.
+                IF x = 'ENDIF.'. y = 1. ENDIF.
+              CATCH cx_root.
+                y = 2.
+              CLEANUP.
+                y = 3.
+                ENDTRY.
+              ENDCASE.
+          ENDMETHOD.
+        ENDCLASS.
+        FORM one.
+          WRITE / `text { 'ENDTRY.' }`.
+          ENDFORM.
+        FORM two.
+          ENDFORM.
+        --- want ---
+        CLASS lcl DEFINITION DEFERRED.
+        CLASS lcl DEFINITION.
+          PUBLIC SECTION.
+            METHODS run.
+        ENDCLASS.
+        CLASS lcl IMPLEMENTATION.
+          METHOD run.
+            CASE x.
+              WHEN 1.
+                TRY.
+                  IF x = 'ENDIF.'. y = 1. ENDIF.
+                CATCH cx_root.
+                  y = 2.
+                CLEANUP.
+                  y = 3.
+                ENDTRY.
+            ENDCASE.
+          ENDMETHOD.
+        ENDCLASS.
+        FORM one.
+          WRITE / `text { 'ENDTRY.' }`.
+        ENDFORM.
+        FORM two.
+        ENDFORM.
+--- FAIL: TestIndentBlocks (0.00s)
+    indent_test.go:64: unexpected indentation:
+        CLASS zcl_test DEFINITION.
+          PUBLIC SECTION.
+            METHODS run.
+          PROTECTED SECTION.
+            DATA: a TYPE i,
+            b TYPE i.
+          PRIVATE SECTION.
+        ENDCLASS.
+        CLASS zcl_test IMPLEMENTATION.
+          METHOD run.
+            IF a = 1.
+              LOOP AT tab INTO row.
+                TRY.
+                  CASE a.
+                  WHEN 1.
+                    WRITE a.
+                  WHEN OTHERS.
+                    WRITE b.
+                    ENDCASE.
+                CATCH cx_root.
+                  WRITE a.
+                CLEANUP.
+                  WRITE b.
+                  ENDTRY.
+                ENDLOOP.
+            ELSEIF a = 2.
+              WHILE a > 0.
+                a = a - 1.
+                ENDWHILE.
+            ELSE.
+              DO 2 TIMES.
+        * column-zero comment
+                WRITE 'ENDIF. ''TRY.'''. " IF ignored
+                ENDDO.
+              ENDIF.
+          ENDMETHOD.
+        ENDCLASS.
+        INTERFACE zif_test.
+          METHODS run.
+        ENDINTERFACE.
+        START-OF-SELECTION.
+          WRITE 'start'.
+          END-OF-SELECTION.
+          WRITE 'end'.
+        FORM run.
+            WRITE 'form'.
+            ENDFORM.
+--- FAIL: TestIndentStatementBoundaries (0.00s)
+    indent_test.go:109: got:
+        CLASS zcl DEFINITION DEFERRED.
+        FORM run.
+          GET RUN TIME FIELD reading.
+          DATA: a TYPE i, b TYPE i.
+          IF a = 1. WRITE `a.b`. ENDIF.
+          WRITE |escaped \| period. template|.
+          ENDFORM.
+FAIL
+FAIL	github.com/oisee/abapiti/hir/abap	0.118s
+FAIL

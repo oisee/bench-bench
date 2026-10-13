@@ -1,0 +1,20 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The patch correctly extends lowering to handle anonymous TypeScript object literals without named shapes. It synthesizes structural shape classes, reuses them for equivalent layouts regardless of property order, preserves optional/readonly information, and handles all required contexts (assignments, arguments, returns, nested structures, unions, optionals, records, spreads, and empty literals). All existing and new tests pass with no regressions.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 175,
+      "claim": "The identity hash in structuralShape includes full type strings (including Optional wrappers), so two shapes differing only in optional-vs-required for a ref field get different hashes. The first loop matches them correctly via shapeSlotType, but the hash-based second loop would not find them if reached independently. This is not a bug since the first loop always runs first, but the hash redundancy is slightly misleading.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-qwen-pi",
+  "critic_model": "alibaba/qwen3.7-plus",
+  "anon": "b5fbc69523",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 498
+}

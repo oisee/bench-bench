@@ -1,0 +1,41 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The change routes the main generators through Format, and the affected package tests pass. However, the formatter can turn valid ABAP into comments or code, and it misindents some ordinary statements, so it does not meet the semantic-preservation and indentation requirements.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 27,
+      "claim": "An indented multiplication operator at the start of a continuation line is mistaken for a full-line comment. This removes the statement terminator from the lexer and can also misindent later closing statements.",
+      "repro": "abap.Format(\"FORM f.\\nresult = 2\\n  * 3.\\nENDFORM.\\n\") emits `* 3.` at column zero and `  ENDFORM.` instead of preserving the multiplication."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 582,
+      "claim": "The line wrapper treats spaces in a full-line * comment as break points and does not copy the comment marker to continuation lines. A long comment is therefore turned into executable, invalid ABAP and its contents are not preserved as a comment.",
+      "repro": "abap.Format(\"* \" + strings.Repeat(\"word \", 60) + \"\\n\") succeeds but emits a second line beginning `word word` rather than `*`."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 367,
+      "claim": "A scalar aggregate SELECT is a complete statement without ENDSELECT, but this heuristic opens a SELECT block and overindents subsequent statements.",
+      "repro": "abap.Format(\"FORM f.\\nSELECT COUNT( * ) FROM sflight INTO @DATA(n).\\nWRITE n.\\nENDFORM.\\n\") emits `    WRITE n.` instead of `  WRITE n.`."
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 425,
+      "claim": "The GET report-event detector omits the runtime GET BADI statement, so a report's following statement is indented as an event body even though no event began.",
+      "repro": "abap.Format(\"REPORT r.\\nGET BADI lo_badi.\\nWRITE lo_badi.\\n\") emits `  WRITE lo_badi.`."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "495269d2e3",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 336
+}

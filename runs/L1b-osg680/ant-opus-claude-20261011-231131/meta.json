@@ -1,0 +1,10 @@
+{
+  "harness": "claude",
+  "provider": "anthropic",
+  "model": "opus",
+  "effort": "high",
+  "harness_version": "2.1.296 (Claude Code)",
+  "started_at": "2026-10-11T23:11:35+01:00",
+  "finished_at": "2026-10-11T23:15:38+01:00",
+  "exit_code": "0"
+}

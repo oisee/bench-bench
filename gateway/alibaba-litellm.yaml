@@ -1,0 +1,42 @@
+# Codex Responses -> LiteLLM -> Alibaba Coding Plan Chat Completions.
+# The key is read from the environment; do not place a real key in this file.
+model_list:
+  - model_name: qwen3.7-plus
+    litellm_params:
+      model: openai/qwen3.7-plus
+      api_base: https://coding-intl.dashscope.aliyuncs.com/v1
+      api_key: os.environ/ALI_CP_API_KEY
+      use_chat_completions_api: true
+    model_info:
+      display_name: Alibaba · Qwen 3.7 Plus
+      max_input_tokens: 1000000
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: openai/kimi-k2.5
+      api_base: https://coding-intl.dashscope.aliyuncs.com/v1
+      api_key: os.environ/ALI_CP_API_KEY
+      use_chat_completions_api: true
+    model_info:
+      display_name: Alibaba · Kimi K2.5
+      max_input_tokens: 262144
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://coding-intl.dashscope.aliyuncs.com/v1
+      api_key: os.environ/ALI_CP_API_KEY
+      use_chat_completions_api: true
+    model_info:
+      display_name: Alibaba · GLM-5
+      max_input_tokens: 202752
+  - model_name: MiniMax-M2.5
+    litellm_params:
+      model: openai/MiniMax-M2.5
+      api_base: https://coding-intl.dashscope.aliyuncs.com/v1
+      api_key: os.environ/ALI_CP_API_KEY
+      use_chat_completions_api: true
+    model_info:
+      display_name: Alibaba · MiniMax M2.5
+      max_input_tokens: 196608
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The native method mapping and public UTF-8 decoder are implemented cleanly, and the focused Go and compiled-ABAP tests pass. However, the Base64 step does not fully match Node for Unicode characters embedded in the encoded input, violating the requested handling of extraneous characters.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 18,
+      "claim": "Reusing DecodeXBase64 loses Node compatibility for non-ASCII input. That helper scans UTF-8 bytes and discards every non-ASCII byte, whereas Node's Base64 decoder processes the low byte of each UTF-16 code unit. Consequently, DecodeBase64(nil, \"YW😀JhcA==\") returns \"abap\", but Node returns \"a\" because the high surrogate contributes a padding byte. Likewise, \"YWŊhcA==\" returns \"ah\\\" instead of Node's \"abap\". The new text-decoding path needs Node-compatible input processing before Base64 decoding.",
+      "repro": "cat > /tmp/review-b64-repro.go <<'EOF'\npackage main\nimport (\"fmt\"; \"osg/gogen/abap\")\nfunc main() { fmt.Printf(\"%q\\n\", abap.DecodeBase64(nil, \"YW😀JhcA==\")) }\nEOF\n(cd tools/gogen/go && go run /tmp/review-b64-repro.go)\nnode -e 'console.log(JSON.stringify(Buffer.from(\"YW😀JhcA==\", \"base64\").toString()))'\n# Go: \"abap\"; Node: \"a\""
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "8b9cb4ca28",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 81
+}

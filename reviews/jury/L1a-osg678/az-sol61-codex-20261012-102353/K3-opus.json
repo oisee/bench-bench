@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The regex replace is now a linear scan built on indexOf, so it no longer overflows the stack. The scan reproduces the old greedy, backtracking regex exactly, including the fallback to the last doubled quote when an unbalanced fragment has no closing quote. A 300k-case random differential test against the original regex found no difference, and inputs with millions of doubled quotes finish in under 100 ms. The new tests are registered in a suite fragment and pass the osd-suites drift check.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "test/sql-literals.mjs",
+      "line": 30,
+      "claim": "The 15M-character tests allocate several large strings (up to ~16M chars each) per case. They pass, but they add memory and time to the shared gateway-odata shard.",
+      "repro": "npx mocha test/sql-literals.mjs"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "6e7185a39c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 37
+}

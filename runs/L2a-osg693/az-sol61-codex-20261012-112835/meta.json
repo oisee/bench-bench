@@ -1,0 +1,10 @@
+{
+  "harness": "codex",
+  "provider": "azure",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "harness_version": "codex-cli 0.162.1",
+  "started_at": "2026-10-12T11:28:49+01:00",
+  "finished_at": "2026-10-12T11:31:24+01:00",
+  "exit_code": "0"
+}

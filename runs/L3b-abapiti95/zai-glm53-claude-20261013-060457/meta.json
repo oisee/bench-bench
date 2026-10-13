@@ -1,0 +1,9 @@
+{
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T06:04:58+01:00"
+}

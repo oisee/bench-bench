@@ -1,0 +1,28 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1176,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "ali-kimi25-pi",
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "kimi-k2.5",
+  "effort": "high",
+  "agent_exit": 124,
+  "duration_s": 2700,
+  "stop": "TIMEOUT",
+  "leak_suspect": false,
+  "harness_version": ""
+}

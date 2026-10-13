@@ -1,0 +1,34 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change factors the shape-synthesis logic into lower_shape.go and adds a member-driven fallback (anonymousLiteral) for literals whose checker type has no lowering, plus empty-literal and record contextual handling and readonly tracking. Added tests and the full suite pass; my own probes (nested/spread/optional/record/readonly views, Readonly<T>, arrays of literals, default params, contextual union/optional) all lower, verify, emit via ABAP and run correctly in Go. The gaps I found (optional spread into an anonymous literal, dead fieldsBy registration, an untested LSP gating tweak) are minor and the remaining unsupported cases I hit are identical on the baseline.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 403,
+      "claim": "anonymousLiteral rejects spreading an optional shape value ({...maybe, y: 2} with maybe: {x:number}|undefined) with 'spread needs a shape value', whereas the named-target path in objectLiteral handles the same case via optionalSpreadArgs; the fallback is less capable than the path it backs up.",
+      "repro": "const m: {x: number} | undefined = undefined; const o = {...m, y: 2}; return o.y;  -> unsupported-type ... KindSpreadAssignment is not lowered"
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 280,
+      "claim": "structuralShape registers l.fieldsBy[Parent.Name+'.'+name] but the only lookup (lower.go:512) uses a file-prefixed key, so this store is dead (carried over from the old synthFromProperties); with anonymous literals the Parent is '__object', so even if looked up the key would collide across unrelated literals.",
+      "repro": "grep -n fieldsBy tsfront/lower.go tsfront/lower_shape.go"
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_lsp.go",
+      "line": 58,
+      "claim": "The lspCall gate now also requires SymbolFlagsModule, silently changing behavior for method calls on lsp-typed properties (previously an unsupported-lsp-call diagnostic, now ordinary call lowering). It is unrelated to the task and has no test covering the new path.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-fable",
+  "critic_model": "anthropic/fable",
+  "anon": "b5fbc69523",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 622
+}

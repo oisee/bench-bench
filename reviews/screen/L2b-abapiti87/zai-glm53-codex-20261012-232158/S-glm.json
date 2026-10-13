@@ -1,0 +1,55 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "A solid token-aware lexer plus block-frame design: all acceptance constructs I could exercise (classes, interfaces, sections, CASE/WHEN, TRY/CATCH/CLEANUP, continuations, multi-statement lines, literals/templates/escapes, wrapping at 255 bytes, idempotency) behave correctly, the full Go suite passes, and the real emitted corpus is a fixed point of Format. However, one explicit acceptance rule is violated: any report event header that follows an already-open report event (e.g. END-OF-SELECTION or TOP-OF-PAGE after START-OF-SELECTION) is indented two spaces instead of starting at column zero, because statementIndent has no case for report event keywords (only FORM got the required 'return 0'). A few minor edge cases remain (see findings).",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 272,
+      "claim": "Report event headers are only placed at column zero for the first event of a file (or after a FORM). Any subsequent event header is indented at the previous event's body depth instead of column zero, violating the acceptance bullet 'Report event headers start at column zero'. statementIndent() special-cases FORM with 'return 0' but has no isReportEvent case, so the header's indent is computed from the still-open previous event frame before apply() closes it.",
+      "repro": "indent(\"REPORT z.\\nSTART-OF-SELECTION.\\nv = 1.\\nEND-OF-SELECTION.\\nv = 2.\\n\") returns '  END-OF-SELECTION.' (2 spaces) instead of 'END-OF-SELECTION.' at column 0; same for TOP-OF-PAGE, INITIALIZATION, LOAD-OF-PROGRAM, END-OF-PAGE, AT SELECTION-SCREEN, AT LINE-SELECTION, AT USER-COMMAND after any open event (verified with a scratch test via 'go test -overlay')."
+    },
+    {
+      "severity": "P2",
+      "file": "tsfront/registry_driver.go",
+      "line": 278,
+      "claim": "The task lists 'auxiliary drivers, and reports' among the generated ABAP that must get the style and says 'Generated ABAP must pass through Format', but the generated driver class (RegistryRunCorpusClass) and reports (RegistryRunReport, RegistryCLIReport, written straight to disk in cmd/abapiti/abaplint.go:296-349) never pass through abap.Format, so those artifacts stay unindented and unwrapped-by-Format while everything from EmitNamed is indented. Possibly intended scope is only hir/abap's own pipeline, hence not P1.",
+      "repro": "grep -n 'abap.Format' tsfront/ cmd/ -> no hits; tsfront/registry_driver.go:278/314 build .prog.abap sources with column-zero bodies that are written verbatim."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 503,
+      "claim": "safeABAPWrap returns (cut, true) as soon as it sees a '\"' comment start before the 255-byte limit, so Format fails with 'unbreakable source line' for any over-long line containing an inline comment, even when a valid cut exists at the space before the comment (the comment could move to the next line). Unreachable for current emitter output (it emits no '\"' comments), so impact is latent.",
+      "repro": "Format(\"METHOD m.\\nx = 1. \" + strings.Repeat(\"y\", 90) + \" \\\"\" + strings.Repeat(\"c\", 200) + \"\\nENDMETHOD.\\n\") -> error 'unbreakable source line (301 bytes)' despite the space at offset 8 being a valid cut point."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 375,
+      "claim": "isOpenStatement opens a block for 'DATA/TYPES/CONSTANTS BEGIN OF' (fresh-statement form), but apply()/isCloseStatement never close one for the matching 'DATA END OF x.' / 'TYPES END OF x.' closer (only bare 'END OF' is handled), so the frame leaks and every following line stays one level too deep. Not emitted by this repository (only one-line 'TYPES:' chains appear), so latent.",
+      "repro": "indent(\"METHOD m.\\nDATA BEGIN OF s.\\nDATA a TYPE i.\\nDATA END OF s.\\nx = 1.\\nENDMETHOD.\\n\") indents 'x = 1.' (and DATA END OF itself) two spaces too deep; the block never closes."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 456,
+      "claim": "Format is not idempotent for a >255-byte line holding multiple statements whose only wrap point is the space right after an opening statement's period: the wrapped tail keeps the opener's indent on the first pass but is re-indented into the opener's body on the second pass. Output stays valid ABAP within 255 bytes; the case needs a ~250-byte space-free statement tail, which the emitter never produces.",
+      "repro": "one, _ := Format(\"METHOD m.\\nIF a. \" + strings.Repeat(\"b\", 250) + \".\\nx = 1.\\nENDIF.\\nENDMETHOD.\\n\"); two, _ := Format(one) -> one != two (continuation moves from 2 to 4 spaces)."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 46,
+      "claim": "abapScanResult.lastDone is written (format.go:108,112) but never read; dead state that suggests an unfinished intent in the scanner.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "1d75959d9b",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 1027
+}

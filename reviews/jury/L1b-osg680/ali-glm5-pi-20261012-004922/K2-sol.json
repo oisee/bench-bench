@@ -1,0 +1,27 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The new Go decoder is never connected to the ABAP compiler, so a call to cl_http_utility=>decode_base64 still fails with NOT_COMPILED. Its UTF-8 helper also differs from Node for malformed sequences interrupted by a non-continuation byte.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 18,
+      "claim": "DecodeBase64 is implemented but is absent from the frontend NATIVE mapping for CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64. The compiler therefore lowers the original @KERNEL line and rejects the ABAP call instead of invoking this function.",
+      "repro": "ABAP Unit method: decoded = cl_http_utility=>decode_base64( 'YQ==' ). Run OSD_HEAVY_RANGE=90-99 tools/osd-heavy.sh node tools/osgo-unit.mjs /tmp/osgo-review-b64 --class ZCL_OSGT_REVIEW_B64 with the scratch fixture; output: NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159): @KERNEL: host code of the transpiler runtime."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 88,
+      "claim": "When a partially collected UTF-8 sequence is already invalid (for example E0 80) and the next byte is not a continuation, the decoder emits only one U+FFFD for the entire prefix. Node emits one replacement for each invalid prefix byte, so malformed input gives the wrong text.",
+      "repro": "Raw bytes E0 80 41: node -e 'console.log(JSON.stringify(Buffer.from([0xe0,0x80,0x41]).toString()))' prints \"��A\"; nodeutf8.Decode(string([]byte{0xe0,0x80,0x41})) returns \"�A\" (go run /tmp/osgo-review-nodeutf8.go)."
+    }
+  ],
+  "critic": "K2-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "b21ac024f4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 251
+}

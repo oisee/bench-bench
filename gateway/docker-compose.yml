@@ -1,0 +1,11 @@
+services:
+  alibaba-litellm:
+    image: ghcr.io/berriai/litellm:v1.105.0
+    container_name: bench-alibaba-litellm
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./alibaba-litellm.yaml:/app/config.yaml:ro
+    ports:
+      - 127.0.0.1:4000:4000
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]

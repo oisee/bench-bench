@@ -1,0 +1,10 @@
+{
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "harness_version": "2.1.296 (Claude Code)",
+  "started_at": "2026-10-11T23:34:57+01:00",
+  "finished_at": "2026-10-11T23:40:50+01:00",
+  "exit_code": "0"
+}

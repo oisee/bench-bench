@@ -1,0 +1,69 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The patch adds indent/Format in hir/abap and sends EmitNamed output through Format, so emitted classes, interfaces and runtime helpers are now indented and wrapped. The task also requires auxiliary drivers and reports to be formatted, and those generators in tsfront (Registry*/Structures*/Statements*/LexerTestClass) still return unindented ABAP that is written out without passing through Format. The indenter also has several keyword-handling gaps.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tsfront/registry_driver.go",
+      "line": 273,
+      "claim": "Auxiliary drivers and reports (RegistryRunReport, RegistryRunTest, RegistryRunClass, RegistryRunCorpusClass, RegistryCLIReport, StructuresBenchmarkClass/Report/Test, StatementsTestClass, LexerTestClass) never pass through Format. They still emit flat, unindented ABAP, even though the task explicitly requires that reports and auxiliary drivers be formatted and that all generated ABAP go through Format. The patch touches no file outside hir/abap.",
+      "repro": "In package tsfront: fmt.Print(RegistryRunReport(\"zp\",\"zc\",false)); fmt.Print(RegistryRunTest(\"zc\",\"\")) -> 'WHILE off < strlen( report ).\\npart = ...' and 'METHOD run.\\nDATA report ...\\nTRY.\\nok = ...' all at column 0"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 370,
+      "claim": "Unchained TYPES/DATA/CONSTANTS END OF never closes the block that the matching BEGIN OF opened. The close logic only recognizes a statement whose first word is END, so every following line, including ENDMETHOD, is indented 2 extra spaces.",
+      "repro": "indent(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\nTYPES BEGIN OF ty.\\nTYPES a TYPE i.\\nTYPES END OF ty.\\nDATA x TYPE i.\\nENDMETHOD.\\nENDCLASS.\\n\") -> '      TYPES END OF ty.' / '      DATA x TYPE i.' / '    ENDMETHOD.'"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 370,
+      "claim": "SELECT always opens a block, but SELECT SINGLE and SELECT ... INTO TABLE have no ENDSELECT. All following code drifts right and ENDMETHOD is misaligned.",
+      "repro": "indent(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\nSELECT SINGLE * FROM t INTO @DATA(r).\\nDATA y TYPE i.\\nENDMETHOD.\\nENDCLASS.\\n\") -> '      DATA y TYPE i.' / '    ENDMETHOD.'"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 292,
+      "claim": "CLASS ... DEFINITION LOCAL FRIENDS ... (and DEFERRED PUBLIC variants where the 4th word differs) is treated as a block opener. The following class sections then get the wrong indentation.",
+      "repro": "indent(\"CLASS c DEFINITION LOCAL FRIENDS d.\\nCLASS e DEFINITION.\\nPUBLIC SECTION.\\nENDCLASS.\\n\") -> '    PUBLIC SECTION.' (4 spaces instead of 2)"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 196,
+      "claim": "Full-line double-quote comments (and any line with no statement start outside an open statement) are forced to column 0 instead of the current block depth. abaplint's indentation indents these comments, so the output is inconsistent with the requested style.",
+      "repro": "indent(\"CLASS c IMPLEMENTATION.\\nMETHOD m.\\n\\\" a comment\\nIF x = 1.\\nENDIF.\\nENDMETHOD.\\nENDCLASS.\\n\") -> '\" a comment' at column 0 inside the method"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 180,
+      "claim": "Any line whose first non-blank character is '*' is treated as a full-line comment and moved to column 0. In ABAP only '*' in column 1 is a comment, so an indented continuation starting with '*' (for example a multiplication operand on the next line) becomes a comment, which changes semantics. When the statement indent is 0, Format's wrapper can itself produce such a line at column 0.",
+      "repro": "Format(\"REPORT z.\\nx = \" + strings.Repeat(\"a * \", 70) + \"b.\\n\") -> second line starts '* a * a ...' at column 0, i.e. a comment; likewise indent(\"IF a = 1.\\nx = b\\n  * c.\\nENDIF.\\n\") moves '* c.' to column 0"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 300,
+      "claim": "INTERFACE does not close an active report event (unlike CLASS and FORM). An interface after START-OF-SELECTION therefore gets body indentation of 4 under a header at column 0.",
+      "repro": "indent(\"REPORT z.\\nSTART-OF-SELECTION.\\nINTERFACE i.\\nMETHODS m.\\nENDINTERFACE.\\n\") -> '    METHODS m.'"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 478,
+      "claim": "safeABAPWrap duplicates the literal/template lexer state machine from abapLexer.scan instead of reusing it, so the two copies can diverge.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "1d75959d9b",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 182
+}

@@ -1,0 +1,473 @@
+diff --git a/.github/workflows/gogen.yml b/.github/workflows/gogen.yml
+index a433ff6..5e20f43 100644
+--- a/.github/workflows/gogen.yml
++++ b/.github/workflows/gogen.yml
+@@ -115,7 +115,7 @@ jobs:
+       - name: Semantics, Go and IR-as-JS against the measured answers
+         run: node tools/gogen/semantics.mjs
+       - name: Byte ownership and frontend emission
+-        run: node --test tools/gogen/frontend-owned.test.mjs tools/gogen/frontend-bytes.test.mjs tools/gogen/emit-go.test.mjs tools/gogen/session-statics.test.mjs
++        run: node --test tools/gogen/frontend-owned.test.mjs tools/gogen/frontend-bytes.test.mjs tools/gogen/emit-go.test.mjs tools/gogen/session-statics.test.mjs tools/gogen/c2n8.test.mjs
+       - name: Go byte fixtures and ABAPiti repros
+         run: node tools/gogen/unit.mjs --fixture tools/gogen/testdata --jobs 4
+       # osabap: a report built into a native command (open-abap-gui's
+diff --git a/tools/gogen/README.md b/tools/gogen/README.md
+index 2b60849..28445b9 100644
+--- a/tools/gogen/README.md
++++ b/tools/gogen/README.md
+@@ -1460,6 +1460,13 @@ testdata classes, deleted after) and pinned in `semantics.mjs` on Go and JS
+   `1_0` or `0x10` are no number for an i; into an f the first word counts
+   (`12 abc` is 12), 1E400 and nan / inf / Infinity overflow. Both backends
+   had taken strconv.ParseFloat / Number( ).
++- text into int8 (ZCL_GOGEN_T_C2N8, unmeasured): the same text rules as
++  into an i, over a range neither strconv.ParseFloat nor Number( ) keeps
++  -- the magnitude stays on the digits in Go and on a BigInt in JS, so
++  2^53+1 and both bounds of the 64-bit range round-trip exactly, and a
++  value past a bound, rounded or not, is CX_SY_CONVERSION_OVERFLOW. Both
++  emitters had refused the conversion (`no Go for conversion c2n
++  string->int8`).
+ - `FIND [FIRST|ALL] [REGEX|PCRE] p IN s [IGNORING CASE] RESULTS r`
+   (ZCL_GOGEN_T_FINDRES, _FINDPCRE; open-abap-core's CL_ABAP_MATCHER and
+   CL_IXML): POSIX leftmost-longest, PCRE leftmost-first with lazy
+diff --git a/tools/gogen/c2n8.test.mjs b/tools/gogen/c2n8.test.mjs
+new file mode 100644
+index 0000000..b0dd650
+--- /dev/null
++++ b/tools/gogen/c2n8.test.mjs
+@@ -0,0 +1,124 @@
++import {test} from "node:test";
++import assert from "node:assert/strict";
++import {mkdtempSync, writeFileSync, rmSync} from "node:fs";
++import {tmpdir} from "node:os";
++import {dirname, join} from "node:path";
++import {fileURLToPath} from "node:url";
++import {compileProgram} from "./frontend.mjs";
++import {emitGo} from "./emit-go.mjs";
++import {emitJs} from "./emit-js.mjs";
++import {ParseI8} from "./js/abap.mjs";
++import {libraryPath} from "../osd-lib-path.mjs";
++import {home} from "./home.mjs";
++
++const here = dirname(fileURLToPath(import.meta.url));
++// the CATCH classes live in open-abap-core (semantics.mjs compiles them the
++// same way); the clone is what tools/osd-libs.mjs makes
++const core = join(libraryPath(home, "open-abap-core"), "src");
++
++// a text into an int8: the rules go/abap conv.go ParseI8 spells out (the
++// text grammar ZCL_GOGEN_T_C2NUM measured for an i), over the 64-bit range
++const run = (v) => {
++  try {
++    return ParseI8(v);
++  } catch (e) {
++    return e.cls;
++  }
++};
++
++test("the JS runtime parses a text into an exact int8", () => {
++  for (const [text, want] of [
++    [" 12 ", 12n], ["-12", -12n], ["12-", -12n], ["+12", 12n], ["- 12", -12n], ["12 -", -12n],
++    ["2.5", 3n], ["-2.5", -3n], ["2.4", 2n], ["-2.4", -2n], [".5", 1n], ["-.5", -1n], ["5.", 5n],
++    ["-0.4", 0n], ["", 0n], ["   ", 0n], ["0012", 12n],
++    ["1E3", "CX_SY_CONVERSION_NO_NUMBER"], ["abc", "CX_SY_CONVERSION_NO_NUMBER"], ["1,5", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["12 3", "CX_SY_CONVERSION_NO_NUMBER"], [".", "CX_SY_CONVERSION_NO_NUMBER"], ["+-1", "CX_SY_CONVERSION_NO_NUMBER"],
++    ["--1", "CX_SY_CONVERSION_NO_NUMBER"], ["-1-", "CX_SY_CONVERSION_NO_NUMBER"],
++    // every value of the range, both bounds included, exact off the float path
++    ["0", 0n],
++    ["9223372036854775807", 9223372036854775807n],
++    ["-9223372036854775808", -9223372036854775808n],
++    ["00009223372036854775807", 9223372036854775807n],
++    ["9007199254740993", 9007199254740993n],
++    ["-9007199254740993", -9007199254740993n],
++    // one past the range, and a fraction that rounds one past it
++    ["9223372036854775808", "CX_SY_CONVERSION_OVERFLOW"],
++    ["-9223372036854775809", "CX_SY_CONVERSION_OVERFLOW"],
++    ["99999999999999999999", "CX_SY_CONVERSION_OVERFLOW"],
++    ["9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"],
++    ["9223372036854775807.4", 9223372036854775807n],
++    ["-9223372036854775808.4", -9223372036854775808n],
++  ]) assert.equal(run(text), want, text);
++  assert.equal(typeof ParseI8("1"), "bigint");
++});
++
++test("both emitters lower a string into an int8 through ParseI8", () => {
++  const dir = mkdtempSync(join(tmpdir(), "gogen-c2n8-"));
++  try {
++    writeFileSync(join(dir, "zcl_gogen_c2n8.clas.abap"), `
++CLASS zcl_gogen_c2n8 DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run IMPORTING in TYPE string RETURNING VALUE(rv) TYPE int8.
++ENDCLASS.
++CLASS zcl_gogen_c2n8 IMPLEMENTATION.
++  METHOD run.
++    rv = in.
++  ENDMETHOD.
++ENDCLASS.
++`);
++    const program = compileProgram({folders: [dir], objects: ["ZCL_GOGEN_C2N8"]});
++    assert.match(emitGo(program), /abap\.ParseI8\(/);
++    assert.match(emitJs(program, new URL("./js/abap.mjs", import.meta.url).href), /abap\.ParseI8\(/);
++  } finally { rmSync(dir, {recursive: true, force: true}); }
++});
++
++test("a generated program assigns, formats and catches the overflow", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "gogen-c2n8-run-"));
++  try {
++    writeFileSync(join(dir, "zcl_gogen_c2n8r.clas.abap"), `
++CLASS zcl_gogen_c2n8r DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS parse IMPORTING in TYPE string RETURNING VALUE(rv) TYPE string.
++    CLASS-METHODS twice IMPORTING in TYPE string RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++CLASS zcl_gogen_c2n8r IMPLEMENTATION.
++  METHOD parse.
++    DATA v TYPE int8.
++    TRY.
++        v = in.
++        rv = |{ v }|.
++      CATCH cx_sy_conversion_no_number.
++        rv = 'NN'.
++      CATCH cx_sy_conversion_overflow.
++        rv = 'OV'.
++    ENDTRY.
++  ENDMETHOD.
++  METHOD twice.
++    DATA v TYPE int8.
++    TRY.
++        v = in.
++        v = v * 2.
++        rv = |{ v }|.
++      CATCH cx_sy_conversion_overflow.
++        rv = 'OV'.
++    ENDTRY.
++  ENDMETHOD.
++ENDCLASS.
++`);
++    const program = compileProgram({folders: [dir, core], objects: ["ZCL_GOGEN_C2N8R"]});
++    const js = emitJs(program, new URL("./js/abap.mjs", import.meta.url).href);
++    const m = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
++    const session = {sy: {index: 0, tabix: 0, subrc: 0, dbcnt: 0}};
++    for (const [text, want] of [
++      ["-9223372036854775808", "-9223372036854775808"],
++      ["9223372036854775808", "OV"],
++      [" 9007199254740993 ", "9007199254740993"],
++      ["abc", "NN"],
++    ]) assert.equal(m.ZCL_GOGEN_C2N8R.PARSE(session, text), want, text);
++    assert.equal(m.ZCL_GOGEN_C2N8R.TWICE(session, "4611686018427387903"), "9223372036854775806");
++    // half the negative bound, doubled onto it exactly
++    assert.equal(m.ZCL_GOGEN_C2N8R.TWICE(session, "-4611686018427387904"), "-9223372036854775808");
++    assert.equal(m.ZCL_GOGEN_C2N8R.TWICE(session, " -3.5 "), "-8");
++  } finally { rmSync(dir, {recursive: true, force: true}); }
++});
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..71a049e 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -195,6 +195,69 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts a character value to int8 by ParseI's text rules, with
++// the range widened to the 64-bit one: no value of that range, either bound
++// included, passes through a float, so the magnitude stays on the digits and
++// the check compares them with the bound's own. A fraction that rounds up
++// past the bound raises as well.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	if frac != "" && frac[0] >= '5' {
++		whole = roundUpDigits(whole)
++	}
++	if whole == "" {
++		return 0
++	}
++	// the negative bound is one past int64's maximum, so it is compared as
++	// a digit string too and only then taken as MinInt64
++	const pos, negBound = "9223372036854775807", "9223372036854775808"
++	limit := pos
++	if neg {
++		limit = negBound
++	}
++	if len(whole) > len(limit) || len(whole) == len(limit) && whole > limit {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	if whole == negBound {
++		return math.MinInt64
++	}
++	n, _ := strconv.ParseInt(whole, 10, 64)
++	if neg {
++		n = -n
++	}
++	return n
++}
++
++// roundUpDigits adds one to a string of digits, carrying ("19" is "20",
++// "99" is "100", "" -- a fraction alone -- is "1").
++func roundUpDigits(s string) string {
++	if s == "" {
++		return "1"
++	}
++	b := []byte(s)
++	for i := len(b) - 1; i >= 0; i-- {
++		if b[i] < '9' {
++			b[i]++
++			return string(b)
++		}
++		b[i] = '0'
++	}
++	return "1" + string(b)
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..565abda
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,87 @@
++package abap
++
++import (
++	"math"
++	"math/big"
++	"math/rand"
++	"strconv"
++	"testing"
++)
++
++// ParseI8: the text rules ParseI measured on A4H (conv.go), over the 64-bit
++// range the assignment keeps exact. CO and NN as the probes abbreviate them.
++func TestParseI8(t *testing.T) {
++	cases := []struct {
++		in   string
++		want string
++	}{
++		{" 12 ", "12"}, {"-12", "-12"}, {"12-", "-12"}, {"+12", "12"}, {"- 12", "-12"}, {"12 -", "-12"},
++		{"2.5", "3"}, {"-2.5", "-3"}, {"2.4", "2"}, {"-2.4", "-2"}, {"1.49999", "1"},
++		{".5", "1"}, {"-.5", "-1"}, {"5.", "5"}, {"-0.4", "0"},
++		{"", "0"}, {"   ", "0"}, {"0012", "12"},
++		{"1E3", "NN"}, {"abc", "NN"}, {"1,5", "NN"}, {"12 3", "NN"}, {".", "NN"},
++		{"+-1", "NN"}, {"--1", "NN"}, {"-1-", "NN"}, {"+", "NN"}, {"-", "NN"},
++		// every value of the range, both bounds included
++		{"0", "0"},
++		{"9223372036854775807", "9223372036854775807"},
++		{"-9223372036854775808", "-9223372036854775808"},
++		{"00009223372036854775807", "9223372036854775807"},
++		{"4611686018427387903", "4611686018427387903"},
++		{"-4611686018427387904", "-4611686018427387904"},
++		// past it, and a fraction that rounds past it
++		{"9223372036854775808", "CO"},
++		{"-9223372036854775809", "CO"},
++		{"99999999999999999999", "CO"},
++		{"9223372036854775807.5", "CO"},
++		{"-9223372036854775808.5", "CO"},
++		{"9223372036854775807.4", "9223372036854775807"},
++		{"-9223372036854775808.4", "-9223372036854775808"},
++	}
++	run := func(in string) (out string) {
++		defer func() {
++			if r := recover(); r != nil {
++				e, ok := r.(ArithmeticError)
++				if !ok {
++					panic(r)
++				}
++				out = map[string]string{"CX_SY_CONVERSION_OVERFLOW": "CO", "CX_SY_CONVERSION_NO_NUMBER": "NN"}[e.Class]
++			}
++		}()
++		return strconv.FormatInt(ParseI8(in), 10)
++	}
++	for _, c := range cases {
++		if got := run(c.in); got != c.want {
++			t.Errorf("ParseI8(%q) = %s, want %s", c.in, got, c.want)
++		}
++	}
++}
++
++// the digits path stays exact where a float would not: random values of the
++// range, parsed and compared with math/big
++func TestParseI8Exact(t *testing.T) {
++	r := rand.New(rand.NewSource(8))
++	for i := 0; i < 2000; i++ {
++		n := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 64))
++		if n.Bit(63) == 1 {
++			n.Sub(n, new(big.Int).Lsh(big.NewInt(1), 64))
++		}
++		text := n.String()
++		if i%2 == 0 {
++			if text[0] == '-' {
++				text = "-000" + text[1:]
++			} else {
++				text = "000" + text
++			}
++		}
++		if got := ParseI8(text); got != n.Int64() {
++			t.Fatalf("ParseI8(%q) = %d, want %d", text, got, n.Int64())
++		}
++	}
++	if ParseI8("9007199254740993") != 9007199254740993 || ParseI8("-9007199254740993") != -9007199254740993 {
++		t.Fatal("2**53 + 1 must stay exact")
++	}
++	if ParseI8("9007199254740992.9") != 9007199254740993 {
++		t.Fatal("a fraction under a float-exact value rounds on the digits")
++	}
++	_ = math.MaxInt64
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..13aeb53 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,23 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++// a text into an int8: ParseI's rules over BigInt, so both bounds of the
++// 64-bit range stay exact (see go/abap conv.go ParseI8)
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = dot < 0 ? body : body.slice(0, dot);
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  let n = whole === "" ? 0n : BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n += 1n;
++  if (neg) n = -n;
++  if (n > 9223372036854775807n || n < -9223372036854775808n) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+diff --git a/tools/gogen/semantics.mjs b/tools/gogen/semantics.mjs
+index 26a2eff..fd4114b 100644
+--- a/tools/gogen/semantics.mjs
++++ b/tools/gogen/semantics.mjs
+@@ -255,6 +255,13 @@ const EXPECT = {
+   // strconv.ParseFloat / Number( ) before (the $batch of mocha.mjs dumps
+   // on Seats = "abc" by design: NN either way)
+   ZCL_GOGEN_T_C2NUM: "[12]12/12.000 [ 12 ]12/12.000 [-12]-12/-12.000 [12-]-12/-12.000 [+12]12/12.000 [2.5]3/2.500 [-2.5]-3/-2.500 [.5]1/0.500 [5.]5/5.000 [1E3]NN/1000.000 [1e3]NN/1000.000 [1.5E+2]NN/150.000 [nan]NN/OV [inf]NN/OV [Infinity]NN/OV [0x10]NN/NN [1_0]NN/NN [1,5]NN/NN [12 3]NN/12.000 [abc]NN/NN []0/0.000 [   ]0/0.000 [-]NN/NN [3000000000]OV/3000000000.000 [12 abc]NN/12.000 [1 2 3]NN/1.000 [- 12]-12/NN [12 -]-12/12.000 [ -12 ]-12/-12.000 [1E 3]NN/NN [E3]NN/NN [1E]NN/NN [1e+]NN/NN [1.5.2]NN/NN [+-1]NN/NN [--1]NN/NN [-1-]NN/NN [0012]12/12.000 [.]NN/NN [+]NN/NN [2147483647.4]2147483647/2147483647.400 [2147483647.5]OV/2147483647.500 [-2147483648.5]OV/-2147483648.500 [-2147483648.4]-2147483648/-2147483648.400 [1.49999]1/1.500 [12 3 ]NN/12.000 [1E400]NN/OV [1E-400]NN/0.000 [1.5E3-]NN/-1500.000 [1.5D3]NN/NN [12a]NN/NN [1.e2]NN/100.000 [.5e1]NN/5.000 [1E+03]NN/1000.000 ",
++  // Not an A4H value: the same text rules ZCL_GOGEN_T_C2NUM measured for
++  // an i (the conversion shares its helpers), carried to the int8 range the
++  // assignment has to keep exact: 3000000000 fits (an i overflows there),
++  // 2**53+1 survives (a float would lose it), both bounds of the 64-bit
++  // range convert and format back exactly, one past either bound is OV, and
++  // so is a fraction that rounds one past a bound
++  ZCL_GOGEN_T_C2N8: "[12]12 [ 12 ]12 [-12]-12 [12-]-12 [+12]12 [- 12]-12 [2.5]3 [-2.5]-3 [.5]1 [5.]5 [1.49999]1 [1E3]NN [abc]NN []0 [   ]0 [3000000000]3000000000 [9007199254740993]9007199254740993 [-9007199254740993]-9007199254740993 [9223372036854775807]9223372036854775807 [-9223372036854775808]-9223372036854775808 [9223372036854775807.4]9223372036854775807 [-9223372036854775808.4]-9223372036854775808 [9223372036854775808]OV [-9223372036854775809]OV [9223372036854775807.5]OV [-9223372036854775808.5]OV",
+   // parity-wave2, A4H 2026-09-24 ($ZOSG_TMP_0081, ABAP Unit probe of this
+   // class): CREATE DATA LIKE LINE OF a generic table of elementary rows is
+   // a new initial value of the row type (d 00000000, n zeros, i 0), which
+diff --git a/tools/gogen/testdata/zcl_gogen_t_c2n8.clas.abap b/tools/gogen/testdata/zcl_gogen_t_c2n8.clas.abap
+new file mode 100644
+index 0000000..9a2e2ab
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_c2n8.clas.abap
+@@ -0,0 +1,69 @@
++CLASS zcl_gogen_t_c2n8 DEFINITION PUBLIC FINAL CREATE PUBLIC.
++* a text moved into an int8: the text rules are the ones ZCL_GOGEN_T_C2NUM
++* measured for an i (one sign, digits with at most one point, the fraction
++* rounded half away from zero), and the value keeps every bit of the 64-bit
++* range, both bounds included -- not measured on A4H, the rules and the
++* endpoints of the task
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++  PRIVATE SECTION.
++    CLASS-METHODS to_int8
++      IMPORTING iv_text   TYPE string
++      RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++
++CLASS zcl_gogen_t_c2n8 IMPLEMENTATION.
++  METHOD to_int8.
++    DATA lv TYPE int8.
++    TRY.
++        lv = iv_text.
++        rv = |{ lv }|.
++      CATCH cx_sy_conversion_no_number.
++        rv = 'NN'.
++      CATCH cx_sy_conversion_overflow.
++        rv = 'OV'.
++    ENDTRY.
++  ENDMETHOD.
++
++  METHOD run.
++    DATA lt_text TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
++    DATA lv_text TYPE string.
++    APPEND `12` TO lt_text.
++    APPEND ` 12 ` TO lt_text.
++    APPEND `-12` TO lt_text.
++    APPEND `12-` TO lt_text.
++    APPEND `+12` TO lt_text.
++    APPEND `- 12` TO lt_text.
++    APPEND `2.5` TO lt_text.
++    APPEND `-2.5` TO lt_text.
++    APPEND `.5` TO lt_text.
++    APPEND `5.` TO lt_text.
++    APPEND `1.49999` TO lt_text.
++    APPEND `1E3` TO lt_text.
++    APPEND `abc` TO lt_text.
++    APPEND `` TO lt_text.
++    APPEND `   ` TO lt_text.
++* past the i range, inside the int8 one
++    APPEND `3000000000` TO lt_text.
++* 2**53 + 1, exact only off the float path
++    APPEND `9007199254740993` TO lt_text.
++    APPEND `-9007199254740993` TO lt_text.
++* both bounds of the 64-bit range
++    APPEND `9223372036854775807` TO lt_text.
++    APPEND `-9223372036854775808` TO lt_text.
++    APPEND `9223372036854775807.4` TO lt_text.
++    APPEND `-9223372036854775808.4` TO lt_text.
++* one past them, and a fraction that rounds one past them
++    APPEND `9223372036854775808` TO lt_text.
++    APPEND `-9223372036854775809` TO lt_text.
++    APPEND `9223372036854775807.5` TO lt_text.
++    APPEND `-9223372036854775808.5` TO lt_text.
++    LOOP AT lt_text INTO lv_text.
++      IF rv IS INITIAL.
++        rv = |[{ lv_text }]{ to_int8( lv_text ) }|.
++      ELSE.
++        rv = |{ rv } [{ lv_text }]{ to_int8( lv_text ) }|.
++      ENDIF.
++    ENDLOOP.
++  ENDMETHOD.
++ENDCLASS.

@@ -1,0 +1,38 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+      "rc": 1
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 1
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 280,
+  "task": "L2a-osg693",
+  "level": "L2",
+  "executor": "oai-luna-codex-x",
+  "harness": "codex",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 497,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "two-independent-critic-rounds-v1",
+  "internal_review_rounds": 2
+}

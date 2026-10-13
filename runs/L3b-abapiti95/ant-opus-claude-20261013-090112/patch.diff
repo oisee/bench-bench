@@ -1,0 +1,862 @@
+diff --git a/tsfront/anonymous_shapes_test.go b/tsfront/anonymous_shapes_test.go
+new file mode 100644
+index 0000000..ca71167
+--- /dev/null
++++ b/tsfront/anonymous_shapes_test.go
+@@ -0,0 +1,105 @@
++package tsfront
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++)
++
++// Object literals without a named class or alias lower to structural shape
++// classes: assignments, arguments, returns, nested and spread members,
++// optional and record contexts, and empty literals.
++const anonymousShapesSource = `
++function take(p: {x: number, y: string}): number { return p.x; }
++function make(): {x: number, y: string} { return {y: "a", x: 3}; }
++function maybe(p?: {k: number, label?: string}): number { return p === undefined ? 100 : p.k; }
++function view(p: {readonly x: number, readonly y: string}): number { return p.x; }
++function inferred(n: number) { if (n > 0) { return {b: "y", a: n}; } return {a: 0, b: "z"}; }
++export class Probe {
++  static vars: {[k: string]: number} | undefined = undefined;
++  static run(): number {
++    const a = {x: 1, y: "s"};
++    const b = {y: "t", x: 2};
++    let v: {x: number, y: string};
++    v = {x: 4, y: "u"};
++    const nested = {inner: {a: 5}, list: [{a: 6}, {a: 7}], meta: {}};
++    const o: {x?: number, y?: string} = {};
++    const u: {k: number} | undefined = {k: 8};
++    const r: Record<string, number> = Probe.vars ?? {p: 9, q: 10};
++    let keys = 0;
++    for (const key in Probe.vars || {}) { keys += key.length; }
++    const spread = {...a, x: 11};
++    const e = {};
++    const w = {x: 12, y: "w"};
++    w.x = w.x + 1;
++    return a.x + b.x + take({y: "q", x: 2}) + make().x + v.x + nested.inner.a + nested.list[1].a +
++      (o.x ?? 0) + (u ? u.k : 0) + (r["q"] ?? 0) + keys + spread.x + maybe({k: 14}) + maybe() +
++      view(w) + view({x: 15, y: "r"}) + inferred(16).a + (e === undefined ? 1000 : 0);
++  }
++}
++`
++
++func TestAnonymousObjectLiteralShapes(t *testing.T) {
++	p := lowerStatementsProbe(t, map[string]string{"probe.ts": anonymousShapesSource}, []string{"probe.ts"})
++	// Literals and type literals with the fields x:number, y:string (in
++	// either order, readonly or not) share one physical class.
++	var xy []string
++	for _, c := range p.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") || len(c.Fields) != 2 {
++			continue
++		}
++		names := map[string]hir.Type{}
++		for _, f := range c.Fields {
++			names[f.Name] = f.Type
++		}
++		if names["x"].Kind == hir.Number && names["y"].Kind == hir.String {
++			xy = append(xy, c.Name)
++			for _, f := range c.Fields {
++				if f.Readonly {
++					t.Errorf("%s.%s: a writable view shares the readonly layout", c.Name, f.Name)
++				}
++			}
++		}
++	}
++	if len(xy) != 1 {
++		t.Fatalf("x/y layouts: %v, want one shared shape", xy)
++	}
++	if _, err := abap.Emit(p); err != nil {
++		t.Fatal(err)
++	}
++	// Node: 1+2+2+3+4+5+7+0+8+10+0+11+14+100+13+15+16+0
++	got := runGoHIR(t, p, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if strings.TrimSpace(got) != "211" {
++		t.Fatalf("Go result %q, want 211", got)
++	}
++}
++
++// A readonly-only layout keeps its readonly fields.
++func TestAnonymousShapeReadonly(t *testing.T) {
++	p := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++  static run(): number {
++    const r: {readonly id: number, readonly name?: string} = {id: 1};
++    return r.id;
++  }
++}
++`}, []string{"probe.ts"})
++	for _, c := range p.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") {
++			continue
++		}
++		for _, f := range c.Fields {
++			if !f.Readonly {
++				t.Errorf("%s.%s lost readonly", c.Name, f.Name)
++			}
++			if f.Name == "name" && f.Type.Kind != hir.Optional {
++				t.Errorf("%s.name lost optional: %s", c.Name, f.Type)
++			}
++		}
++		return
++	}
++	t.Fatal("no structural shape")
++}
+diff --git a/tsfront/lower_expr.go b/tsfront/lower_expr.go
+index c57868d..8681f4d 100644
+--- a/tsfront/lower_expr.go
++++ b/tsfront/lower_expr.go
+@@ -2114,6 +2114,15 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 			hint = part
+ 		}
+ 	}
++	if hint.Kind == "" || hint.Kind == hir.Void {
++		// A literal without a lowered hint (`x || {}`) takes its contextual
++		// record; an empty one also takes its contextual shape.
++		empty := len(n.AsObjectLiteralExpression().Properties.Nodes) == 0
++		if ct, ok := l.contextualHint(n); ok && (ct.Kind == hir.OrderedMap || empty && l.isShapeClass(shapeClassOf(l.out.Classes, ct))) {
++			hint = ct
++			l.hint = ct
++		}
++	}
+ 	if hint.Kind == hir.Dynamic {
+ 		return l.dynamicRecordLiteral(n)
+ 	}
+@@ -2181,8 +2190,16 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 				}
+ 			}
+ 		}
+-		l.diagf(n, "unsupported-type", "object literal needs a named lowered shape")
+-		return nil
++		if len(props) == 0 {
++			if c := l.structuralShape(n, nil); c != nil {
++				return &hir.Expr{Kind: hir.New, Node: l.node(n), Type: hir.Ref(c.Name), Args: []*hir.Expr{}}
++			}
++			l.diagf(n, "unsupported-type", "object literal needs a named lowered shape")
++			return nil
++		}
++		// No named shape and no lowering of the literal's own type: build
++		// the structural shape from the members.
++		return l.anonymousLiteral(n)
+ 	}
+ 	ctor := target.Ctor
+ 	props := n.AsObjectLiteralExpression().Properties.Nodes
+diff --git a/tsfront/lower_lsp.go b/tsfront/lower_lsp.go
+index 6ffe723..73c911c 100644
+--- a/tsfront/lower_lsp.go
++++ b/tsfront/lower_lsp.go
+@@ -53,7 +53,9 @@ func (l *lowerer) lspShape(sym *ast.Symbol) *hir.Class {
+ 
+ func (l *lowerer) lspCall(n, receiver *ast.Node, method string) (*hir.Expr, bool) {
+ 	sym := l.resolve(receiver)
+-	if !l.lspSymbol(sym) {
++	// Only the declaration-merged namespaces construct values; a property
++	// typed by the library (workspace.documentChanges) is ordinary data.
++	if !l.lspSymbol(sym) || sym.Flags&ast.SymbolFlagsModule == 0 {
+ 		return nil, false
+ 	}
+ 	name := sym.Name
+diff --git a/tsfront/lower_shape.go b/tsfront/lower_shape.go
+new file mode 100644
+index 0000000..37981bb
+--- /dev/null
++++ b/tsfront/lower_shape.go
+@@ -0,0 +1,497 @@
++package tsfront
++
++import (
++	"crypto/sha256"
++	"fmt"
++	"sort"
++	"strings"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/internal/tsgo/ast"
++	"github.com/oisee/abapiti/internal/tsgo/checker"
++)
++
++// Structural shapes: object types without a named class or alias lower to
++// synthesized "shape." classes. Equivalent layouts share one class whatever
++// the property order, and optional or readonly views of a layout do not
++// create a second physical class.
++
++// shapeField is one member of a structural object shape.
++type shapeField struct {
++	name     string
++	typ      hir.Type
++	readonly bool
++	// sym is the checker property the field lowers, registered for member
++	// access (nil for members copied from a spread).
++	sym *ast.Symbol
++}
++
++// readonlyProperty reports a `readonly` property, including the members of
++// a Readonly<T> mapped type.
++func readonlyProperty(p *ast.Symbol) bool {
++	if p == nil {
++		return false
++	}
++	if p.CheckFlags&ast.CheckFlagsReadonly != 0 {
++		return true
++	}
++	for _, d := range p.Declarations {
++		if d.ModifierFlags()&ast.ModifierFlagsReadonly != 0 {
++			return true
++		}
++	}
++	return false
++}
++
++// isEmptyLiteralType reports the type of a `{}` object literal (fresh, or
++// widened for a declaration), never an annotated `{}` type.
++func (l *lowerer) isEmptyLiteralType(t *checker.Type) bool {
++	if t == nil || t.Flags()&checker.TypeFlagsObject == 0 {
++		return false
++	}
++	literal := t.ObjectFlags()&checker.ObjectFlagsObjectLiteral != 0 || t.Symbol() != nil && t.Symbol().Flags&ast.SymbolFlagsObjectLiteral != 0
++	return literal && len(l.ck.GetPropertiesOfType(t)) == 0 && len(l.ck.GetIndexInfosOfType(t)) == 0 &&
++		len(l.ck.GetSignaturesOfType(t, checker.SignatureKindCall)) == 0 && len(l.ck.GetSignaturesOfType(t, checker.SignatureKindConstruct)) == 0
++}
++
++// shapeSlotType reports one physical slot type: a reference and its
++// optional view share the slot.
++func shapeSlotType(t hir.Type) hir.Type {
++	if t.Kind == hir.Optional && len(t.Args) == 1 && t.Args[0].IsRef() {
++		return t.Args[0]
++	}
++	return t
++}
++
++// isShapeClass reports a synthesized structural or data-interface class.
++func (l *lowerer) isShapeClass(c *hir.Class) bool {
++	return c != nil && c.Ctor != nil && (strings.HasPrefix(c.Name, "shape.") || l.shapeLike[c.Name])
++}
++
++// propertyFieldType maps the checker type of one shape property. A member
++// written in an object literal whose own type has no lowering (`{}`, `[]`,
++// an opaque external type) takes its contextual type.
++func (l *lowerer) propertyFieldType(n *ast.Node, p *ast.Symbol) (hir.Type, bool) {
++	before := len(l.diags)
++	pt := l.ck.GetTypeOfSymbol(p)
++	var ft hir.Type
++	switch {
++	case pt != nil && pt.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) != 0:
++		ft = hir.T(hir.Optional, hir.Ref(hir.RootObject))
++	case l.isNeverArray(pt):
++		// An empty literal's never[]: matches any array field of a reused
++		// shape; it never defines a shape of its own.
++		ft = hir.T(hir.Array, hir.T(hir.Void))
++	case l.isEmptyLiteralType(pt):
++		// `{}` takes its contextual record or shape; alone it is the empty
++		// shape.
++		if ct, ok := l.literalContextType(p); ok {
++			ft = ct
++		} else {
++			ft = l.mapCheckerType(n, pt)
++		}
++	default:
++		if annotated, ok := l.propertyAnnotationOverride(p); ok {
++			ft = annotated
++		} else {
++			ft = l.mapCheckerType(n, pt)
++		}
++	}
++	if hasBlocking(l.diags[before:]) || ft.Kind == hir.Void {
++		l.diags = l.diags[:before]
++		ct, ok := l.literalContextType(p)
++		if !ok {
++			return hir.Type{}, false
++		}
++		ft = ct
++	}
++	if p.Flags&ast.SymbolFlagsOptional != 0 && ft.Kind != hir.Optional {
++		ft = hir.T(hir.Optional, ft)
++	}
++	return ft, true
++}
++
++// literalContextType maps the contextual type of an object-literal member's
++// value; a present member is not optional.
++func (l *lowerer) literalContextType(p *ast.Symbol) (hir.Type, bool) {
++	if p == nil || p.ValueDeclaration == nil {
++		return hir.Type{}, false
++	}
++	var value *ast.Node
++	switch d := p.ValueDeclaration; d.Kind {
++	case ast.KindPropertyAssignment:
++		value = d.Initializer()
++	case ast.KindShorthandPropertyAssignment:
++		value = d.Name()
++	}
++	if value == nil {
++		return hir.Type{}, false
++	}
++	return l.contextualHint(value)
++}
++
++// contextualHint maps the contextual type of an expression without leaving
++// diagnostics; the undefined of an optional context is dropped.
++func (l *lowerer) contextualHint(n *ast.Node) (hir.Type, bool) {
++	ct := l.ck.GetContextualType(n, 0)
++	if ct == nil || ct.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
++		return hir.Type{}, false
++	}
++	saved := l.file
++	if f := ast.GetSourceFileOfNode(n); f != nil {
++		l.file = f
++	}
++	before := len(l.diags)
++	t := l.mapCheckerType(n, ct)
++	blocked := hasBlocking(l.diags[before:])
++	l.diags = l.diags[:before]
++	l.file = saved
++	if blocked || t.Kind == hir.Void || t.Kind == "" {
++		return hir.Type{}, false
++	}
++	if t.Kind == hir.Optional && len(t.Args) == 1 && t.Args[0].Kind != hir.Dynamic {
++		t = t.Args[0]
++	}
++	return t, true
++}
++
++// structuralShape returns the shape class of a field list: an existing class
++// with the same layout (matched by name, independent of order), else a data
++// interface the fields are a subset of, else a fresh synthesized class.
++func (l *lowerer) structuralShape(n *ast.Node, fields []shapeField) *hir.Class {
++	sorted := append([]shapeField(nil), fields...)
++	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].name < sorted[j].name })
++	var identity strings.Builder
++	for _, f := range sorted {
++		fmt.Fprintf(&identity, "%q:%s;", f.name, f.typ.String())
++	}
++	// Required and optional reference properties have one physical layout,
++	// and readonly is a view: reuse the existing shape. The checker narrows
++	// required reads at use sites.
++	for _, c := range l.out.Classes {
++		if !l.isShapeClass(c) || len(c.Fields) != len(fields) {
++			continue
++		}
++		same := true
++		for _, f := range fields {
++			existing := classField(c, f.name)
++			if existing == nil {
++				same = false
++				break
++			}
++			a, b := shapeSlotType(f.typ), shapeSlotType(existing.Type)
++			if a.Kind == hir.Array && a.Args[0].Kind == hir.Void && b.Kind == hir.Array {
++				a = b
++			}
++			if !a.Equal(b) {
++				same = false
++				break
++			}
++		}
++		if same {
++			l.adoptShape(c, fields)
++			return c
++		}
++	}
++	key := fmt.Sprintf("shape.%x", sha256.Sum256([]byte(identity.String())))
++	for _, c := range l.out.Classes {
++		if c.Name == key {
++			l.adoptShape(c, fields)
++			return c
++		}
++	}
++	// A data object with a subset of a data interface's fields (the rest
++	// optional) is that data interface with the others absent: plain
++	// objects have no identity of their own. An empty literal names no
++	// interface.
++	for _, c := range l.out.Classes {
++		if len(fields) == 0 || !l.shapeLike[c.Name] || c.Ctor == nil || len(c.Fields) <= len(fields) {
++			continue
++		}
++		matched := 0
++		ok := true
++		for _, cf := range c.Fields {
++			found := false
++			for _, f := range fields {
++				if f.name != cf.Name {
++					continue
++				}
++				a, b := shapeSlotType(f.typ), shapeSlotType(cf.Type)
++				if a.Kind == hir.Array && a.Args[0].Kind == hir.Void && (b.Kind == hir.Array || (b.Kind == hir.Optional && b.Args[0].Kind == hir.Array)) {
++					a = b
++				}
++				if !a.Equal(b) && !(b.Kind == hir.Optional && b.Args[0].Equal(a)) {
++					ok = false
++				}
++				found = true
++			}
++			if found {
++				matched++
++			} else if cf.Type.Kind != hir.Optional {
++				ok = false
++			}
++		}
++		if ok && matched == len(fields) {
++			l.adoptShape(c, fields)
++			l.diagf(n, "note-shape-subset", "anonymous shape lowered as the data interface %s with absent extra fields", c.Name)
++			return c
++		}
++	}
++	// No shape takes an empty literal's never[]: its contextual array type
++	// decides the field.
++	resolved := append([]shapeField(nil), fields...)
++	wildcard := false
++	for i, f := range resolved {
++		if f.typ.Kind != hir.Array || f.typ.Args[0].Kind != hir.Void {
++			continue
++		}
++		ct, ok := l.literalContextType(f.sym)
++		if !ok || ct.Kind != hir.Array {
++			l.diagf(n, "unsupported-type", "object literal with an empty array field %s matches no declared shape (%s)", f.name, identity.String())
++			return nil
++		}
++		resolved[i].typ = ct
++		wildcard = true
++	}
++	if wildcard {
++		return l.structuralShape(n, resolved)
++	}
++	c := &hir.Class{Node: l.node(n), Name: key}
++	ctor := &hir.Method{Node: l.node(n), Name: "constructor", Result: hir.T(hir.Void)}
++	var list []*hir.Stmt
++	for _, f := range fields {
++		ft := f.typ
++		c.Fields = append(c.Fields, hir.Field{Node: l.node(n), Name: f.name, Type: ft, Readonly: f.readonly})
++		// Reference fields share one physical layout with their optional
++		// views, so the constructor accepts an absent reference and stores
++		// it as the initial reference.
++		pt := ft
++		value := hir.V(f.name, ft)
++		if ft.IsRef() {
++			pt = hir.T(hir.Optional, ft)
++			value = &hir.Expr{Kind: hir.Narrow, Node: l.node(n), Type: ft, X: hir.V(f.name, pt)}
++		}
++		ctor.Params = append(ctor.Params, hir.Param{Name: f.name, Type: pt})
++		list = append(list, &hir.Stmt{Kind: hir.Assign, Node: l.node(n),
++			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(n), Name: f.name, Type: ft,
++				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
++			Y: value})
++		if f.sym != nil && f.sym.Parent != nil {
++			l.fieldsBy[f.sym.Parent.Name+"."+f.name] = hir.Field{Node: l.node(n), Name: f.name, Type: ft}
++		}
++	}
++	ctor.Body = hir.B(list...)
++	c.Ctor = ctor
++	l.out.Classes = append(l.out.Classes, c)
++	l.adoptShape(c, fields)
++	return c
++}
++
++// adoptShape registers the checker properties of one view of a shape. A
++// synthesized field stays readonly only while every view is readonly.
++func (l *lowerer) adoptShape(c *hir.Class, fields []shapeField) {
++	for _, f := range fields {
++		for k := range c.Fields {
++			if c.Fields[k].Name != f.name {
++				continue
++			}
++			if !f.readonly && strings.HasPrefix(c.Name, "shape.") {
++				c.Fields[k].Readonly = false
++			}
++			if f.sym != nil {
++				l.fields[f.sym] = c.Fields[k]
++			}
++		}
++	}
++}
++
++func classField(c *hir.Class, name string) *hir.Field {
++	for k := range c.Fields {
++		if c.Fields[k].Name == name {
++			return &c.Fields[k]
++		}
++	}
++	return nil
++}
++
++// flowsTo reports whether coerce carries a value of type src into dst
++// (assignable references, boxing, checked unboxing and optional wrapping).
++func (l *lowerer) flowsTo(src, dst hir.Type) bool {
++	switch {
++	case l.acceptsType(dst, src):
++		return true
++	case dst.Kind == hir.Dynamic || dst.Kind == hir.Optional && dst.Args[0].Kind == hir.Dynamic:
++		return src.Kind != hir.Void
++	case src.Kind == hir.Dynamic:
++		return dst.Kind != hir.Void
++	case src.Kind == hir.Optional && !dst.IsRef() && dst.Kind != hir.Optional && src.Args[0].Equal(dst):
++		return true
++	case dst.Kind == hir.Optional && src.Kind != hir.Optional:
++		return l.flowsTo(src, dst.Args[0])
++	}
++	return false
++}
++
++// literalMember returns the field name and value node of an object-literal
++// property assignment.
++func (l *lowerer) literalMember(p *ast.Node) (string, *ast.Node, bool) {
++	switch p.Kind {
++	case ast.KindShorthandPropertyAssignment:
++		return p.Name().Text(), p.Name(), true
++	case ast.KindPropertyAssignment:
++		nameNode := propertyNameNode(p)
++		if nameNode == nil {
++			l.diagf(p, "unsupported-type", "object literal property without a name")
++			return "", nil, false
++		}
++		if nameNode.Kind == ast.KindComputedPropertyName {
++			// Constant computed keys (enum members) resolve through the
++			// checker.
++			key, ok := l.constantKeyName(nameNode)
++			if !ok {
++				l.diagf(p, "unsupported-type", "computed object literal key is not a constant")
++				return "", nil, false
++			}
++			return key, p.Initializer(), true
++		}
++		return nameNode.Text(), p.Initializer(), true
++	}
++	l.diagf(p, "unsupported-type", "object literal property %s is not lowered", p.Kind.String())
++	return "", nil, false
++}
++
++// anonymousLiteral lowers an object literal that has no named target shape
++// and whose checker type has no lowering of its own: each member is typed
++// by the checker where it maps, else by its contextual type, else by its
++// lowered value, and the members build a structural shape.
++func (l *lowerer) anonymousLiteral(n *ast.Node) *hir.Expr {
++	type member struct {
++		field shapeField
++		value *hir.Expr
++	}
++	var members []member
++	set := func(m member) {
++		for i := range members {
++			if members[i].field.name == m.field.name {
++				members[i] = m
++				return
++			}
++		}
++		members = append(members, m)
++	}
++	lit := l.ck.GetTypeAtLocation(n)
++	props := n.AsObjectLiteralExpression().Properties.Nodes
++	impure := 0
++	for _, p := range props {
++		if p.Kind == ast.KindPropertyAssignment && !pureLiteralValue(p.Initializer()) {
++			impure++
++		}
++	}
++	saved := l.hint
++	defer func() { l.hint = saved }()
++	for _, p := range props {
++		if p.Kind == ast.KindSpreadAssignment {
++			l.hint = hir.Type{}
++			sv := l.expr(p.Expression())
++			if sv == nil {
++				return nil
++			}
++			src := shapeClassOf(l.out.Classes, sv.Type)
++			if src == nil {
++				l.diagf(p, "unsupported-type", "spread needs a shape value")
++				return nil
++			}
++			sv = l.tempInit(p, sv.Type, sv)
++			l.diagf(p, "note-object-spread", "object spread copies the fields of %s", sv.Type.Name)
++			for _, f := range src.Fields {
++				if f.Static {
++					continue
++				}
++				set(member{shapeField{name: f.Name, typ: f.Type, readonly: f.Readonly},
++					&hir.Expr{Kind: hir.FieldGet, Node: l.node(p), Name: f.Name, Type: f.Type, X: sv}})
++			}
++			continue
++		}
++		name, value, ok := l.literalMember(p)
++		if !ok {
++			return nil
++		}
++		var sym *ast.Symbol
++		if lit != nil {
++			sym = l.ck.GetPropertyOfType(lit, name)
++		}
++		var ft hir.Type
++		typed := false
++		if sym != nil {
++			ft, typed = l.propertyFieldType(p, sym)
++			if typed && ft.Kind == hir.Array && ft.Args[0].Kind == hir.Void {
++				typed = false
++			}
++		}
++		if typed {
++			l.hint = ft
++		} else if ct, ok := l.contextualHint(value); ok {
++			l.hint = ct
++		} else {
++			l.hint = hir.Type{}
++		}
++		x := l.expr(value)
++		if x == nil {
++			return nil
++		}
++		if !typed || !l.flowsTo(x.Type, ft) {
++			ft = x.Type
++			if ft.Kind == hir.Void || ft.Kind == "" || ft.Kind == hir.Array && ft.Args[0].Kind == hir.Void {
++				l.diagf(p, "unsupported-type", "object literal property %s has no lowered type", name)
++				return nil
++			}
++		}
++		x = l.coerce(x, ft)
++		if impure > 1 && !pureLiteralValue(value) {
++			// The shape may order its fields differently from the source:
++			// evaluate the members in source order.
++			x = l.tempInit(value, ft, x)
++		}
++		set(member{shapeField{name: name, typ: ft, readonly: readonlyProperty(sym), sym: sym}, x})
++	}
++	fields := make([]shapeField, len(members))
++	for i, m := range members {
++		fields[i] = m.field
++	}
++	c := l.structuralShape(n, fields)
++	if c == nil {
++		return nil
++	}
++	args := make([]*hir.Expr, len(c.Ctor.Params))
++	for i, cp := range c.Ctor.Params {
++		for _, m := range members {
++			if m.field.name == cp.Name {
++				args[i] = l.coerce(m.value, cp.Type)
++			}
++		}
++		if args[i] == nil {
++			if cp.Type.Kind != hir.Optional {
++				l.diagf(n, "unsupported-type", "object literal misses field %s", cp.Name)
++				return nil
++			}
++			args[i] = &hir.Expr{Kind: hir.Lit, Type: cp.Type}
++		}
++	}
++	l.diagf(n, "note-structural-shape", "object literal without a named shape lowered as the structural shape %s", c.Name)
++	return &hir.Expr{Kind: hir.New, Node: l.node(n), Type: hir.Ref(c.Name), Args: args}
++}
++
++// pureLiteralValue reports a member value whose evaluation has no effects.
++func pureLiteralValue(n *ast.Node) bool {
++	if n == nil {
++		return true
++	}
++	switch n.Kind {
++	case ast.KindIdentifier, ast.KindStringLiteral, ast.KindNumericLiteral, ast.KindNoSubstitutionTemplateLiteral,
++		ast.KindTrueKeyword, ast.KindFalseKeyword, ast.KindNullKeyword, ast.KindThisKeyword, ast.KindUndefinedKeyword:
++		return true
++	case ast.KindParenthesizedExpression:
++		return pureLiteralValue(n.Expression())
++	}
++	return false
++}
+diff --git a/tsfront/lower_types.go b/tsfront/lower_types.go
+index a697fe5..459dcbe 100644
+--- a/tsfront/lower_types.go
++++ b/tsfront/lower_types.go
+@@ -3,7 +3,6 @@ package tsfront
+ import (
+ 	"crypto/sha256"
+ 	"fmt"
+-	"strings"
+ 
+ 	"github.com/oisee/abapiti/hir"
+ 	"github.com/oisee/abapiti/internal/tsgo/ast"
+@@ -553,6 +552,11 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 			if c := l.synthFromProperties(n, props); c != nil {
+ 				return hir.Ref(c.Name)
+ 			}
++		} else if l.isEmptyLiteralType(t) {
++			// `{}` without a contextual shape: the empty structural shape.
++			if c := l.structuralShape(n, nil); c != nil {
++				return hir.Ref(c.Name)
++			}
+ 		}
+ 		l.diagf(n, "unsupported-type", "checker type %s is not a lowered declaration", l.ck.TypeToString(t))
+ 		return hir.T(hir.Void)
+@@ -568,164 +572,15 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 
+ // synthFromProperties builds a shape class from a list of property symbols.
+ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Class {
+-	var fields []hir.Field
+-	var identity strings.Builder
++	fields := make([]shapeField, 0, len(props))
+ 	for _, p := range props {
+-		before := len(l.diags)
+-		pt := l.ck.GetTypeOfSymbol(p)
+-		var ft hir.Type
+-		if pt != nil && pt.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) != 0 {
+-			ft = hir.T(hir.Optional, hir.Ref(hir.RootObject))
+-		} else if l.isNeverArray(pt) {
+-			// An empty literal's never[]: matches any array field of a
+-			// reused shape; it never defines a shape of its own.
+-			ft = hir.T(hir.Array, hir.T(hir.Void))
+-		} else if annotated, ok := l.propertyAnnotationOverride(p); ok {
+-			ft = annotated
+-		} else {
+-			ft = l.mapCheckerType(n, pt)
+-		}
+-		if hasBlocking(l.diags[before:]) || ft.Kind == hir.Void {
+-			l.diags = l.diags[:before]
++		ft, ok := l.propertyFieldType(n, p)
++		if !ok {
+ 			return nil
+ 		}
+-		if p.Flags&ast.SymbolFlagsOptional != 0 && ft.Kind != hir.Optional {
+-			ft = hir.T(hir.Optional, ft)
+-		}
+-		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
+-		fmt.Fprintf(&identity, "%q:%s;", p.Name, ft.String())
+-	}
+-	// Required and optional reference properties have one physical layout.
+-	// Reuse the existing shape; the checker narrows required reads at use sites.
+-	for _, c := range l.out.Classes {
+-		if (!strings.HasPrefix(c.Name, "shape.") && !l.shapeLike[c.Name]) || len(c.Fields) != len(fields) || c.Ctor == nil {
+-			continue
+-		}
+-		// The checker lists properties in its own order: match by name.
+-		same := true
+-		for _, f := range fields {
+-			var existing *hir.Field
+-			for k := range c.Fields {
+-				if c.Fields[k].Name == f.Name {
+-					existing = &c.Fields[k]
+-				}
+-			}
+-			if existing == nil {
+-				same = false
+-				break
+-			}
+-			a, b := f.Type, existing.Type
+-			if a.Kind == hir.Optional && a.Args[0].IsRef() {
+-				a = a.Args[0]
+-			}
+-			if b.Kind == hir.Optional && b.Args[0].IsRef() {
+-				b = b.Args[0]
+-			}
+-			if a.Kind == hir.Array && a.Args[0].Kind == hir.Void && b.Kind == hir.Array {
+-				a = b
+-			}
+-			same = same && a.Equal(b)
+-		}
+-		if same {
+-			for _, p := range props {
+-				for k := range c.Fields {
+-					if c.Fields[k].Name == p.Name {
+-						l.fields[p] = c.Fields[k]
+-					}
+-				}
+-			}
+-			return c
+-		}
+-	}
+-	key := fmt.Sprintf("shape.%x", sha256.Sum256([]byte(identity.String())))
+-	for _, c := range l.out.Classes {
+-		if c.Name == key {
+-			return c
+-		}
++		fields = append(fields, shapeField{name: p.Name, typ: ft, readonly: readonlyProperty(p), sym: p})
+ 	}
+-	// A data object with a subset of a data interface's fields (the rest
+-	// optional) is that data interface with the others absent: plain
+-	// objects have no identity of their own.
+-	for _, c := range l.out.Classes {
+-		if !l.shapeLike[c.Name] || c.Ctor == nil || len(c.Fields) <= len(fields) {
+-			continue
+-		}
+-		matched := 0
+-		ok := true
+-		for _, cf := range c.Fields {
+-			found := false
+-			for _, f := range fields {
+-				if f.Name != cf.Name {
+-					continue
+-				}
+-				a, b := f.Type, cf.Type
+-				if a.Kind == hir.Optional && a.Args[0].IsRef() {
+-					a = a.Args[0]
+-				}
+-				if b.Kind == hir.Optional && b.Args[0].IsRef() {
+-					b = b.Args[0]
+-				}
+-				if a.Kind == hir.Array && a.Args[0].Kind == hir.Void && (b.Kind == hir.Array || (b.Kind == hir.Optional && b.Args[0].Kind == hir.Array)) {
+-					a = b
+-				}
+-				if !a.Equal(b) && !(b.Kind == hir.Optional && b.Args[0].Equal(a)) {
+-					ok = false
+-				}
+-				found = true
+-			}
+-			if found {
+-				matched++
+-			} else if cf.Type.Kind != hir.Optional {
+-				ok = false
+-			}
+-		}
+-		if ok && matched == len(fields) {
+-			for _, p := range props {
+-				for _, cf := range c.Fields {
+-					if cf.Name == p.Name {
+-						l.fields[p] = cf
+-					}
+-				}
+-			}
+-			l.diagf(n, "note-shape-subset", "anonymous shape lowered as the data interface %s with absent extra fields", c.Name)
+-			return c
+-		}
+-	}
+-	for _, f := range fields {
+-		if f.Type.Kind == hir.Array && f.Type.Args[0].Kind == hir.Void {
+-			l.diagf(n, "unsupported-type", "object literal with an empty array field %s matches no declared shape (%s)", f.Name, identity.String())
+-			return nil
+-		}
+-	}
+-	c := &hir.Class{Node: l.node(n), Name: key}
+-	ctor := &hir.Method{Node: l.node(n), Name: "constructor", Result: hir.T(hir.Void)}
+-	var list []*hir.Stmt
+-	for idx, p := range props {
+-		ft := fields[idx].Type
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
+-		// Reference fields share one physical layout with their optional
+-		// views, so the constructor accepts an absent reference and stores
+-		// it as the initial reference.
+-		pt := ft
+-		value := hir.V(p.Name, ft)
+-		if ft.IsRef() {
+-			pt = hir.T(hir.Optional, ft)
+-			value = &hir.Expr{Kind: hir.Narrow, Node: l.node(n), Type: ft, X: hir.V(p.Name, pt)}
+-		}
+-		ctor.Params = append(ctor.Params, hir.Param{Name: p.Name, Type: pt})
+-		list = append(list, &hir.Stmt{Kind: hir.Assign, Node: l.node(n),
+-			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(n), Name: p.Name, Type: ft,
+-				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
+-			Y: value})
+-		l.fields[p] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
+-		if p.Parent != nil {
+-			l.fieldsBy[p.Parent.Name+"."+p.Name] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
+-		}
+-	}
+-	ctor.Body = hir.B(list...)
+-	c.Ctor = ctor
+-	l.out.Classes = append(l.out.Classes, c)
+-	return c
++	return l.structuralShape(n, fields)
+ }
+ 
+ // checkNumberLiteral rejects values outside the finite binary64 domain.

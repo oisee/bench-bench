@@ -1,0 +1,495 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..85cebfd 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -195,6 +195,65 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts a character value to int8, same rules as ParseI (A4H
++// parity-wave2, ZCL_GOGEN_T_C2NUM) but for the 64-bit range: blanks are 0,
++// one sign, digits with at most one point, fraction rounded half away from
++// zero, overflow raises CX_SY_CONVERSION_OVERFLOW, no number raises
++// CX_SY_CONVERSION_NO_NUMBER.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	// 9223372036854775807 has 19 digits, so more than 19 whole digits overflows
++	if len(whole) > 19 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	// Special case: "9223372036854775808" is MinInt64's absolute value
++	// Only valid when neg=true (so result is MinInt64)
++	if whole == "9223372036854775808" && frac == "" {
++		if neg {
++			return math.MinInt64
++		}
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	var n int64
++	for i := 0; i < len(whole); i++ {
++		d := int64(whole[i] - '0')
++		// Check for overflow before it happens: n > (MaxInt64 - d) / 10
++		if n > (math.MaxInt64-d)/10 {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++		n = n*10 + d
++	}
++	if frac != "" && frac[0] >= '5' {
++		// Rounding up: if n == MaxInt64 and this is not a negative number, overflow
++		// For negative numbers, MaxInt64 + 1 becomes MinInt64 after negation
++		if n == math.MaxInt64 {
++			if !neg {
++				panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++			}
++			// neg=true and we round MaxInt64 up to (MaxInt64+1), which becomes MinInt64
++			return math.MinInt64
++		}
++		n++
++	}
++	if neg {
++		n = -n
++	}
++	return n
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/parse_i8_test.go b/tools/gogen/go/abap/parse_i8_test.go
+new file mode 100644
+index 0000000..9626fff
+--- /dev/null
++++ b/tools/gogen/go/abap/parse_i8_test.go
+@@ -0,0 +1,95 @@
++package abap
++
++import (
++	"testing"
++
++	"osg/gogen/abaperr"
++)
++
++func TestParseI8(t *testing.T) {
++	tests := []struct {
++		in   string
++		want int64
++	}{
++		{"", 0},
++		{"   ", 0},
++		{"0", 0},
++		{"42", 42},
++		{"+42", 42},
++		{"-42", -42},
++		{"42-", -42},
++		{" 42", 42},
++		{"42 ", 42},
++		{"  42  ", 42},
++		{"2.4", 2},
++		{"2.5", 3},
++		{"-2.5", -3},
++		{"-2.4", -2},
++		{"9223372036854775807", 9223372036854775807},
++		{"-9223372036854775808", -9223372036854775808},
++		{"9223372036854775806.5", 9223372036854775807},
++		{"-9223372036854775807.5", -9223372036854775808},
++	}
++	for _, tt := range tests {
++		t.Run(tt.in, func(t *testing.T) {
++			got := ParseI8(tt.in)
++			if got != tt.want {
++				t.Errorf("ParseI8(%q) = %d, want %d", tt.in, got, tt.want)
++			}
++		})
++	}
++}
++
++func TestParseI8Overflow(t *testing.T) {
++	tests := []string{
++		"9223372036854775808",
++		"-9223372036854775809",
++		"9223372036854775807.6",
++		"999999999999999999999999",
++		"999999999999999999999999.0",
++	}
++	for _, in := range tests {
++		defer func() {
++			r := recover()
++			if r == nil {
++				t.Errorf("ParseI8(%q) expected overflow", in)
++				return
++			}
++			e, ok := r.(abaperr.ArithmeticError)
++			if !ok || e.Class != "CX_SY_CONVERSION_OVERFLOW" {
++				t.Errorf("ParseI8(%q) expected CX_SY_CONVERSION_OVERFLOW, got %v", in, r)
++			}
++		}()
++		ParseI8(in)
++	}
++}
++
++func TestParseI8NoNumber(t *testing.T) {
++	tests := []string{
++		"abc",
++		"12abc",
++		"++42",
++		"--42",
++		"+-42",
++		"42+-",
++		"",
++	}
++	for _, in := range tests {
++		defer func() {
++			r := recover()
++			if r == nil {
++				t.Errorf("ParseI8(%q) expected no number", in)
++				return
++			}
++			e, ok := r.(abaperr.ArithmeticError)
++			if !ok || e.Class != "CX_SY_CONVERSION_NO_NUMBER" {
++				t.Errorf("ParseI8(%q) expected CX_SY_CONVERSION_NO_NUMBER, got %v", in, r)
++			}
++		}()
++		// Empty string is 0, not an error, so skip it
++		if in == "" {
++			return
++		}
++		ParseI8(in)
++	}
++}
+\ No newline at end of file
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..980b1e7 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,46 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++// int8 limits as BigInts
++const MAX_I8 = 9223372036854775807n;
++const MIN_I8 = -9223372036854775808n;
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  // 9223372036854775807 has 19 digits, so more than 19 whole digits overflows
++  if (whole.length > 19) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  // Special case: "9223372036854775808" is MinInt64's absolute value
++  // Only valid when neg=true (so result is MinInt64)
++  if (whole === "9223372036854775808" && frac === "") {
++    if (neg) return MIN_I8;
++    throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  }
++  let n = whole === "" ? 0n : BigInt(whole);
++  // After the special case above, n must not exceed MAX_I8 for positive,
++  // and must not exceed MAX_I8+1 for negative (which we already handled)
++  if (!neg && n > MAX_I8) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  if (neg && n > MAX_I8) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  if (frac !== "" && frac[0] >= "5") {
++    // Rounding up: if n == MAX_I8 and this is not a negative number, overflow
++    // For negative numbers, MAX_I8 + 1 becomes MIN_I8 after negation
++    if (n === MAX_I8) {
++      if (!neg) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++      // neg=true and we round MAX_I8 up to (MAX_I8+1), which becomes MIN_I8
++      return MIN_I8;
++    }
++    n++;
++  }
++  if (neg) {
++    n = -n;
++  }
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its
+diff --git a/tools/gogen/parse_i8.test.mjs b/tools/gogen/parse_i8.test.mjs
+new file mode 100644
+index 0000000..edcae07
+--- /dev/null
++++ b/tools/gogen/parse_i8.test.mjs
+@@ -0,0 +1,47 @@
++import {test} from "node:test";
++import assert from "node:assert/strict";
++import {ParseI8} from "./js/abap.mjs";
++
++test("ParseI8 basic cases", () => {
++  assert.equal(ParseI8(""), 0n);
++  assert.equal(ParseI8("   "), 0n);
++  assert.equal(ParseI8("0"), 0n);
++  assert.equal(ParseI8("42"), 42n);
++  assert.equal(ParseI8("+42"), 42n);
++  assert.equal(ParseI8("-42"), -42n);
++  assert.equal(ParseI8("42-"), -42n);
++  assert.equal(ParseI8(" 42"), 42n);
++  assert.equal(ParseI8("42 "), 42n);
++  assert.equal(ParseI8("  42  "), 42n);
++});
++
++test("ParseI8 rounding half away from zero", () => {
++  assert.equal(ParseI8("2.4"), 2n);
++  assert.equal(ParseI8("2.5"), 3n);
++  assert.equal(ParseI8("-2.5"), -3n);
++  assert.equal(ParseI8("-2.4"), -2n);
++});
++
++test("ParseI8 boundaries", () => {
++  assert.equal(ParseI8("9223372036854775807"), 9223372036854775807n);
++  assert.equal(ParseI8("-9223372036854775808"), -9223372036854775808n);
++  assert.equal(ParseI8("9223372036854775806.5"), 9223372036854775807n);
++  assert.equal(ParseI8("-9223372036854775807.5"), -9223372036854775808n);
++});
++
++test("ParseI8 overflow", () => {
++  assert.throws(() => ParseI8("9223372036854775808"), /CX_SY_CONVERSION_OVERFLOW/);
++  assert.throws(() => ParseI8("-9223372036854775809"), /CX_SY_CONVERSION_OVERFLOW/);
++  assert.throws(() => ParseI8("9223372036854775807.6"), /CX_SY_CONVERSION_OVERFLOW/);
++  assert.throws(() => ParseI8("999999999999999999999999"), /CX_SY_CONVERSION_OVERFLOW/);
++  assert.throws(() => ParseI8("999999999999999999999999.0"), /CX_SY_CONVERSION_OVERFLOW/);
++});
++
++test("ParseI8 no number", () => {
++  assert.throws(() => ParseI8("abc"), /CX_SY_CONVERSION_NO_NUMBER/);
++  assert.throws(() => ParseI8("12abc"), /CX_SY_CONVERSION_NO_NUMBER/);
++  assert.throws(() => ParseI8("++42"), /CX_SY_CONVERSION_NO_NUMBER/);
++  assert.throws(() => ParseI8("--42"), /CX_SY_CONVERSION_NO_NUMBER/);
++  assert.throws(() => ParseI8("+-42"), /CX_SY_CONVERSION_NO_NUMBER/);
++  assert.throws(() => ParseI8("42+-"), /CX_SY_CONVERSION_NO_NUMBER/);
++});
+\ No newline at end of file
+diff --git a/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.abap b/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.abap
+new file mode 100644
+index 0000000..b123d63
+--- /dev/null
++++ b/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.abap
+@@ -0,0 +1,2 @@
++CLASS zcl_gogen_int8_conv DEFINITION PUBLIC FINAL CREATE PUBLIC.
++ENDCLASS.
+\ No newline at end of file
+diff --git a/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.testclasses.abap b/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.testclasses.abap
+new file mode 100644
+index 0000000..388112b
+--- /dev/null
++++ b/tools/gogen/testdata-unit/zcl_gogen_int8_conv.clas.testclasses.abap
+@@ -0,0 +1,178 @@
++* String-to-int8 conversion tests
++CLASS ltcl_int8_string_conv DEFINITION FINAL FOR TESTING
++  DURATION SHORT RISK LEVEL HARMLESS.
++  PRIVATE SECTION.
++    METHODS empty_is_zero FOR TESTING.
++    METHODS spaces_is_zero FOR TESTING.
++    METHODS positive FOR TESTING.
++    METHODS negative FOR TESTING.
++    METHODS leading_plus FOR TESTING.
++    METHODS trailing_minus FOR TESTING.
++    METHODS rounding_half_up FOR TESTING.
++    METHODS rounding_half_down FOR TESTING.
++    METHODS rounding_negative FOR TESTING.
++    METHODS max_int8 FOR TESTING.
++    METHODS min_int8 FOR TESTING.
++    METHODS overflow_positive FOR TESTING.
++    METHODS overflow_negative FOR TESTING.
++    METHODS overflow_rounded FOR TESTING.
++    METHODS no_number FOR TESTING.
++    METHODS format_back FOR TESTING.
++    METHODS format_back_negative FOR TESTING.
++    METHODS catch_overflow FOR TESTING.
++ENDCLASS.
++
++CLASS ltcl_int8_string_conv IMPLEMENTATION.
++
++  METHOD empty_is_zero.
++    DATA lv_str TYPE string VALUE ``.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 0 ).
++  ENDMETHOD.
++
++  METHOD spaces_is_zero.
++    DATA lv_str TYPE string VALUE `   `.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 0 ).
++  ENDMETHOD.
++
++  METHOD positive.
++    DATA lv_str TYPE string VALUE `42`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 42 ).
++  ENDMETHOD.
++
++  METHOD negative.
++    DATA lv_str TYPE string VALUE `-42`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = -42 ).
++  ENDMETHOD.
++
++  METHOD leading_plus.
++    DATA lv_str TYPE string VALUE `+42`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 42 ).
++  ENDMETHOD.
++
++  METHOD trailing_minus.
++    DATA lv_str TYPE string VALUE `42-`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = -42 ).
++  ENDMETHOD.
++
++  METHOD rounding_half_up.
++    DATA lv_str TYPE string VALUE `2.5`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 3 ).
++  ENDMETHOD.
++
++  METHOD rounding_half_down.
++    DATA lv_str TYPE string VALUE `2.4`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 2 ).
++  ENDMETHOD.
++
++  METHOD rounding_negative.
++    DATA lv_str TYPE string VALUE `-2.5`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = -3 ).
++  ENDMETHOD.
++
++  METHOD max_int8.
++    DATA lv_str TYPE string VALUE `9223372036854775807`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = 9223372036854775807 ).
++  ENDMETHOD.
++
++  METHOD min_int8.
++    DATA lv_str TYPE string VALUE `-9223372036854775808`.
++    DATA lv_int8 TYPE int8.
++    lv_int8 = lv_str.
++    cl_abap_unit_assert=>assert_equals( act = lv_int8 exp = -9223372036854775808 ).
++  ENDMETHOD.
++
++  METHOD overflow_positive.
++    DATA lv_str TYPE string VALUE `9223372036854775808`.
++    DATA lv_int8 TYPE int8.
++    DATA lv_caught TYPE abap_bool.
++    TRY.
++        lv_int8 = lv_str.
++      CATCH cx_sy_conversion_overflow.
++        lv_caught = abap_true.
++    ENDTRY.
++    cl_abap_unit_assert=>assert_equals( act = lv_caught exp = abap_true ).
++  ENDMETHOD.
++
++  METHOD overflow_negative.
++    DATA lv_str TYPE string VALUE `-9223372036854775809`.
++    DATA lv_int8 TYPE int8.
++    DATA lv_caught TYPE abap_bool.
++    TRY.
++        lv_int8 = lv_str.
++      CATCH cx_sy_conversion_overflow.
++        lv_caught = abap_true.
++    ENDTRY.
++    cl_abap_unit_assert=>assert_equals( act = lv_caught exp = abap_true ).
++  ENDMETHOD.
++
++  METHOD overflow_rounded.
++    DATA lv_str TYPE string VALUE `9223372036854775807.5`.
++    DATA lv_int8 TYPE int8.
++    DATA lv_caught TYPE abap_bool.
++    TRY.
++        lv_int8 = lv_str.
++      CATCH cx_sy_conversion_overflow.
++        lv_caught = abap_true.
++    ENDTRY.
++    cl_abap_unit_assert=>assert_equals( act = lv_caught exp = abap_true ).
++  ENDMETHOD.
++
++  METHOD no_number.
++    DATA lv_str TYPE string VALUE `abc`.
++    DATA lv_int8 TYPE int8.
++    DATA lv_caught TYPE abap_bool.
++    TRY.
++        lv_int8 = lv_str.
++      CATCH cx_sy_conversion_no_number.
++        lv_caught = abap_true.
++    ENDTRY.
++    cl_abap_unit_assert=>assert_equals( act = lv_caught exp = abap_true ).
++  ENDMETHOD.
++
++  METHOD format_back.
++    DATA lv_int8 TYPE int8 VALUE 42.
++    DATA lv_str TYPE string.
++    lv_str = |{ lv_int8 }|.
++    cl_abap_unit_assert=>assert_equals( act = lv_str exp = `42` ).
++  ENDMETHOD.
++
++  METHOD format_back_negative.
++    DATA lv_int8 TYPE int8 VALUE -42.
++    DATA lv_str TYPE string.
++    lv_str = |{ lv_int8 }|.
++    cl_abap_unit_assert=>assert_equals( act = lv_str exp = `-42` ).
++  ENDMETHOD.
++
++  METHOD catch_overflow.
++    DATA lv_str TYPE string VALUE `999999999999999999999999`.
++    DATA lv_int8 TYPE int8.
++    DATA lx TYPE REF TO cx_sy_conversion_overflow.
++    TRY.
++        lv_int8 = lv_str.
++        cl_abap_unit_assert=>fail( 'expected exception' ).
++      CATCH cx_sy_conversion_overflow INTO lx.
++        cl_abap_unit_assert=>assert_not_initial( lx ).
++    ENDTRY.
++  ENDMETHOD.
++
++ENDCLASS.
+\ No newline at end of file

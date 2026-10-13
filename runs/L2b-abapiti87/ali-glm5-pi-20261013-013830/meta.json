@@ -1,0 +1,9 @@
+{
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "glm-5",
+  "effort": "high",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T01:38:31+01:00"
+}

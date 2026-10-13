@@ -1,0 +1,11 @@
+{
+  "harness": "claude",
+  "provider": "anthropic",
+  "model": "opus",
+  "effort": "high",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T09:01:15+01:00",
+  "finished_at": "2026-10-13T09:29:05+01:00",
+  "exit_code": "0"
+}

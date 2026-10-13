@@ -1,0 +1,210 @@
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..42f9498 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,7 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  ["CL_HTTP_UTILITY=>DECODE_BASE64", "abap.DecodeBase64"],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..6e7fbfd 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -9,6 +9,7 @@ import (
+ 	"osg/gogen/abaperr"
+ 	"osg/gogen/intarith"
+ 	"osg/gogen/intbytes"
++	"osg/gogen/nodeutf8"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -732,6 +733,34 @@ func DecodeXBase64(s *Session, encoded string) string {
+ 	return string(b)
+ }
+ 
++// DecodeBase64 is cl_http_utility=>decode_base64: base64-decoded bytes
++// interpreted as UTF-8 text, with invalid sequences replaced by U+FFFD,
++// consistent with Node.js Buffer.from(s, "base64").toString().
++func DecodeBase64(s *Session, encoded string) string {
++	// Decode base64 (same logic as DecodeXBase64)
++	clean := make([]byte, 0, len(encoded))
++	for i := 0; i < len(encoded); i++ {
++		c := encoded[i]
++		if c == '=' {
++			break
++		}
++		switch {
++		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '+' || c == '/':
++			clean = append(clean, c)
++		case c == '-':
++			clean = append(clean, '+')
++		case c == '_':
++			clean = append(clean, '/')
++		}
++	}
++	if len(clean)%4 == 1 {
++		clean = clean[:len(clean)-1]
++	}
++	bytes, _ := base64.RawStdEncoding.DecodeString(string(clean))
++	// Convert bytes to UTF-8 text with Node-compatible replacement
++	return nodeutf8.Decode(string(bytes))
++}
++
+ // CP is the pattern match, measured on A4H (2026-09-23): * is any run, + any
+ // one character, # makes the next character literal and case-sensitive;
+ // everything else compares ignoring case. A c pattern stored empty was all
+diff --git a/tools/gogen/go/abap/decode_base64_test.go b/tools/gogen/go/abap/decode_base64_test.go
+new file mode 100644
+index 0000000..7db66ca
+--- /dev/null
++++ b/tools/gogen/go/abap/decode_base64_test.go
+@@ -0,0 +1,35 @@
++package abap
++
++import (
++	"testing"
++)
++
++func TestDecodeBase64(t *testing.T) {
++	for _, tc := range []struct {
++		encoded, want string
++		desc          string
++	}{
++		// Basic ASCII
++		{"YWJhcA==", "abap", "standard padded"},
++		{"YWJhcA", "abap", "standard unpadded"},
++		// URL-safe alphabet
++		{"PDw_Pz8-", "<<???>", "URL-safe"},
++		// Padded vs unpadded
++		{"YQ==", "a", "padded single char"},
++		{"YQ", "a", "unpadded single char"},
++		// With whitespace (should be ignored)
++		{"YW JhcA==", "abap", "whitespace in input"},
++		// Non-base64 characters (should be ignored, Node behavior)
++		{"YWJhcA==!", "abap", "trailing exclamation"},
++		// Empty
++		{"", "", "empty string"},
++		// Multi-byte UTF-8 (Chinese)
++		{"5L2g5aW9", "你好", "Chinese (padded)"},
++		{"5L2g5aW9", "你好", "Chinese (unpadded)"},
++	} {
++		got := DecodeBase64(&Session{}, tc.encoded)
++		if got != tc.want {
++			t.Errorf("DecodeBase64(%q) = %q, want %q (%s)", tc.encoded, got, tc.want, tc.desc)
++		}
++	}
++}
+diff --git a/tools/gogen/go/nodeutf8/decode.go b/tools/gogen/go/nodeutf8/decode.go
+new file mode 100644
+index 0000000..cc4ef65
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode.go
+@@ -0,0 +1,64 @@
++// Package nodeutf8 provides Node-compatible UTF-8 text decoding.
++package nodeutf8
++
++import (
++	"strings"
++	"unicode/utf8"
++)
++
++// Decode interprets a string of raw bytes as UTF-8 text, replacing invalid
++// sequences with the Unicode replacement character U+FFFD (), consistent
++// with Node.js's Buffer.toString() behavior.
++func Decode(b string) string {
++	// Fast path: if valid UTF-8, return as-is
++	if utf8.ValidString(b) {
++		return b
++	}
++
++	// Replace invalid UTF-8 sequences with U+FFFD
++	// This matches Node.js's Buffer.toString() behavior
++	var builder strings.Builder
++	builder.Grow(len(b))
++
++	i := 0
++	for i < len(b) {
++		r, size := utf8.DecodeRuneInString(b[i:])
++		if r == utf8.RuneError {
++			// Invalid UTF-8: replace with U+FFFD
++			// If this is part of an incomplete multi-byte sequence (size=1 but
++			// we have more bytes that might be continuations), check if we should
++			// skip the whole sequence
++			builder.WriteRune(utf8.RuneError)
++
++			// Check if this byte could be a lead of a multi-byte sequence
++			// and there aren't enough continuation bytes
++			if size == 1 && i+1 < len(b) {
++				c := b[i]
++				// Count expected continuation bytes for this lead
++				expected := 0
++				if c >= 0xC0 && c <= 0xC1 {
++					expected = 1 // 2-byte sequence
++				} else if c >= 0xC2 && c <= 0xDF {
++					expected = 1 // 2-byte sequence
++				} else if c >= 0xE0 && c <= 0xEF {
++					expected = 2 // 3-byte sequence
++				} else if c >= 0xF0 && c <= 0xF4 {
++					expected = 3 // 4-byte sequence
++				}
++
++				// If we don't have enough bytes for the sequence, skip them all
++				remaining := len(b) - i - 1
++				if expected > remaining && remaining > 0 {
++					// Skip the remaining bytes of this incomplete sequence
++					i += remaining
++				}
++			}
++			i++
++		} else {
++			builder.WriteRune(r)
++			i += size
++		}
++	}
++
++	return builder.String()
++}
+diff --git a/tools/gogen/go/nodeutf8/decode_test.go b/tools/gogen/go/nodeutf8/decode_test.go
+new file mode 100644
+index 0000000..21d6cff
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode_test.go
+@@ -0,0 +1,34 @@
++package nodeutf8
++
++import (
++	"testing"
++)
++
++func TestDecode(t *testing.T) {
++	for _, tc := range []struct {
++		input string
++		want  string
++		desc  string
++	}{
++		// Valid ASCII
++		{"abap", "abap", "valid ASCII"},
++		// Valid multi-byte UTF-8
++		{string([]byte{0xE4, 0xBD, 0xA0}), "你", "valid 3-byte Chinese"},
++		{string([]byte{0xE4, 0xBD, 0xA0, 0xE5, 0xA5, 0xBD}), "你好", "valid 6-byte Chinese"},
++		// Invalid continuation byte (0xEF alone)
++		{string([]byte{0x60, 0xEF}), "`\ufffd", "backtick + invalid 0xEF"},
++		// Overlong NUL (invalid)
++		{string([]byte{0xC0, 0x80}), "\ufffd\ufffd", "overlong NUL"},
++		// Invalid single byte
++		{string([]byte{0xFF}), "\ufffd", "invalid 0xFF"},
++		// Empty
++		{"", "", "empty string"},
++		// Truncated sequences - Node replaces entire incomplete sequence with one replacement
++		{string([]byte{0xE4, 0xBD}), "\ufffd", "truncated 3-byte sequence"},
++	} {
++		got := Decode(tc.input)
++		if got != tc.want {
++			t.Errorf("Decode(%q) = %q, want %q (%s)", tc.input, got, tc.want, tc.desc)
++		}
++	}
++}

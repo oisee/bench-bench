@@ -1,0 +1,5 @@
+critic,critic_model,reviews,errors,agreement,said_correct_on_solved,solved_reviewed,said_incorrect_on_unsolved,unsolved_reviewed,p0_p1_reported,confirmed_true,confirmed_false,mean_duration_s,output_tokens
+K1-astra,openai/gpt-6-astra,18,0,0.667,8,14,4,4,10,0,0,75,38596
+K2-sol,openai/gpt-6-sol,18,0,0.722,9,14,4,4,9,0,0,81,81070
+K3-opus,anthropic/opus,18,0,1.0,14,14,4,4,9,0,0,49,63174
+K4-glm,zai/glm-5.3,18,0,1.0,14,14,4,4,9,0,0,426,359077

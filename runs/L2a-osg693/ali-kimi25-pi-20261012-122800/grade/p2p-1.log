@@ -1,0 +1,6 @@
+2026/10/13 12:50:53 http: TLS handshake error from 127.0.0.1:55710: remote error: tls: bad certificate
+--- FAIL: TestParseI8_BenchHeldOut693 (0.00s)
+    parsei8_test.go:17: ParseI8("9223372036854775807.5"):  in , want CX_SY_CONVERSION_OVERFLOW
+FAIL
+FAIL	osg/gogen/abap	1.239s
+FAIL

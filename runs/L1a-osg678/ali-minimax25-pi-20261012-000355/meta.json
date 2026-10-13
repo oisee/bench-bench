@@ -1,0 +1,10 @@
+{
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "MiniMax-M2.5",
+  "effort": "high",
+  "harness_version": "1.0.2",
+  "started_at": "2026-10-12T00:03:59+01:00",
+  "finished_at": "2026-10-12T00:07:09+01:00",
+  "exit_code": "0"
+}

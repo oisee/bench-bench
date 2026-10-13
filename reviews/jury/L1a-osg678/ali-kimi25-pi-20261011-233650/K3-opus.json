@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The regex is replaced with a linear indexOf/char scan that handles doubled quotes, empty and space-only literals, and a 15M-character literal in about 30 ms with no stack overflow. A 200k-case differential fuzz against the original regex showed no differences for inputs with an even number of quotes. Differences only appear for unbalanced (odd-quote) input, where the old regex backtracked onto a doubled quote. The acceptance tests pass.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 59,
+      "claim": "Behaviour changed for quote-unbalanced input that ends in a doubled quote. The old regex backtracked and closed the literal at the first quote of a trailing '' (then trimmed it), but the new scan treats '' as an escape, finds no terminator and leaves the whole tail untouched. The task only asks to preserve balanced fragments, so this is a minor divergence and only matters for malformed SQL.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>console.log(JSON.stringify(m.trimLiterals(\\\"'a ''\\\"))))\"  # new: \"'a ''\", old regex: \"'a''\""
+    },
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 51,
+      "claim": "`if (contentEnd <= literalEnd - 1)` is always true because contentEnd <= j == literalEnd - 1, so the closing quote is always pushed. This dead conditional (and the unused-looking bookkeeping) makes the loop harder to read than it needs to be. The function's docblock was also left describing the old approach without mentioning why it avoids the regex (stack depth).",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "228580eee4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 35
+}

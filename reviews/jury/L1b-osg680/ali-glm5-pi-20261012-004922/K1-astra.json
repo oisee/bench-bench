@@ -1,0 +1,27 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The patch adds a callable Go helper and covers common decoding cases, but it does not connect that helper to the ABAP compiler, so the requested ABAP call still raises NOT_COMPILED. The UTF-8 decoder also differs from Node when an invalid partial sequence is interrupted by a non-continuation byte; both defects were reproduced independently of the supplied test results.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 18,
+      "claim": "DecodeBase64 is never connected to the compiler native-method map. tools/gogen/frontend.mjs maps ENCODE_BASE64 and DECODE_X_BASE64 but lacks CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64, so even valid ASCII input still executes the unsupported @KERNEL method and raises NOT_COMPILED. Register the interface-qualified method with the new helper and its ENCODED parameter.",
+      "repro": "ABAP input: rv = cl_http_utility=>decode_base64( `aGVsbG8=` ). Reproduced with OSD_HEAVY_RANGE=90-99 tools/osd-heavy.sh node tools/osgo-unit.mjs /tmp/review-base64-abap --class ZCL_REVIEW_BASE64 --jobs 1. Result: NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159): @KERNEL: host code of the transpiler runtime; SUCCESS: 0, NOT_COMPILED: 1."
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 88,
+      "claim": "The invalid-continuation branch collapses the whole buffered prefix to one replacement without checking whether its second byte already made it invalid. For E0 80 41, ED A0 41, and F4 90 80 41, Node rejects the restricted second byte and emits separate replacements for the invalid bytes; this implementation emits only one. Validate restricted second-byte ranges as bytes arrive, so an interrupted overlong, surrogate, or out-of-range prefix preserves Node replacement counts.",
+      "repro": "nodeutf8.Decode(string([]byte{0xe0, 0x80, 0x41})) returns \"�A\"; node -e \"console.log(JSON.stringify(Buffer.from([0xe0,0x80,0x41]).toString()))\" prints \"��A\". The new abap.DecodeBase64(&abap.Session{}, \"4IBB\") likewise returns \"�A\" instead of \"��A\". Go reproduction: cd tools/gogen/go && go run /tmp/review-nodeutf8.go."
+    }
+  ],
+  "critic": "K1-astra",
+  "critic_model": "openai/gpt-6-astra",
+  "anon": "b21ac024f4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 138
+}

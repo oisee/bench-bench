@@ -1,0 +1,60 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..98182dd 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,53 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  The implementation walks the string iteratively rather than through a
++ *  regex with alternation, so it stays within the call-stack limit even
++ *  when a single literal spans tens of millions of characters. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const parts = [];
++  let segStart = 0;
++  let i = 0;
++  const n = sql.length;
++
++  while (i < n) {
++    if (sql[i] !== "'") {
++      i++;
++      continue;
++    }
++    // Opening quote found at position i -- scan for the matching close.
++    let j = i + 1;
++    let closed = false;
++    while (j < n) {
++      if (sql[j] === "'") {
++        if (j + 1 < n && sql[j + 1] === "'") {
++          j += 2; // escaped quote ''
++        } else {
++          closed = true;
++          break;
++        }
++      } else {
++        j++;
++      }
++    }
++    if (!closed) break; // unterminated literal -- leave the rest untouched
++
++    // Emit the segment before this literal, then the trimmed literal.
++    parts.push(sql.substring(segStart, i));
++    const inner = sql.substring(i + 1, j);
++    // Trim only ordinary spaces (not tabs or newlines) from the tail.
++    let end = inner.length;
++    while (end > 0 && inner[end - 1] === " ") end--;
++    parts.push("'" + (end === inner.length ? inner : inner.substring(0, end)) + "'");
++
++    i = j + 1;
++    segStart = i;
++  }
++
++  parts.push(sql.substring(segStart));
++  return parts.join("");
+ }
+ 
+ /**

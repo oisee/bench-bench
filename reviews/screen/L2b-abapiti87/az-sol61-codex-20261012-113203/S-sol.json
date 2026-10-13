@@ -1,0 +1,20 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The change formats the main generation paths, and the full Go test suite passes. A valid long filename in the registry driver now causes a panic because its embedded literal cannot fit within the 255-byte limit after indentation, so the task is not fully solved.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tsfront/registry_driver.go",
+      "line": 152,
+      "claim": "Formatting the registry driver can panic for a valid 250-character filename: the filename is embedded as one backtick literal, which exceeds the line limit once indented and cannot be wrapped. The generator needs to split or build that literal before calling Format.",
+      "repro": "RegistryRunClass(\"zcl_test\", []RegistryFile{{Name: strings.Repeat(\"a\", 250), Raw: \"x\"}}, \"{}\", \"hash\", 0, hir.NewNames()) panics with: unbreakable source line (292 bytes)"
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "cdd25b0d0f",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 459
+}

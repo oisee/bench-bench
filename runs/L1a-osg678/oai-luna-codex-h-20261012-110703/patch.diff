@@ -1,0 +1,89 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..2ea6fab 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,21 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("trims each literal while preserving its other characters", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('  a\t b  ', '', '   ', 'x''y  ')"))
++      .to.equal("VALUES ('  a\t b', '', '', 'x''y')");
++    expect(trimLiterals("prefix 'ok  ' suffix"))
++      .to.equal("prefix 'ok' suffix");
++    expect(trimLiterals("VALUES ('a\n  ', \"x'  \" )"))
++      .to.equal("VALUES ('a\n', \"x'  \" )");
++  });
++
++  it("trims a very large literal without overflowing the stack", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const value = "x".repeat(15_000_000);
++    const sql = `VALUES ('${value}   ')`;
++    expect(trimLiterals(sql)).to.equal(`VALUES ('${value}')`);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..829b35e 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,57 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  // Avoid a regexp over the whole literal here. Apart from needing to keep
++  // doubled quotes intact, the repeated alternation in the old expression
++  // can overflow the regexp engine's stack on multi-million-character input.
++  // Collect unchanged spans and rewritten literals so the large input is only
++  // copied a small number of times.
++  const pieces = [];
++  let copiedThrough = 0;
++  let searchFrom = 0;
++
++  while (searchFrom < sql.length) {
++    const start = sql.indexOf("'", searchFrom);
++    if (start < 0) break;
++
++    let cursor = start + 1;
++    let fallbackClose = -1;
++    let close = -1;
++    while (cursor < sql.length) {
++      if (sql[cursor] !== "'") {
++        cursor++;
++      } else if (sql[cursor + 1] === "'") {
++        // The regexp was greedy: prefer this escaped pair as literal content,
++        // but remember where it could backtrack to a closing quote if the
++        // remainder of the fragment has no closer.
++        fallbackClose = cursor;
++        cursor += 2;
++      } else {
++        close = cursor;
++        break;
++      }
++    }
++
++    if (close < 0) close = fallbackClose;
++    if (close < 0) {
++      // As with String#replace, an unmatched opening quote does not prevent a
++      // later quote from starting a balanced fragment.
++      searchFrom = start + 1;
++      continue;
++    }
++
++    let trimmedEnd = close;
++    while (trimmedEnd > start + 1 && sql[trimmedEnd - 1] === " ") trimmedEnd--;
++    pieces.push(sql.slice(copiedThrough, start));
++    pieces.push(sql.slice(start, trimmedEnd));
++    pieces.push(sql.slice(close, close + 1));
++    copiedThrough = close + 1;
++    searchFrom = close + 1;
++  }
++
++  if (pieces.length === 0) return sql;
++  pieces.push(sql.slice(copiedThrough));
++  return pieces.join("");
+ }
+ 
+ /**

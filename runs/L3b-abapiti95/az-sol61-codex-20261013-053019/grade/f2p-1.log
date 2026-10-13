@@ -1,0 +1,5 @@
+--- FAIL: TestAnonymousObjectLiterals (0.05s)
+    object_literal_test.go:13: lower: unsupported-shortcircuit /tmp/TestAnonymousObjectLiterals1613974458/001/probe.ts:21:24: operands cannot preserve the result type map<string,number> (left map<string,number>, right classref<shape.e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855>)
+FAIL
+FAIL	github.com/oisee/abapiti/tsfront	0.406s
+FAIL

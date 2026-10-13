@@ -1,0 +1,48 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The new hir/abap indenter and Format are solid for the class/interface/runtime output that flows through EmitNamed, and the existing suite passes with the regenerated golden file. However the task's auxiliary drivers and reports (tsfront.RegistryRunReport, RegistryCLIReport, RegistryRunCorpusClass, RegistryRunClass, RegistryRunTest, StatementsTestClass, written by cmd/abapiti/abaplint.go) never pass through Format and remain fully unindented, and the indenter puts a second report event header (e.g. START-OF-SELECTION after INITIALIZATION) at depth 2 instead of column zero. Wrapping a multi-statement line is also not idempotent.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "cmd/abapiti/abaplint.go",
+      "line": 295,
+      "claim": "Auxiliary drivers and reports are not formatted. The task says to apply the layout to auxiliary drivers and reports and that generated ABAP must pass through Format, but only EmitNamed (hir/abap/emit.go:94) calls Format. RegistryRunReport/RegistryCLIReport/RegistryRunCorpusClass/RegistryRunClass/RegistryRunTest (tsfront/registry_driver.go) and StatementsTestClass are written verbatim to the a4h/osg/native targets with zero indentation (e.g. REPORT ... START-OF-SELECTION. IF ... TRY. CATCH ... all at column 0).",
+      "repro": "cd /work && cat > /tmp/drv.go <<'X'\npackage main\nimport (\"fmt\";\"strings\";\"github.com/oisee/abapiti/hir\";\"github.com/oisee/abapiti/tsfront\")\nfunc main(){ d:=tsfront.Drivers(); for _,s:=range []string{tsfront.RegistryRunReport(d.RunReport,d.A4HClass,false),tsfront.RegistryCLIReport(\"zabaplint\",hir.NewNames()),tsfront.RegistryRunTest(d.OSGRun,\"\")}{ n:=0; for _,l:=range strings.Split(s,\"\\n\"){ if strings.HasPrefix(l,\" \"){n++} }; fmt.Println(\"indented lines:\",n) } }\nX\ngo run /tmp/drv.go   # prints 'indented lines: 0' three times; grep -rn 'abap.Format' cmd tsfront finds no caller"
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 279,
+      "claim": "A report event header that follows another report event is indented at depth 2 instead of column zero. statementIndent has no case for report events, so it returns f.depth (2 inside the previous event's frame); apply() only closes the previous frame afterwards. Violates 'Report event headers start at column zero'.",
+      "repro": "printf 'REPORT z.\\nINITIALIZATION.\\nx = 1.\\nSTART-OF-SELECTION.\\nx = 2.\\n' > /tmp/ev.abap; go test ./hir/abap -run XXX >/dev/null; # or via scratch copy of format.go: indent() yields '  START-OF-SELECTION.' (two leading spaces) on line 4"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 456,
+      "claim": "Format is not idempotent when a line holding several statements exceeds 255 bytes. Wrapped continuations inherit the first statement's indentation, but on re-indent the continuation belongs to the later (deeper) statement started mid-line, so it is re-indented at that depth. Example 'y = 1. IF y = 1. x = <long expr>. ENDIF.' inside a method: first pass indents continuations by 4, second pass by 6.",
+      "repro": "python3 -c \"print('CLASS zcl IMPLEMENTATION.\\nMETHOD run.\\ny = 1. IF y = 1. x = ' + ' + '.join(['aaaaaaaaaa']*40) + '. ENDIF.\\nENDMETHOD.\\nENDCLASS.')\" > /tmp/ms.abap; Format(Format(src)) != Format(src) (checked with a scratch main wrapping hir/abap/format.go)"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 180,
+      "claim": "Full-line double-quote (\") comments are always emitted at column 0 (scan returns no statements, so the trimmed line is written as-is), whereas abaplint's indentation keeps them at the surrounding block depth. Generators do not currently emit such comments, so no observable regression.",
+      "repro": "indent(\"CLASS zcl IMPLEMENTATION.\\nMETHOD run.\\n\\\" note\\nx = 1.\\nENDMETHOD.\\nENDCLASS.\\n\") puts '\" note' at column 0 while 'x = 1.' is at column 4"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 292,
+      "claim": "Only 'CLASS x DEFINITION DEFERRED' is excluded from opening a class block; 'CLASS x DEFINITION LOCAL FRIENDS y.' and 'CLASS x DEFINITION LOAD.' push a class frame that is never closed, so every following class is indented one level too deep. Not emitted by current generators, but a robustness gap for test-class sources.",
+      "repro": "indent(\"CLASS a DEFINITION LOCAL FRIENDS b.\\nCLASS ltcl DEFINITION FOR TESTING.\\nPRIVATE SECTION.\\nMETHODS run FOR TESTING.\\nENDCLASS.\\n\") indents PRIVATE SECTION by 4 and METHODS by 6"
+    }
+  ],
+  "critic": "S-fable",
+  "critic_model": "anthropic/fable",
+  "anon": "1d75959d9b",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 418
+}

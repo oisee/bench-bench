@@ -1,0 +1,33 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The iterative scanner trims ordinary large literals correctly and passes the acceptance suite, but it reintroduces 'Maximum call stack size exceeded' through `result.push(...trailingSpaces)` whenever a literal has a long run of spaces (~100k+) followed by a non-space or an escaped quote. It also changes behaviour on unbalanced input: an unterminated quote now gets a closing quote added and its trailing spaces dropped, where the old regex left it untouched.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tools/sql-literals.mjs",
+      "line": 56,
+      "claim": "`result.push(...trailingSpaces)` spreads the buffered spaces as call arguments. When a large literal has an internal run of spaces longer than V8's argument limit (~100k), it throws RangeError: Maximum call stack size exceeded. That is the same failure the task asked to remove. Lines 72-73 have the same problem in the escaped-quote branch. Fix: count the spaces and push ' '.repeat(n), or slice the input instead of copying it char by char.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>m.trimLiterals(\\\"'\\\"+' '.repeat(200000)+\\\"x'\\\"))\"  -> RangeError: Maximum call stack size exceeded"
+    },
+    {
+      "severity": "P1",
+      "file": "tools/sql-literals.mjs",
+      "line": 80,
+      "claim": "An unterminated literal is closed by force. The old regex only touched matched '...' pairs, so an odd quote count left the text alone. The new code always appends a closing quote and drops the trailing spaces. The task requires that characters outside recognised pairs are preserved, so this changes output for unbalanced fragments, including a lone quote after balanced literals and a trailing escaped-quote ambiguity.",
+      "repro": "trimLiterals(\"x 'abc  \") -> \"x 'abc'\" (old: unchanged); trimLiterals(\"'a''\") -> \"'a'''\" (old: \"'a''\"); trimLiterals(\"a'b\") -> \"a'b'\" (old: \"a'b\")"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 32,
+      "claim": "Building the output as an array of 15M single-character strings and joining it is memory-heavy, at ~0.9 s for a 15M literal. Copying slices with sql.slice/indexOf would be simpler and faster, and would avoid the spread bug altogether.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "b8d52fbf77",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 32
+}

@@ -1,0 +1,20 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change correctly implements consistent ABAP indentation and line wrapping as specified in the task. All indentation rules (class headers/sections/declarations, method bodies, CASE/WHEN, TRY/CATCH/CLEANUP, report events, forms, continuation lines, literal/comment awareness) are properly implemented. Both indent and Format are verified idempotent. All existing and new tests pass. One minor robustness concern exists in the wrap helper.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 487,
+      "claim": "safeABAPWrap returns inToken=true when encountering a '\"' inline comment character, causing Format to error on any line exceeding 255 bytes that contains an inline comment — even when the non-comment portion could be wrapped at a space before the comment. The cut position found before the '\"' is valid for wrapping but is discarded due to the inToken flag.",
+      "repro": "echo 'package main; import \"fmt\"; import \"strings\"; import \"github.com/oisee/abapiti/hir/abap\"; func main() { src := \"CLASS zcl IMPLEMENTATION.\\nMETHOD run.\\nDATA v TYPE string VALUE '\" + \"'\" + strings.Repeat(\"x\",240) + \"'\" + \"'\" + \". \\\" comment\\nENDMETHOD.\\nENDCLASS.\\n\"; _, err := abap.Format(src); fmt.Println(err) }' | head -1 # Demonstrates: unbreakable source line (257 bytes) — the line could wrap at the space before the comment"
+    }
+  ],
+  "critic": "S-qwen-pi",
+  "critic_model": "alibaba/qwen3.7-plus",
+  "anon": "1d75959d9b",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 951
+}

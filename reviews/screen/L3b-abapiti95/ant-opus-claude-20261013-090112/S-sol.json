@@ -1,0 +1,27 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The new lowering handles many structural literals, and the full Go test suite passes. It still fails to lower a returned empty structural object when a caller uses it, and reusing a shape can reverse property initializer effects and produce an incorrect result.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tsfront/lower_types.go",
+      "line": 555,
+      "claim": "Only fresh empty literal checker types become the empty shape. A declared empty structural return type remains unsupported when its result is bound, so a valid returned object cannot be used and lowering leaves the caller invalid.",
+      "repro": "With strict ES2022 tsconfig, lower `function make(): {} { return {}; } export class Probe { static run(): number { const x = make(); return x === undefined ? 0 : 1; } }` using `go run ./tsfront/cmd/tslower -tsconfig <config> -json probe.ts`; it reports `checker type {} is not a lowered declaration`, then `identifier x is not a lowered local or module value`."
+    },
+    {
+      "severity": "P0",
+      "file": "tsfront/lower_shape.go",
+      "line": 192,
+      "claim": "Reusing an equivalent shape with a different constructor field order causes initializer calls to run in constructor order instead of object literal source order, changing the value of a valid anonymous literal.",
+      "repro": "Lower and run in the Go backend: `export class Probe { static n=0; static next():number { Probe.n++; return Probe.n; } static run():number { const first={a:0,b:0}; const second={b:Probe.next(),a:Probe.next()}; return second.a*10+second.b; } }`. Probe.run() returns 12; JavaScript returns 21."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "b5fbc69523",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 594
+}

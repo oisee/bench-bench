@@ -1,0 +1,27 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The change enables the covered anonymous-shape cases and the frontend tests pass, but two valid literals produce the wrong value after Go emission. Both failures come from evaluating or copying properties at a different point than JavaScript does.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tsfront/lower_expr.go",
+      "line": 2268,
+      "claim": "When an inferred literal reuses a named shape, property initializers are left in constructor order rather than source order. The tempInit guard only covers shape.* classes, so side effects can be reversed even though the HIR verifies and emits.",
+      "repro": "Input: type Row={a:number;b:number}; export class Probe { static count=0; static next():number{this.count++;return this.count} static take(x:Row):number{return x.b*10+x.a} static run():number{const value={b:this.next(),a:this.next()};return this.take(value)} } . Lower and Go-emit Probe.run(): it returns 21; JavaScript returns 12."
+    },
+    {
+      "severity": "P1",
+      "file": "tsfront/lower_expr.go",
+      "line": 2238,
+      "claim": "A spread saves the source reference but delays reading its fields until constructor argument evaluation. A later property initializer can mutate that source, so the constructed anonymous object contains the new value instead of the value at the spread position.",
+      "repro": "Input: export class Probe { static src={a:1,b:2}; static touch():number{const x=this.src;x.b=7;return 0} static run():number{const obj={...this.src,c:this.touch()};return obj.b} } . Lower and Go-emit Probe.run(): it returns 7; JavaScript returns 2."
+    }
+  ],
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol",
+  "anon": "a613a81551",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 256
+}

@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The iterative scanner is semantically equivalent to the old regex on every quote-balanced input (verified exhaustively over ~200k short strings including quotes, spaces, tabs, newlines and double quotes: zero divergences) and handles 12-15M character literals in ~50ms with no stack overflow, including space-only literals, embedded '' pairs and multiple literals per statement. The acceptance suite and the adjacent sqlite-heap-execute suite pass. Remaining findings are minor: a sanctioned behavior change on unterminated literals, and a per-character push path that raises transient memory/time for huge quote-free spans.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 56,
+      "claim": "Behavior differs from the previous regex on inputs containing an unterminated single-quoted literal (odd number of quotes): the old regex's backtracking could still trim a space-suffixed sub-literal in the remainder (e.g. input '''a '' was rewritten to '''a'' by the old code), while the new code copies the remainder verbatim and stops scanning. Exhaustive comparison shows divergences occur only for odd-quote-count inputs, which the task's acceptance scope ('quote-balanced fragments') explicitly excludes, and leaving malformed input untouched is arguably more predictable; noting it so the change is deliberate on record.",
+      "repro": "node -e \"const old = s => s.replace(/'((?:[^']|'')*)'/g, (m,i) => \\\"'\\\" + i.replace(/ +$/, \\\"\\\") + \\\"'\\\"); const s = '\\x27\\x27\\x27a \\x27\\x27'; import('/work/tools/sql-literals.mjs').then(m => console.log(JSON.stringify(old(s)), JSON.stringify(m.trimLiterals(s))));\"  # prints: '''a'' '''a ''"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 70,
+      "claim": "Text outside literals is pushed into the result array one character at a time, so a very large input with few or no single quotes costs ~600ms and ~387MB transient heap for a 15M-char string (old regex: ~15ms / ~14MB on the same input). Large literals themselves take the slice path and are fast (47ms for 15M chars), and the pathological input class is outside the task's scenario, but scanning to the next quote with indexOf and pushing slices would remove the spike. Mild concern because this module also wraps the browser-preview sqlite client where memory is tighter.",
+      "repro": "node --input-type=module -e \"import {trimLiterals} from '/work/tools/sql-literals.mjs'; const s='SELECT '+'a'.repeat(15e6); const t=Date.now(); trimLiterals(s); console.log(Date.now()-t+'ms', (process.memoryUsage().heapUsed/1048576).toFixed(0)+'MB');\""
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "f12dd3990c",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 346
+}

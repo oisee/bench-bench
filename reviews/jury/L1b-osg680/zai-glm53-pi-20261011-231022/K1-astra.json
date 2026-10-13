@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The change adds the requested compiler mapping and public UTF-8 decoder, with focused coverage and passing Go tests. An additional 50,000 raw-byte comparisons matched Node, but the Base64 step does not match Node for some non-ASCII input characters.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 22,
+      "claim": "Delegating to DecodeXBase64 loses Node compatibility for non-ASCII encoded input. That helper filters UTF-8 bytes, whereas Node interprets the low byte of each UTF-16 code unit during Base64 decoding. For example, U+0151 acts as Q in Node and U+013D acts as padding; the new function ignores both instead, producing different decoded text. Normalize the encoded input with Node-compatible semantics before decoding and cover these cases.",
+      "repro": "Input: encoded = \"Yő==\" (U+0151). abap.DecodeBase64(&abap.Session{}, \"Yő==\") returns \"\", while Buffer.from(\"Yő==\", \"base64\").toString() returns \"a\" on Node 26.9. Also, encoded = \"YQĽYg==\" (U+013D) returns \"a\\x06 \" in Go versus \"a\" in Node."
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "bf625cf4a1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 67
+}

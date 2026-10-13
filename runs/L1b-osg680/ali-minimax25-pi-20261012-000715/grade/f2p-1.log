@@ -1,0 +1,5 @@
+--- FAIL: TestDecodeMatchesNode (0.00s)
+    nodeutf8_test.go:17: "\xe4\xf6": got "�", want "��"
+FAIL
+FAIL	osg/gogen/nodeutf8	0.002s
+FAIL

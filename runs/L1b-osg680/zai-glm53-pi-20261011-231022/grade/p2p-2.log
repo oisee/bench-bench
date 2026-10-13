@@ -1,0 +1,378 @@
+not compiled: ZCL_AJSON=>CREATE_FROM: ZCL_AJSON=>CREATE_FROM LO_MUTATOR_QUEUE: REF TO LCL_MUTATOR_QUEUE, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~SETX: ZCL_AJSON=>ZIF_AJSON~SETX LV_DEC: type DecFloat34Type is outside the subset; ZCL_AJSON=>ZIF_AJSON~TO_ABAP: ZCL_AJSON=>ZIF_AJSON~TO_ABAP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program
+ok   Go ZCL_GOGEN_T_ADT4: 83700/20733/20733/[    83700 ]/1/2/X
+ok   JS ZCL_GOGEN_T_ADT4: 83700/20733/20733/[    83700 ]/1/2/X
+ok   Go ZCL_GOGEN_T_AJSON: {"a":"x","b":[7]}|44FFF909E380AA93C5444E84BC9F1D4C5FF61F2A4A18592CBE02DBF44D8B5423
+ok   JS ZCL_GOGEN_T_AJSON: ERROR NOT_COMPILED in Native_DESCRIBE_BY_DATA: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_AMDPDEST: illegal_func out:[] db:[sqlite] rel:[OPEN]
+ok   JS ZCL_GOGEN_T_AMDPDEST: illegal_func out:[] db:[sqlite] rel:[OPEN]
+ok   Go ZCL_GOGEN_T_APPL: all:4/6[0;1;2;3;4;5;] ft:4/3[2;3;4;] f:[4;5;] t:[1;2;] rev:0/0[] past:[] clamp:[3;4;5;] empty:4/3[3;4;5;] call:6[3;4;5;7;8;9;]<q ><ab><xyz> self:[1;2;3;4;5;1;2;3;4;5;]
+ok   JS ZCL_GOGEN_T_APPL: all:4/6[0;1;2;3;4;5;] ft:4/3[2;3;4;] f:[4;5;] t:[1;2;] rev:0/0[] past:[] clamp:[3;4;5;] empty:4/3[3;4;5;] call:6[3;4;5;7;8;9;]<q ><ab><xyz> self:[1;2;3;4;5;1;2;3;4;5;]
+ok   Go ZCL_GOGEN_T_ARSTMT: i:11 p:11.25
+ok   JS ZCL_GOGEN_T_ARSTMT: i:11 p:11.25
+ok   Go ZCL_GOGEN_T_B64: b1:/w== b2://4= b3:+/+/ b0:[]
+ok   JS ZCL_GOGEN_T_B64: ERROR NOT_COMPILED in abap.EncodeXBase64: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_B64DEC:  std:[61626170]:4 nopad:[61626170]:4 space:[61626170]:4 std2:[EFBFBDEFBFBDEFBFBD]:3 url:[EFBFBDEFBFBDEFBFBD]:3 mix:[6BEFBFBDEFBFBD]:3 cjk:[E585A5E5A0B1E994AE]:3 lat:[C3BC6266]:3 sup:[F09F8C860C]:3 over:[EFBFBDEFBFBD01]:3 sur:[EFBFBDEFBFBDEFBFBD]:3 cut:[DF82EFBFBD]:2 inc:[EFBFBD]:1 cont:[EFBFBDEFBFBD32]:3 pad:[61]:1 drop:[69EFBFBD1D]:3 e:[]:0
+ok   JS ZCL_GOGEN_T_B64DEC: ERROR NOT_COMPILED in abap.DecodeBase64: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_BINDMUT: 2/1/0/0/0
+ok   JS ZCL_GOGEN_T_BINDMUT: 2/1/0/0/0
+ok   Go ZCL_GOGEN_T_BOOM: ERROR CX_SY_ZERODIVIDE in / at zcl_gogen_t_boom.clas.abap:9
+ok   JS ZCL_GOGEN_T_BOOM: ERROR CX_SY_ZERODIVIDE in /
+ok   Go ZCL_GOGEN_T_BOUND: X
+ok   JS ZCL_GOGEN_T_BOUND: X
+ok   Go ZCL_GOGEN_T_BYTECAT: cat:FFAB00CD00/5/0 zeros:0000AB00CD00/6 empty:0/0
+ok   JS ZCL_GOGEN_T_BYTECAT: cat:FFAB00CD00/5/0 zeros:0000AB00CD00/6 empty:0/0
+ok   Go ZCL_GOGEN_T_BYTECATX: exact:000000AB/0 short:ABCDEF00/0 long:CDEF1234/4 rev:04030201/0 sub:000000B2/0
+ok   JS ZCL_GOGEN_T_BYTECATX: exact:000000AB/0 short:ABCDEF00/0 long:CDEF1234/4 rev:04030201/0 sub:000000B2/0
+ok   Go ZCL_GOGEN_T_BYTELINES: empty:0/0 lines:ABCDEF/0 hist:6000/8889/70 old:5001/88EE fork:same
+ok   JS ZCL_GOGEN_T_BYTELINES: empty:0/0 lines:ABCDEF/0 hist:6000/8889/70 old:5001/88EE fork:same
+ok   Go ZCL_GOGEN_T_C2NUM: [12]12/12.000 [ 12 ]12/12.000 [-12]-12/-12.000 [12-]-12/-12.000 [+12]12/12.000 [2.5]3/2.500 [-2.5]-3/-2.500 [.5]1/0.500 [5.]5/5.000 [1E3]NN/1000.000 [1e3]NN/1000.000 [1.5E+2]NN/150.000 [nan]NN/OV [inf]NN/OV [Infinity]NN/OV [0x10]NN/NN [1_0]NN/NN [1,5]NN/NN [12 3]NN/12.000 [abc]NN/NN []0/0.000 [   ]0/0.000 [-]NN/NN [3000000000]OV/3000000000.000 [12 abc]NN/12.000 [1 2 3]NN/1.000 [- 12]-12/NN [12 -]-12/12.000 [ -12 ]-12/-12.000 [1E 3]NN/NN [E3]NN/NN [1E]NN/NN [1e+]NN/NN [1.5.2]NN/NN [+-1]NN/NN [--1]NN/NN [-1-]NN/NN [0012]12/12.000 [.]NN/NN [+]NN/NN [2147483647.4]2147483647/2147483647.400 [2147483647.5]OV/2147483647.500 [-2147483648.5]OV/-2147483648.500 [-2147483648.4]-2147483648/-2147483648.400 [1.49999]1/1.500 [12 3 ]NN/12.000 [1E400]NN/OV [1E-400]NN/0.000 [1.5E3-]NN/-1500.000 [1.5D3]NN/NN [12a]NN/NN [1.e2]NN/100.000 [.5e1]NN/5.000 [1E+03]NN/1000.000 
+ok   JS ZCL_GOGEN_T_C2NUM: [12]12/12.000 [ 12 ]12/12.000 [-12]-12/-12.000 [12-]-12/-12.000 [+12]12/12.000 [2.5]3/2.500 [-2.5]-3/-2.500 [.5]1/0.500 [5.]5/5.000 [1E3]NN/1000.000 [1e3]NN/1000.000 [1.5E+2]NN/150.000 [nan]NN/OV [inf]NN/OV [Infinity]NN/OV [0x10]NN/NN [1_0]NN/NN [1,5]NN/NN [12 3]NN/12.000 [abc]NN/NN []0/0.000 [   ]0/0.000 [-]NN/NN [3000000000]OV/3000000000.000 [12 abc]NN/12.000 [1 2 3]NN/1.000 [- 12]-12/NN [12 -]-12/12.000 [ -12 ]-12/-12.000 [1E 3]NN/NN [E3]NN/NN [1E]NN/NN [1e+]NN/NN [1.5.2]NN/NN [+-1]NN/NN [--1]NN/NN [-1-]NN/NN [0012]12/12.000 [.]NN/NN [+]NN/NN [2147483647.4]2147483647/2147483647.400 [2147483647.5]OV/2147483647.500 [-2147483648.5]OV/-2147483648.500 [-2147483648.4]-2147483648/-2147483648.400 [1.49999]1/1.500 [12 3 ]NN/12.000 [1E400]NN/OV [1E-400]NN/0.000 [1.5E3-]NN/-1500.000 [1.5D3]NN/NN [12a]NN/NN [1.e2]NN/100.000 [.5e1]NN/5.000 [1E+03]NN/1000.000 
+ok   Go ZCL_GOGEN_T_CALLSUBRC: read:4 call:4
+ok   JS ZCL_GOGEN_T_CALLSUBRC: read:4 call:4
+ok   Go ZCL_GOGEN_T_CATCHATTR: rt:\CLASS=CX_SY_ZERODIVIDE obj:X/3 static:\CLASS=CX_SY_ARITHMETIC_OVERFLOW mixed:\CLASS=CX_SY_ZERODIVIDE,\CLASS=ZCX_GOGEN_T_RSUB shadow:5 param:[An exception was raised.]
+ok   JS ZCL_GOGEN_T_CATCHATTR: rt:\CLASS=CX_SY_ZERODIVIDE obj:X/3 static:\CLASS=CX_SY_ARITHMETIC_OVERFLOW mixed:\CLASS=CX_SY_ZERODIVIDE,\CLASS=ZCX_GOGEN_T_RSUB shadow:5 param:[An exception was raised.]
+ok   Go ZCL_GOGEN_T_CCBOOM2: ERROR RUNTIME_ERROR in ZCL_GOGEN_T_CCBOOM=>CLASS_CONSTRUCTOR: CX_SY_ZERODIVIDE in / at zcl_gogen_t_ccboom.clas.abap:15
+ok   JS ZCL_GOGEN_T_CCBOOM2: ERROR RUNTIME_ERROR in ZCL_GOGEN_T_CCBOOM=>CLASS_CONSTRUCTOR: CX_SY_ZERODIVIDE in /
+ok   Go ZCL_GOGEN_T_CCTOR: a cc3 t3 t3 b cc1 cc2 t1 c 
+ok   JS ZCL_GOGEN_T_CCTOR: a cc3 t3 t3 b cc1 cc2 t1 c 
+ok   Go ZCL_GOGEN_T_CHAINS: a0 b+0 c0 d2 d2 <d2> <d2> f.x g+0 if log:mambmb+mcmdmemfnxtxmgmg+ng+0mh
+ok   JS ZCL_GOGEN_T_CHAINS: a0 b+0 c0 d2 d2 <d2> <d2> f.x g+0 if log:mambmb+mcmdmemfnxtxmgmg+ng+0mh
+ok   Go ZCL_GOGEN_T_COPY: copy a:2,1 b:3,50 struct a:1 b:60 alias it:3,99 after:3,99
+ok   JS ZCL_GOGEN_T_COPY: copy a:2,1 b:3,50 struct a:1 b:60 alias it:3,99 after:3,99
+ok   Go ZCL_GOGEN_T_COPYBASE: ERROR NOT_COMPILED in ZCL_GOGEN_T_COPYBASE=>RUN (zcl_gogen_t_copybase.clas.abap:18): VALUE for a table with BASE src at zcl_gogen_t_copybase.clas.abap:18
+ok   JS ZCL_GOGEN_T_COPYBASE: ERROR NOT_COMPILED in ZCL_GOGEN_T_COPYBASE=>RUN (zcl_gogen_t_copybase.clas.abap:18): VALUE for a table with BASE src
+ok   Go ZCL_GOGEN_T_COPYDATA: 1
+ok   JS ZCL_GOGEN_T_COPYDATA: 1
+ok   Go ZCL_GOGEN_T_COPYDREF: ERROR NOT_COMPILED in ZCL_GOGEN_T_COPYDREF=>RUN (zcl_gogen_t_copydref.clas.abap:19): target lr->* at zcl_gogen_t_copydref.clas.abap:19
+ok   JS ZCL_GOGEN_T_COPYDREF: ERROR NOT_COMPILED in ZCL_GOGEN_T_COPYDREF=>RUN (zcl_gogen_t_copydref.clas.abap:19): target lr->*
+ok   Go ZCL_GOGEN_T_COPYHASH: 1
+ok   JS ZCL_GOGEN_T_COPYHASH: 1
+ok   Go ZCL_GOGEN_T_COPYINSERT: 1
+ok   JS ZCL_GOGEN_T_COPYINSERT: 1
+ok   Go ZCL_GOGEN_T_COPYROUTES: 111119
+ok   JS ZCL_GOGEN_T_COPYROUTES: 111119
+ok   Go ZCL_GOGEN_T_COPYROWS: 1/2
+ok   JS ZCL_GOGEN_T_COPYROWS: 1/2
+ok   Go ZCL_GOGEN_T_CORR: [ab/0007/][abcdef/1234/] empty:0 copy:eq changed:ne shorter:ne reversed:ne blanks:eq wide:ne
+ok   JS ZCL_GOGEN_T_CORR: [ab/0007/][abcdef/1234/] empty:0 copy:eq changed:ne shorter:ne reversed:ne blanks:eq wide:ne
+ok   Go ZCL_GOGEN_T_CP: cp:XX-X--XX-XX-XX-XX ca:X---X
+ok   JS ZCL_GOGEN_T_CP: cp:XX-X--XX-XX-XX-XX ca:X---X
+ok   Go ZCL_GOGEN_T_CRDATA: t000:0 tt:1 fresh:0 kept:1 n0:0 n1:42 n2:0
+ok   JS ZCL_GOGEN_T_CRDATA: t000:0 tt:1 fresh:0 kept:1 n0:0 n1:42 n2:0
+ok   Go ZCL_GOGEN_T_CRDYN: a:0/h b:u/0[] c:2 lower:ok unknown:err kept:0
+ok   JS ZCL_GOGEN_T_CRDYN: ERROR NOT_COMPILED in CREATE DATA TYPE (name): the JS backend has no table registry (the Go host has)
+ok   Go ZCL_GOGEN_T_CRELEM: s:g[][ab]1 s2:g[][cd]2 i:I[0 ][42 ]1 c:C[][abc]1 d:D[00000000][20250107]1 t:T[000000][123456]1 n:N[0000][0012]1
+ok   JS ZCL_GOGEN_T_CRELEM: s:g[][ab]1 s2:g[][cd]2 i:I[0 ][42 ]1 c:C[][abc]1 d:D[00000000][20250107]1 t:T[000000][123456]1 n:N[0000][0012]1
+ok   Go ZCL_GOGEN_T_DATASET: t:61620A6364200A r:0/a/1 r:0/b/1 r:4//0 p:3 x:0/00FF0D/3 x:4/0A4100/2 x:4/000000/0 c:6100620020002000 m:8/No such file or directory e:open_mode d:0
+ok   JS ZCL_GOGEN_T_DATASET: ERROR NOT_COMPILED in DATASET: the JS backend has no file system (the Go host has the sandbox of go/abap/dataset.go)
+ok   Go ZCL_GOGEN_T_DBW: ins:0 /1  dup:4 /0  tabcx:4 /0  rows3  acc:4 /2  rows5  updmiss:4 /0  upd:0 /1  set2:0 /2  set0:4 /0  updtab:4 /1  modins:0 /1  modupd:0 /1  modtab:0 /2  delmiss:4 /0  del:0 /1  delw0:4 /0  delw2:0 /2  deltab:4 /1  insm:0 /1  mandt123 insempty:0 /0  rows4  rb:0 /4  after0 
+ok   JS ZCL_GOGEN_T_DBW: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_DEFAULTS: 7/11/13/17
+ok   JS ZCL_GOGEN_T_DEFAULTS: 7/11/13/17
+ok   Go ZCL_GOGEN_T_DELFS: ERROR NOT_COMPILED in ZCL_GOGEN_T_DELFS=>STALE (zcl_gogen_t_delfs.clas.abap:42): <L> used after DELETE of its row inside the LOOP: not measured at zcl_gogen_t_delfs.clas.abap:42
+ok   JS ZCL_GOGEN_T_DELFS: ERROR NOT_COMPILED in ZCL_GOGEN_T_DELFS=>STALE (zcl_gogen_t_delfs.clas.abap:42): <L> used after DELETE of its row inside the LOOP: not measured
+ok   Go ZCL_GOGEN_T_DELNAME: lines:1  subrc:0
+ok   JS ZCL_GOGEN_T_DELNAME: lines:1  subrc:0
+ok   Go ZCL_GOGEN_T_DELNOOPBIND: 7
+ok   JS ZCL_GOGEN_T_DELNOOPBIND: 7
+ok   Go ZCL_GOGEN_T_DELRANGE: 0/3/4 0/2 4/2
+ok   JS ZCL_GOGEN_T_DELRANGE: 0/3/4 0/2 4/2
+ok   Go ZCL_GOGEN_T_DELTO: ERROR NOT_COMPILED in ZCL_GOGEN_T_DELTO=>RUN (zcl_gogen_t_delto.clas.abap:15): DELETE itab inside LOOP ... TO: not measured: DELETE lt. at zcl_gogen_t_delto.clas.abap:15
+ok   JS ZCL_GOGEN_T_DELTO: ERROR NOT_COMPILED in ZCL_GOGEN_T_DELTO=>RUN (zcl_gogen_t_delto.clas.abap:15): DELETE itab inside LOOP ... TO: not measured: DELETE lt.
+ok   Go ZCL_GOGEN_T_DEMODATA: pm:1043618065  9000000001 20250101 0 Manhattan/Penn Station/Madison Sq West/Cash 2 28.24 0.00 4.48; 9000000002 20250101 0 Manhattan/TriBeCa/Civic Center/Card 2 28.90 4.33 4.56; 9000000003 20250101 0 Manhattan/Upper West Side South/Card 8 83.76 14.23 12.24; 9000000004 20250101 0 Manhattan/Chinatown/Card 1 12.12 2.90 1.76; 9000000005 20250101 0 Manhattan/Central Park/Card 2 16.02 2.88 2.38; rows 20000 trips 78715 fare 1264137.29 tip 178368.34 distance 215645.95 checksum 163171580
+ok   JS ZCL_GOGEN_T_DEMODATA: pm:1043618065  9000000001 20250101 0 Manhattan/Penn Station/Madison Sq West/Cash 2 28.24 0.00 4.48; 9000000002 20250101 0 Manhattan/TriBeCa/Civic Center/Card 2 28.90 4.33 4.56; 9000000003 20250101 0 Manhattan/Upper West Side South/Card 8 83.76 14.23 12.24; 9000000004 20250101 0 Manhattan/Chinatown/Card 1 12.12 2.90 1.76; 9000000005 20250101 0 Manhattan/Central Park/Card 2 16.02 2.88 2.38; rows 20000 trips 78715 fare 1264137.29 tip 178368.34 distance 215645.95 checksum 163171580
+ok   Go ZCL_GOGEN_T_DEMODB: taxi: 300 synthetic rows of seed 9 written (checksum 669166395), 0 replaced | taxi: 300 synthetic rows of seed 9 present (checksum 669166395); unchanged | 9000000001 20250101 3 Queens/LaGuardia Airport/Other 1 56.11 0.00 11.44; 9000000002 20250101 8 Manhattan/Lincoln Square West/Disputed 1 13.31 0.00 2.05; rows 300 trips 1365 fare 20086.65 tip 3245.89 distance 3279.43 checksum 669166395 | taxi: 100 synthetic rows of seed 9 written (checksum 1304488219), 300 replaced | taxi: 0 synthetic rows of seed 20250101 written (checksum 1), 100 replaced
+ok   JS ZCL_GOGEN_T_DEMODB: ERROR NOT_COMPILED in SELECT COUNT(*) FROM ZOSD_TAXIFACT: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_DESCKEY: g C
+ok   JS ZCL_GOGEN_T_DESCKEY: g C
+ok   Go ZCL_GOGEN_T_DREFLOOP: 1:1/a,2:2/b,10,20,
+ok   JS ZCL_GOGEN_T_DREFLOOP: ERROR NOT_COMPILED in LOOP AT lr->* ASSIGNING <ls>.: a typed field symbol over generic rows is Go-only
+ok   Go ZCL_GOGEN_T_DSEL: static:0/2/CB byname:0/2/AC cds:0/2,B2,C3 empty:0/3 none:4/0/0 sum:0/2,C3,A1 one:semantics syntax:caught
+ok   JS ZCL_GOGEN_T_DSEL: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_DSELX: ERROR NOT_COMPILED in SELECT ... FROM (ZGOGEN_T_DBWN): ZGOGEN_T_DBWN is a view over the client-dependent ZGOGEN_T_DBW without MANDT: a system reads the logon client's rows, this one would read every client's at zcl_gogen_t_dselx.clas.abap:18
+ok   JS ZCL_GOGEN_T_DSELX: ERROR NOT_COMPILED in CREATE DATA TYPE (name): the JS backend has no table registry (the Go host has)
+ok   Go ZCL_GOGEN_T_DYN: upper:7 lower:err unknown:err
+ok   JS ZCL_GOGEN_T_DYN: upper:7 lower:err unknown:err
+ok   Go ZCL_GOGEN_T_ELEMREF: append:9 read:8
+ok   JS ZCL_GOGEN_T_ELEMREF: append:9 read:8
+ok   Go ZCL_GOGEN_T_ELEMREFSTALE: ERROR GETWA_NOT_ASSIGNED in reference to a deleted table row at zcl_gogen_t_elemrefstale.clas.abap:19
+ok   JS ZCL_GOGEN_T_ELEMREFSTALE: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_EVENTS: none:[] order:a.p(2,s)b.q(2)c.p(2,s) other:[] twice:a.p(4,s) off:b.p(5,s) again:a.p(6,s)b.p(6,s) var:a.p(7,s) kill:a.kill kill2:a.kill add:a.add add2:a.addc.p(11,s) boom:a.boom.caught val:a.m(5,105)b.m(105,205) all:a.q(13)c.p(13,x)b.p(14,y)a.q(14)c.p(14,y) both:b.p(15,y)c.p(15,y)a.q(15)c.p(15,y) offone:b.p(16,y)a.q(16)c.p(16,y) offall:b.p(18,y) stat:static(19,s) sev:a.s(20)b.s(20) sev2:b.s(21) intf:a.i(hi,s)
+ok   JS ZCL_GOGEN_T_EVENTS: none:[] order:a.p(2,s)b.q(2)c.p(2,s) other:[] twice:a.p(4,s) off:b.p(5,s) again:a.p(6,s)b.p(6,s) var:a.p(7,s) kill:a.kill kill2:a.kill add:a.add add2:a.addc.p(11,s) boom:a.boom.caught val:a.m(5,105)b.m(105,205) all:a.q(13)c.p(13,x)b.p(14,y)a.q(14)c.p(14,y) both:b.p(15,y)c.p(15,y)a.q(15)c.p(15,y) offone:b.p(16,y)a.q(16)c.p(16,y) offall:b.p(18,y) stat:static(19,s) sev:a.s(20)b.s(20) sev2:b.s(21) intf:a.i(hi,s)
+ok   Go ZCL_GOGEN_T_EVENTS2: revive:a.revive allfirst:b.p(2,s)c.p(2,s) nest:a.n1(a.n2()b.p(2,s))b.p(1,s) self:a.self3b.p(3,s)b.p(4,s) rev:c.p(5,s)a.p(5,s)b.q(5)b.p(5,s) back:a.p(6,s)b.p(6,s)c.p(6,s) holes:b.q(7)b.p(7,s)a.q(7) holes2:b.q(8)b.p(8,s)a.q(8)
+ok   JS ZCL_GOGEN_T_EVENTS2: revive:a.revive allfirst:b.p(2,s)c.p(2,s) nest:a.n1(a.n2()b.p(2,s))b.p(1,s) self:a.self3b.p(3,s)b.p(4,s) rev:c.p(5,s)a.p(5,s)b.q(5)b.p(5,s) back:a.p(6,s)b.p(6,s)c.p(6,s) holes:b.q(7)b.p(7,s)a.q(7) holes2:b.q(8)b.p(8,s)a.q(8)
+ok   Go ZCL_GOGEN_T_EVENTS3: all:b(base)s(sub)b(sub)s(sub2)b(sub2) one:s(sub2)
+ok   JS ZCL_GOGEN_T_EVENTS3: all:b(base)s(sub)b(sub)s(sub2)b(sub2) one:s(sub2)
+ok   Go ZCL_GOGEN_T_EXCPARAMS: ref/out/before/before/before/nxxx/nxxx/uyy/4/9/10/keep/1
+ok   JS ZCL_GOGEN_T_EXCPARAMS: ref/out/before/before/before/nxxx/nxxx/uyy/4/9/10/keep/1
+ok   Go ZCL_GOGEN_T_FAE: dup:0/2/2,A1,C2 col:0/2/2,1,2 two:0/2,B2,D3 empty:0/4/4 cor:0/2,2[],3[] none:4/0/0
+ok   JS ZCL_GOGEN_T_FAE: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_FINDBYTE: a:0/1 b:0/4 c:0/2 d:4/7 e:4/7 f:4 g:0/0 h:0/3 i:range
+ok   JS ZCL_GOGEN_T_FINDBYTE: a:0/1 b:0/4 c:0/2 d:4/7 e:4/7 f:4 g:0/0 h:0/3 i:range
+ok   Go ZCL_GOGEN_T_FINDPCRE: alt:2[1,1;3,1;] grp:1[0,4(0,1)(1,3);] empty:4[0,0;1,2;3,0;4,0;] wb:2[0,2;7,2;] opt:1[1,1(-1,0);] lazy:3[0,1;1,1;2,1;] ic:2[1,2;3,2;]
+ok   JS ZCL_GOGEN_T_FINDPCRE: alt:2[1,1;3,1;] grp:1[0,4(0,1)(1,3);] empty:4[0,0;1,2;3,0;4,0;] wb:2[0,2;7,2;] opt:1[1,1(-1,0);] lazy:3[0,1;1,1;2,1;] ic:2[1,2;3,2;]
+ok   Go ZCL_GOGEN_T_FINDRES: alt:0/2[0:1,2;0:3,2;] grp:0/0:1,1(-1,0)(1,1) nest:2[0:0,2(0,2)(0,1)(1,1);0:2,2(2,2)(2,1)(3,1);] wb:2[0:0,2;0:7,2;] sub:2[0:0,2;0:2,2;] ic:2[0:1,2;0:3,2;] uni:1[0:2,1;] opt:0/0:1,1(-1,0) opt2:2[0:0,1(-1,0);0:1,2(2,1);] miss1:4/0:7,1(-1,0) missall:4/0[] empty:0/4[0:0,0;0:1,0;0:2,0;0:3,0;] empty2:0/4[0:0,0;0:1,2;0:3,0;0:4,0;] w:2[0:0,3(0,3);0:4,3(4,3);] posix:1[0:0,4(0,1)(1,3);]
+ok   JS ZCL_GOGEN_T_FINDRES: alt:0/2[0:1,1;0:3,1;] grp:0/0:1,1(-1,0)(1,1) nest:2[0:0,2(0,2)(0,1)(1,1);0:2,2(2,2)(2,1)(3,1);] wb:2[0:0,2;0:7,2;] sub:2[0:0,2;0:2,2;] ic:2[0:1,2;0:3,2;] uni:1[0:2,1;] opt:0/0:1,1(-1,0) opt2:2[0:0,1(-1,0);0:1,2(2,1);] miss1:4/0:7,1(-1,0) missall:4/0[] empty:0/4[0:0,0;0:1,0;0:2,0;0:3,0;] empty2:0/4[0:0,0;0:1,2;0:3,0;0:4,0;] w:2[0:0,3(0,3);0:4,3(4,3);] posix:1[0:0,4(0,1)(1,3);]
+ok   Go ZCL_GOGEN_T_FINDSEC: a:0/5/1 b:0/2/1 c:4/99/98 d:4/99/98 e:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS f:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS g:4/99/98 h:0/5/1 i:4/99/98 j:0/2/1 k:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS l:0/2/1 m:4/99/98 n:4/99/98 p:0/1/0 p2:4/99/98 p3:0/6/1 q:0/SUM/2/2 r:0/max/3/1 s:4/keep/99 s2:0/a/ u:4/keep/99 v:4/99 w:0/2/1 w2:0/2/1 x1:0/0/0 x2:0/0/0 l3:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS l4:0/5/1 l5:0/7/0 l6:0/7/0
+ok   JS ZCL_GOGEN_T_FINDSEC: a:0/5/1 b:0/2/1 c:4/99/98 d:4/99/98 e:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS f:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS g:4/99/98 h:0/5/1 i:4/99/98 j:0/2/1 k:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS l:0/2/1 m:4/99/98 n:4/99/98 p:0/1/0 p2:4/99/98 p3:0/6/1 q:0/SUM/2/2 r:0/max/3/1 s:4/keep/99 s2:0/a/ u:4/keep/99 v:4/99 w:0/2/1 w2:0/2/1 x1:0/0/0 x2:0/0/0 l3:\CLASS=CX_SY_RANGE_OUT_OF_BOUNDS l4:0/5/1 l5:0/7/0 l6:0/7/0
+ok   Go ZCL_GOGEN_T_FM: ok:0/6/11/2/in:3/0/10/1 boom:4/5/10/3/keep opt:0/11/4 oth:7/11/5,X0,F3,F4,F0,F0
+ok   JS ZCL_GOGEN_T_FM: ok:0/6/11/2/in:3/0/10/1 boom:4/5/10/3/keep opt:0/11/4 oth:7/11/5,X0,F3,F4,F0,F0
+ok   Go ZCL_GOGEN_T_FMDEFAULT: 7/9
+ok   JS ZCL_GOGEN_T_FMDEFAULT: 7/9
+ok   Go ZCL_GOGEN_T_GENAR: i:8,70,7.00 i8:8 p:8,1.88 c:7 s:7 n:7 f:8 ti:8,-3 tp:7.00,1.75
+ok   JS ZCL_GOGEN_T_GENAR: i:8,70,7.00 i8:8 p:8,1.88 c:7 s:7 n:7 f:8 ti:8,-3 tp:7.00,1.75
+ok   Go ZCL_GOGEN_T_GENCMP: ty:10101 c:1011101111 s:001011 c1:01110,10010
+ok   JS ZCL_GOGEN_T_GENCMP: ty:10101 c:1011101111 s:001011 c1:01110,10010
+ok   Go ZCL_GOGEN_T_GENERICBIND: ERROR GETWA_NOT_ASSIGNED in reference to a deleted table row at zcl_gogen_t_genericbind.clas.abap:15
+ok   JS ZCL_GOGEN_T_GENERICBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_GENEXP: set:5/x/keep corr:42/hel/keep clear:42/hel/[]
+ok   JS ZCL_GOGEN_T_GENEXP: set:5/x/keep corr:42/hel/keep clear:42/hel/[]
+ok   Go ZCL_GOGEN_T_GENIDX: d1:0/3 d9:4/3 r2:0/2/3 r7:4 kept:30 2 30 orig:4
+ok   JS ZCL_GOGEN_T_GENIDX: d1:0/3 d9:4/3 r2:0/2/3 r7:4 kept:30 2 30 orig:4
+ok   Go ZCL_GOGEN_T_GENMOVD: d:[20250107]0120258,[2025010]0120257,[00000000]1100008,[abc]01abc3,[20250107]0120258,[2025-01-]0120258,[ 2025010]01 2028,c[19991231] t:[202501]01,[202501]01,[000000]11,[abc000]01,[202501]01,[2025-0]01,[ 20250]01,
+ok   JS ZCL_GOGEN_T_GENMOVD: d:[20250107]0120258,[2025010]0120257,[00000000]1100008,[abc]01abc3,[20250107]0120258,[2025-01-]0120258,[ 2025010]01 2028,c[19991231] t:[202501]01,[202501]01,[000000]11,[abc000]01,[202501]01,[2025-0]01,[ 20250]01,
+ok   Go ZCL_GOGEN_T_GENPOOL: 8::GENERATE SUBROUTINE POOL is not supported:0::ID:5
+ok   JS ZCL_GOGEN_T_GENPOOL: 8::GENERATE SUBROUTINE POOL is not supported:0::ID:5
+ok   Go ZCL_GOGEN_T_GRPBY: g:0/3,1=1,2=3,3=1 g0:4/0/0 cor:2,3=1,2=3 agg:3,1:A/A/1,2:C/AB/6,3:D/D/3 two:3,AB2=1,B2=1,C2=1
+ok   JS ZCL_GOGEN_T_GRPBY: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_GRPCOR: ERROR NOT_COMPILED in ZCL_GOGEN_T_GRPCOR=>RUN (zcl_gogen_t_grpcor.clas.abap:13): SELECT aggregate without AS INTO CORRESPONDING FIELDS: not measured: SELECT val MAX( id ) FROM zgogen_t_dbw INTO CORRESPONDING FIELDS OF TABLE lt GROUP BY val. at zcl_gogen_t_grpcor.clas.abap:13
+ok   JS ZCL_GOGEN_T_GRPCOR: ERROR NOT_COMPILED in ZCL_GOGEN_T_GRPCOR=>RUN (zcl_gogen_t_grpcor.clas.abap:13): SELECT aggregate without AS INTO CORRESPONDING FIELDS: not measured: SELECT val MAX( id ) FROM zgogen_t_dbw INTO CORRESPONDING FIELDS OF TABLE lt GROUP BY val.
+ok   Go ZCL_GOGEN_T_GZIP: rt:11/8 e:11/0 big:11/1000 small:1 z:11223344/4 s:11223344/4
+ok   JS ZCL_GOGEN_T_GZIP: ERROR NOT_COMPILED in abap.DeflateRaw: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_HOSTFIT: str:1 c20:1 set:0/1 ten:1 del:0/1
+ok   JS ZCL_GOGEN_T_HOSTFIT: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_HOSTLONG: ERROR NOT_COMPILED in Open SQL host value: "ABCDEFGHIJK" is longer than the column's 10 characters (CX_SY_OPEN_SQL_DATA_ERROR for a range on A4H; a plain comparison or SET is not measured) at zcl_gogen_t_hostlong.clas.abap:19
+ok   JS ZCL_GOGEN_T_HOSTLONG: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_IA: init:0 o:7 i:8 bump:9,90,90,9 pair:3p inner:in,in,two alias:shared other:0, first:9,shared sub:42,1049,43,7 ro:2
+ok   JS ZCL_GOGEN_T_IA: init:0 o:7 i:8 bump:9,90,90,9 pair:3p inner:in,in,two alias:shared other:0, first:9,shared sub:42,1049,43,7 ro:2
+ok   Go ZCL_GOGEN_T_IADUP: get:5 a:6 c:6 s:6 b:7 get:5
+ok   JS ZCL_GOGEN_T_IADUP: get:5 a:6 c:6 s:6 b:7 get:5
+ok   Go ZCL_GOGEN_T_IDEF: base/child
+ok   JS ZCL_GOGEN_T_IDEF: base/child
+ok   Go ZCL_GOGEN_T_INH: sub<base>/k/t1+ ctor:base down:k initial dyn:sub<base> nullcast:ok
+ok   JS ZCL_GOGEN_T_INH: sub<base>/k/t1+ ctor:base down:k initial dyn:sub<base> nullcast:ok
+ok   Go ZCL_GOGEN_T_INHCONST: SUP/ZMSG/042/SUP
+ok   JS ZCL_GOGEN_T_INHCONST: SUP/ZMSG/042/SUP
+ok   Go ZCL_GOGEN_T_INITBIND: ERROR GETWA_NOT_ASSIGNED in reference to a deleted table row at zcl_gogen_t_initbind.clas.abap:14
+ok   JS ZCL_GOGEN_T_INITBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_INITIALCS: ok
+ok   JS ZCL_GOGEN_T_INITIALCS: ok
+ok   Go ZCL_GOGEN_T_INT8ARITH: -4/1/-4/4/1/4/-3/1/-4/div-overflow/round-overflow/0/1/0/1/1/9223372036854775807/0/0/9223372036854775807/-1/-2/9223372036854775806/-1/1/0/-1/1/-1/add-overflow/sub-overflow/mul-overflow/9223372036854775807/-1/4294967289/-30064771072/4294967289/0/packed-div-overflow/neg-overflow/-9223372036854775808/7/0/0/0/zero-div/zero-mod/zero-round
+ok   JS ZCL_GOGEN_T_INT8ARITH: -4/1/-4/4/1/4/-3/1/-4/div-overflow/round-overflow/0/1/0/1/1/9223372036854775807/0/0/9223372036854775807/-1/-2/9223372036854775806/-1/1/0/-1/1/-1/add-overflow/sub-overflow/mul-overflow/9223372036854775807/-1/4294967289/-30064771072/4294967289/0/packed-div-overflow/neg-overflow/-9223372036854775808/7/0/0/0/zero-div/zero-mod/zero-round
+ok   Go ZCL_GOGEN_T_INT8X: 0000000000000000FFFFFFFFFFFFFFFE/-2/0708/65535/-9223372036854775808/8000000000000000/0/00000000FFFFFFFE/-2/FFFFFFFE/documented
+ok   JS ZCL_GOGEN_T_INT8X: 0000000000000000FFFFFFFFFFFFFFFE/-2/0708/65535/-9223372036854775808/8000000000000000/0/00000000FFFFFFFE/-2/FFFFFFFE/documented
+ok   Go ZCL_GOGEN_T_IPOW: 1073741824/overflow/4611686018427387904/3.38/bytes:2/negative:-1/1/0.50/5.0000000000000000E-01/minimum:2147483648-/wide:4611686018427387904/zero-overflow/wide-overflow
+ok   JS ZCL_GOGEN_T_IPOW: 1073741824/overflow/4611686018427387904/3.38/bytes:2/negative:-1/1/0.50/5.0000000000000000E-01/minimum:2147483648-/wide:4611686018427387904/zero-overflow/wide-overflow
+ok   Go ZCL_GOGEN_T_IPOWTEXT: a42/42a/a42a/a5-/c:10/n:10/5-/2147483648-
+ok   JS ZCL_GOGEN_T_IPOWTEXT: a42/42a/a42a/a5-/c:10/n:10/5-/2147483648-
+ok   Go ZCL_GOGEN_T_JSESC: p:[a\\b\"c/d'e f ] cc:\u0000,\u0001,\u0002,\u0003,\u0004,\u0005,\u0006,\u0007,\b,\t,\n,\u000B,\f,\r,\u000E,\u000F,\u0010,\u0011,\u0012,\u0013,\u0014,\u0015,\u0016,\u0017,\u0018,\u0019,\u001A,\u001B,\u001C,\u001D,\u001E,\u001F, del:11 u:31 c:[a\"b]4 g:[x\"y ][a\"b]
+ok   JS ZCL_GOGEN_T_JSESC: p:[a\\b\"c/d'e f ] cc:\u0000,\u0001,\u0002,\u0003,\u0004,\u0005,\u0006,\u0007,\b,\t,\n,\u000B,\f,\r,\u000E,\u000F,\u0010,\u0011,\u0012,\u0013,\u0014,\u0015,\u0016,\u0017,\u0018,\u0019,\u001A,\u001B,\u001C,\u001D,\u001E,\u001F, del:11 u:31 c:[a\"b]4 g:[x\"y ][a\"b]
+ok   Go ZCL_GOGEN_T_JSGENERIC: comp:0/1/5/0/low/4/low lines:2 p11 q22 kinds:IFgCXDTvhl ref:0/3/42/4/asg/ini/set notini/ini sup:a-b-A+b-a-B+A+B+ dyn:<d1><7><noclass> flat:u moved:m9 m9 q22 fit:xy/5-/cleared:0 row:0 row:s3/0/s3 c2:xy clr:2/0/0
+ok   JS ZCL_GOGEN_T_JSGENERIC: comp:0/1/5/0/low/4/low lines:2 p11 q22 kinds:IFgCXDTvhl ref:0/3/42/4/asg/ini/set notini/ini sup:a-b-A+b-a-B+A+B+ dyn:<d1><7><noclass> flat:u moved:m9 m9 q22 fit:xy/5-/cleared:0 row:0 row:s3/0/s3 c2:xy clr:2/0/0
+ok   Go ZCL_GOGEN_T_JSONDES: osg/42/X//3:3,2,1X, bad:caught
+ok   JS ZCL_GOGEN_T_JSONDES: ERROR NOT_COMPILED in Native_CONV_OUT_CONVERT: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_JSONGEN: ins:0/1/2 new:0 value:3 lt:2 row2:7/x cd:0 ins:0/2/1 new:0 after:1 eq ne
+ok   JS ZCL_GOGEN_T_JSONGEN: ins:0/1/2 new:0 value:3 lt:2 row2:7/x cd:0 ins:0/2/1 new:0 after:1 eq ne
+ok   Go ZCL_GOGEN_T_LOOPW: a:11;33; b:1;4; c:3; d:4; e:1;3; del:0/3/4/3
+ok   JS ZCL_GOGEN_T_LOOPW: a:11;33; b:1;4; c:3; d:4; e:1;3; del:0/3/4/3
+ok   Go ZCL_GOGEN_T_LUW: miss:4 rb:0 cw:0 cww:0
+ok   JS ZCL_GOGEN_T_LUW: ERROR NOT_COMPILED in COMMIT / ROLLBACK WORK: the JS emitter has no database
+ok   Go ZCL_GOGEN_T_MODFROM: a:0/2 b:0/2 c:4 A1 B20 X30
+ok   JS ZCL_GOGEN_T_MODFROM: a:0/2 b:0/2 c:4 A1 B20 X30
+ok   Go ZCL_GOGEN_T_MOVEN: 004711/012345
+ok   JS ZCL_GOGEN_T_MOVEN: 004711/012345
+ok   Go ZCL_GOGEN_T_MOVENX: ERROR NOT_COMPILED in move: a value of type kind g into generic data of type kind N at zcl_gogen_t_movenx.clas.abap:22
+ok   JS ZCL_GOGEN_T_MOVENX: ERROR NOT_COMPILED in move: a value of type kind g into generic data of type kind N
+ok   Go ZCL_GOGEN_T_MSGINITIAL: 000//////
+ok   JS ZCL_GOGEN_T_MSGINITIAL: 000//////
+ok   Go ZCL_GOGEN_T_NSCN: 01011-3-3 3:T1Berlin;T2Aarhus;T5Bergen;
+ok   JS ZCL_GOGEN_T_NSCN: 01011-3-3 3:T1Berlin;T2Aarhus;T5Bergen;
+ok   Go ZCL_GOGEN_T_NUMC: i:0000000042,005,456,00 c:9000000001,0000000012,123,765,000 ni:42  ns:[0000000042] nc:[00000000] off:123 ,000000123 cat:20250107,9000000017 tpl:000000017 const:9000000000 gt
+ok   JS ZCL_GOGEN_T_NUMC: i:0000000042,005,456,00 c:9000000001,0000000012,123,765,000 ni:42  ns:[0000000042] nc:[00000000] off:123 ,000000123 cat:20250107,9000000017 tpl:000000017 const:9000000000 gt
+ok   Go ZCL_GOGEN_T_PACKED: ms:1728003600000 neg:-16400 small:conv max:999 lit:20260912000000
+ok   JS ZCL_GOGEN_T_PACKED: ms:1728003600000 neg:-16400 small:conv max:999 lit:20260912000000
+ok   Go ZCL_GOGEN_T_PCMP: c:20260912010000 z:12 v:20260912010001 gt lt eq ne zi ilt neg init
+ok   JS ZCL_GOGEN_T_PCMP: c:20260912010000 z:12 v:20260912010001 gt lt eq ne zi ilt neg init
+ok   Go ZCL_GOGEN_T_PDCALC: mul:1.56,1.82,-1.95 div:0.33,0.67,-0.67,4,-4,3,2,1.00,3.50 prec:0.33333333333333,0.66666666666667,1.00000000000000,33333333333333333333333333333,66666666666666666666666666667,142857142857142857143,23333333333333333333333333 dm:3.00,1.50,-3.00,1.50,-4.00,0.50,4.00,0.50,0.30,-3,1,648398213,999999901 z:ZD,0.00,ZD,ZD ov:AO,9999999999999999999999999999999,AO,AO,AO,AO ch:7,20000,0,-2,3.75,4,8,ge,eq f:0.30,2.67 i8:15000000000,1666666666.67 neg:-1.25 sum:1.00
+ok   JS ZCL_GOGEN_T_PDCALC: mul:1.56,1.82,-1.95 div:0.33,0.67,-0.67,4,-4,3,2,1.00,3.50 prec:0.33333333333333,0.66666666666667,1.00000000000000,33333333333333333333333333333,66666666666666666666666666667,142857142857142857143,23333333333333333333333333 dm:3.00,1.50,-3.00,1.50,-4.00,0.50,4.00,0.50,0.30,-3,1,648398213,999999901 z:ZD,0.00,ZD,ZD ov:AO,9999999999999999999999999999999,AO,AO,AO,AO ch:7,20000,0,-2,3.75,4,8,ge,eq f:0.30,2.67 i8:15000000000,1666666666.67 neg:-1.25 sum:1.00
+ok   Go ZCL_GOGEN_T_PDCMP: a:gt b:ne c:eq d:gt e:eq n:0013,2346 f:-1.0,-2.0
+ok   JS ZCL_GOGEN_T_PDCMP: a:gt b:ne c:eq d:gt e:eq n:0013,2346 f:-1.0,-2.0
+ok   Go ZCL_GOGEN_T_PDCONV: c:1.24,-1.24,1.23,12.50,-12.50,3.00,0.00,0.50,5.00,0.00,NN,NN,NN,999.99,CO,CO,NN,-1.00,0.00,-0.01 s:1.24,-7.50,0.00,NN,2.50,NN f:2.35,2.36,-2.35,0.13,-0.13,1.00,CO,CO,0.00,0.00,CO,2.67 i:7.00,-7.00,CO,5000000000.00 pp:1.26,-1.26,1.25,3,-3,2,CO,999.99 pi:3,-3,2,CO,-3 pf:0.10000000000000001,-2.6749999999999998 pc:[   1.50][   1.50-][   0.00][*67] ps:[1.50 ][1.50-][42 ][42-] pn:0013
+ok   JS ZCL_GOGEN_T_PDCONV: c:1.24,-1.24,1.23,12.50,-12.50,3.00,0.00,0.50,5.00,0.00,NN,NN,NN,999.99,CO,CO,NN,-1.00,0.00,-0.01 s:1.24,-7.50,0.00,NN,2.50,NN f:2.35,2.36,-2.35,0.13,-0.13,1.00,CO,CO,0.00,0.00,CO,2.67 i:7.00,-7.00,CO,5000000000.00 pp:1.26,-1.26,1.25,3,-3,2,CO,999.99 pi:3,-3,2,CO,-3 pf:0.10000000000000001,-2.6749999999999998 pc:[   1.50][   1.50-][   0.00][*67] ps:[1.50 ][1.50-][42 ][42-] pn:0013
+ok   Go ZCL_GOGEN_T_PDFMT: t:0.00,0,0.00000000000000,1.50,-1.50,0.005,-0.05,-42,0.33333333333333 d:1.3,1.250,1,-1.3,3,42.00 n:1.50,[    1.50],-1.50 c:abcdefghij fn:1.50,-1,-2,-1,-0.50,-1,1.5,-0.5 g:P/-1.50/[1.50-],P/0.00/[0.00 ]/ini,P/42/[42 ],3.14,3.140
+ok   JS ZCL_GOGEN_T_PDFMT: t:0.00,0,0.00000000000000,1.50,-1.50,0.005,-0.05,-42,0.33333333333333 d:1.3,1.250,1,-1.3,3,42.00 n:1.50,[    1.50],-1.50 c:abcdefghij fn:1.50,-1,-2,-1,-0.50,-1,1.5,-0.5 g:P/-1.50/[1.50-],P/0.00/[0.00 ]/ini,P/42/[42 ],3.14,3.140
+ok   Go ZCL_GOGEN_T_PDPREC: c:[1.50][1.50][1.50-][*50-][*0-][12345.67][12345.67][*7-][*345.67-] d:0.66700000000000,0.66700000000000,0.66666666666667,0.66666666666667,0.00000000000001,0.00000000000001,1234567890.12345678901000,0.33333333333333 g:9999999999999999999999999999999,9999999999999999999999999999999,AO
+ok   JS ZCL_GOGEN_T_PDPREC: c:[1.50][1.50][1.50-][*50-][*0-][12345.67][12345.67][*7-][*345.67-] d:0.66700000000000,0.66700000000000,0.66666666666667,0.66666666666667,0.00000000000001,0.00000000000001,1234567890.12345678901000,0.33333333333333 g:9999999999999999999999999999999,9999999999999999999999999999999,AO
+ok   Go ZCL_GOGEN_T_PDTPL: t:2.25,0.75,-1.25
+ok   JS ZCL_GOGEN_T_PDTPL: t:2.25,0.75,-1.25
+ok   Go ZCL_GOGEN_T_PDTPLM: ERROR NOT_COMPILED in ZCL_GOGEN_T_PDTPLM=>RUN (zcl_gogen_t_pdtplm.clas.abap:10): an arithmetic expression of type p with * or / in a string template: its decimals are not measured at zcl_gogen_t_pdtplm.clas.abap:10
+ok   JS ZCL_GOGEN_T_PDTPLM: ERROR NOT_COMPILED in ZCL_GOGEN_T_PDTPLM=>RUN (zcl_gogen_t_pdtplm.clas.abap:10): an arithmetic expression of type p with * or / in a string template: its decimals are not measured
+ok   Go ZCL_GOGEN_T_RAISE: h:7 first:sub clean:i1-ci-co-h3 incatch:ch text:[An exception was raised.] same:18 prev:18 nocheck again:19 untaken:initial root:[An exception was raised.] root:zerodivide rt:ch
+ok   JS ZCL_GOGEN_T_RAISE: h:7 first:sub clean:i1-ci-co-h3 incatch:ch text:[An exception was raised.] same:18 prev:18 nocheck again:19 untaken:initial root:[An exception was raised.] root:zerodivide rt:ch
+ok   Go ZCL_GOGEN_T_RAWDEC: ins:0=12AB0000/111.12 mod:0/2 A=00000001/9999999.99 B=FFFFFFFF/-0.05
+ok   JS ZCL_GOGEN_T_RAWDEC: ERROR NOT_COMPILED in DELETE ZGOGEN_T_RAWDEC: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_RAWDYN: st4:A stlt:ABC [r = '12000000']:A [r = '12']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = '1200000000']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r < '12340000']:AC [r = 'abcdef01']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = 'ABCDEF01']:E [r = 'XYZ']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = '']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = '00000000']:C [r = 12]:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = ' 12000000']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR [r = '1200000 ']:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR
+ok   JS ZCL_GOGEN_T_RAWDYN: ERROR NOT_COMPILED in DELETE ZGOGEN_T_RAW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_RAWRD: xs:A4=12000000;B4=12340000;C4=00000000;D4=FFFFFFFF;E4=00000012; x2:A=1200;120000000000;B=1234;123400000000;C=0000;000000000000;D=FFFF;FFFFFFFF0000;E=0000;000000120000; eqs5:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR  eq4:A eqs1:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR eqs4:A eq0:C eqe:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR lt4:CE gts1:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR nes1:\CLASS=CX_SY_OPEN_SQL_DATA_ERROR ord:CEABD set1:1/4=12000000 sets1:4=12000000 set5:4=12000000
+ok   JS ZCL_GOGEN_T_RAWRD: ERROR NOT_COMPILED in DELETE ZGOGEN_T_RAW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_RAWSEL: old:0/BB/12340000 miss:4/BB/12340000 new:0/[A]/12000000 inl:0/12000000/[A]/12345678/[ABCD] nmiss:4/keep/12000000 imiss:4/00000000/[] us1:0/1=56000000 us5:0/1=56000000
+ok   JS ZCL_GOGEN_T_RAWSEL: ERROR NOT_COMPILED in DELETE ZGOGEN_T_RAW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_RAWSTR: [12AB]0/1=12AB0000 [12ab]0/1=12000000 [1234567890AB]0/1=12345678 [XYZ]0/1=00000000 []0/1=00000000 [ABC]0/1=ABC00000 [12345678]0/1=12345678 
+ok   JS ZCL_GOGEN_T_RAWSTR: ERROR NOT_COMPILED in DELETE ZGOGEN_T_RAW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_REBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation at zcl_gogen_t_rebind.clas.abap:18
+ok   JS ZCL_GOGEN_T_REBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_REFEQ: sb:eq bs:eq ci:eq ic:eq b1:ne b2:ne same:eq isame:eq icl:ne clr:eq
+ok   JS ZCL_GOGEN_T_REFEQ: sb:eq bs:eq ci:eq ic:eq b1:ne b2:ne same:eq isame:eq icl:ne clr:eq
+ok   Go ZCL_GOGEN_T_REPL009: [12FF rc=2][AB00 rc=0][11A1A2A3 rc=2][11AB4400 rc=0][12FFFF rc=0][12AB rc=0][1234 rc=2][A1A2 rc=2]
+ok   JS ZCL_GOGEN_T_REPL009: [12FF rc=2][AB00 rc=0][11A1A2A3 rc=2][11AB4400 rc=0][12FFFF rc=0][12AB rc=0][1234 rc=2][A1A2 rc=2]
+ok   Go ZCL_GOGEN_T_RF_SORT_OK: mv:ab vl:cd rk:dc empty:0 back:2
+ok   JS ZCL_GOGEN_T_RF_SORT_OK: mv:ab vl:cd rk:dc empty:0 back:2
+ok   Go ZCL_GOGEN_T_RNG: all:3 b:1
+ok   JS ZCL_GOGEN_T_RNG: all:3 b:1
+ok   Go ZCL_GOGEN_T_ROWDEL: ERROR GETWA_NOT_ASSIGNED in reference to a deleted table row at zcl_gogen_t_rowdel.clas.abap:20
+ok   JS ZCL_GOGEN_T_ROWDEL: ERROR GETWA_NOT_ASSIGNED in reference to a deleted table row
+ok   Go ZCL_GOGEN_T_ROWREF: append:9
+ok   JS ZCL_GOGEN_T_ROWREF: append:9
+ok   Go ZCL_GOGEN_T_RQDATE: a[ABC];b20713,-719164;c739879;dOVF;k12,34;00000000=0;00010101=0;00010102=1;15821004=577736;15821015=577737;19700101=719164;20000229=730180;20260917=739877;99991231=3652060;20260230=0;ABC=0;1900022=0;
+ok   JS ZCL_GOGEN_T_RQDATE: a[ABC];b20713,-719164;c739879;dOVF;k12,34;00000000=0;00010101=0;00010102=1;15821004=577736;15821015=577737;19700101=719164;20000229=730180;20260917=739877;99991231=3652060;20260230=0;ABC=0;1900022=0;
+ok   Go ZCL_GOGEN_T_RQINIT: aXXXXX b-- cXXXX dXX eX- fX
+ok   JS ZCL_GOGEN_T_RQINIT: aXXXXX b-- cXXXX dXX eX- fX
+ok   Go ZCL_GOGEN_T_RQSPLIT: e[Seats][desc]0;f[a][ b]0;g[a][]0;h[a][b c]0;i[abc][gh]4;j[x][yyy]4
+ok   JS ZCL_GOGEN_T_RQSPLIT: e[Seats][desc]0;f[a][ b]0;g[a][]0;h[a][b c]0;i[abc][gh]4;j[x][yyy]4
+ok   Go ZCL_GOGEN_T_RTTI: c3:E/C/0/6/3 n4:E/N/0/8/4 x2:E/X/0/2/4 d:E/D/0/16/\TYPE=D/D//8 t:E/T/0/12/\TYPE=T/T//6 f:E/F/0/8/\TYPE=F/F//24 i:E/I/0/4/\TYPE=I/I//11 i8:E/8/0/8/\TYPE=INT8/INT8//20 p:E/P/2/8/17 b:E/C/0/2/\TYPE-POOL=ABAP\TYPE=ABAP_BOOL/ABAP_BOOL//1 s:E/g/0/8/\TYPE=STRING/STRING//0 xs:E/y/0/8/\TYPE=XSTRING/XSTRING//0 flat:S/u/0/\CLASS=ZCL_GOGEN_T_RTTI\TYPE=TY_FLAT/TY_FLAT/ deep:S/v/0/\CLASS=ZCL_GOGEN_T_RTTI\TYPE=TY_DEEP/TY_DEEP/ comps:S=E,XS=E,FL=S,TB=T, line:\CLASS=ZCL_GOGEN_T_RTTI\TYPE=TY_FLAT tk:S uk: same
+ok   JS ZCL_GOGEN_T_RTTI: ERROR NOT_COMPILED in Native_DESCRIBE_BY_DATA: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_RTTIDDIC: C/20/10
+ok   JS ZCL_GOGEN_T_RTTIDDIC: ERROR NOT_COMPILED in Native_DESCRIBE_BY_DATA: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_RTTIOL: C/80/0/10 C/2/0/80 C/10/0/5 P/8/0/19 N/4/0/1 
+ok   JS ZCL_GOGEN_T_RTTIOL: ERROR NOT_COMPILED in Native_DESCRIBE_BY_DATA: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_SCALARBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation at zcl_gogen_t_scalarbind.clas.abap:18
+ok   JS ZCL_GOGEN_T_SCALARBIND: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_SCALARLOOP: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation at zcl_gogen_t_scalarloop.clas.abap:19
+ok   JS ZCL_GOGEN_T_SCALARLOOP: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_SCALARREAD: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation at zcl_gogen_t_scalarread.clas.abap:17
+ok   JS ZCL_GOGEN_T_SCALARREAD: ERROR GETWA_NOT_ASSIGNED in table row binding after structural mutation
+ok   Go ZCL_GOGEN_T_SECKEY: w:5/3,3/4,1/5, after:2 app:0/3,5/4,3/5,1/6, mod:4/1,3/2,2/3, all:0/1,5/2,4/3,3/4,2/5,1/6, ru:0/3/4 rp:0/0/4 rmiss:8/0/7 rlow:4/0/1 rfs:0/4/3
+ok   JS ZCL_GOGEN_T_SECKEY: w:5/3,3/4,1/5, after:2 app:0/3,5/4,3/5,1/6, mod:4/1,3/2,2/3, all:0/1,5/2,4/3,3/4,2/5,1/6, ru:0/3/4 rp:0/0/4 rmiss:8/0/7 rlow:4/0/1 rfs:0/4/3
+ok   Go ZCL_GOGEN_T_SECKEYDUP: ERROR NOT_COMPILED in APPEND: a row repeating the value of the unique secondary key K_U: A4H raises the catchable CX_SY_ITAB_DUPLICATE_KEY (2026-09-24), which this runtime does not at zcl_gogen_t_seckeydup.clas.abap:27
+ok   JS ZCL_GOGEN_T_SECKEYDUP: ERROR NOT_COMPILED in APPEND: a row repeating the value of the unique secondary key K_U: A4H raises the catchable CX_SY_ITAB_DUPLICATE_KEY (2026-09-24), which this runtime does not
+ok   Go ZCL_GOGEN_T_SECKEYQ: ERROR NOT_COMPILED in ZCL_GOGEN_T_SECKEYQ=>RUN (zcl_gogen_t_seckeyq.clas.abap:29): LOOP ... USING KEY whose body changes the table: APPEND ls2 TO gt. at zcl_gogen_t_seckeyq.clas.abap:29
+ok   JS ZCL_GOGEN_T_SECKEYQ: ERROR NOT_COMPILED in ZCL_GOGEN_T_SECKEYQ=>RUN (zcl_gogen_t_seckeyq.clas.abap:29): LOOP ... USING KEY whose body changes the table: APPEND ls2 TO gt.
+ok   Go ZCL_GOGEN_T_SECREF: 0/7
+ok   JS ZCL_GOGEN_T_SECREF: 0/7
+ok   Go ZCL_GOGEN_T_SELCNT: app:4 cnt0:4/0/0 cnt:0/3/3 tab:0/3/3 tab0:4/0/0 single:0/1 single0:4/0 rng:1,A long:caught
+ok   JS ZCL_GOGEN_T_SELCNT: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_SELDUMP: ERROR SAPSQL_IN_ITAB_ILLEGAL_OPTION in range OPTION "cp": SAPSQL_IN_ITAB_ILLEGAL_OPTION, an uncatchable dump on A4H at zcl_gogen_t_seldump.clas.abap:24
+ok   JS ZCL_GOGEN_T_SELDUMP: ERROR NOT_COMPILED in SELECT ... FROM ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_SELLOOP: n:2 in:1/0,2/0, after:0/2 exit:0/1/A exitmiss:0/1 none:4/0/QQQ cont:0/2/2 corr:5/A elem:A/2 exit2:0/2
+ok   JS ZCL_GOGEN_T_SELLOOP: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_SELVIEW: 0/1 B:2
+ok   JS ZCL_GOGEN_T_SELVIEW: ERROR NOT_COMPILED in DELETE ZGOGEN_T_DBW: the JS backend has no database (the Go host has SQLite)
+ok   Go ZCL_GOGEN_T_SELVIEWN: ERROR NOT_COMPILED in ZCL_GOGEN_T_SELVIEWN=>RUN (zcl_gogen_t_selviewn.clas.abap:11): SELECT FROM ZGOGEN_T_DBWN: a view over the client-dependent ZGOGEN_T_DBW without MANDT at zcl_gogen_t_selviewn.clas.abap:11
+ok   JS ZCL_GOGEN_T_SELVIEWN: ERROR NOT_COMPILED in ZCL_GOGEN_T_SELVIEWN=>RUN (zcl_gogen_t_selviewn.clas.abap:11): SELECT FROM ZGOGEN_T_DBWN: a view over the client-dependent ZGOGEN_T_DBW without MANDT
+ok   Go ZCL_GOGEN_T_SHIFT: 1:4[__ab] 2:4[_ab_] 3:2[ab] 4:0[] 5:4[_aNb] 6:1[_] 7:4[abN_] 8:5[___ab]
+ok   JS ZCL_GOGEN_T_SHIFT: 1:4[__ab] 2:4[_ab_] 3:2[ab] 4:0[] 5:4[_aNb] 6:1[_] 7:4[abN_] 8:5[___ab]
+ok   Go ZCL_GOGEN_T_SINGLEBYTES: 255/-2147483648/254/255/FE7FFF80
+ok   JS ZCL_GOGEN_T_SINGLEBYTES: 255/-2147483648/254/255/FE7FFF80
+ok   Go ZCL_GOGEN_T_SORTK: s:<><B><C><a><a ><b> sd:<b><a ><a><C><B><> c:<><C><a><ab><b> i:-1;2;3; st:A2z;a5y;a4y;a3y;a9a;b1x; mix:b1x;a3y;a4y;a5y;a9a;A2z; key:A2z;a9a;a3y;a4y;a5y;b1x;
+ok   JS ZCL_GOGEN_T_SORTK: s:<><B><C><a><a ><b> sd:<b><a ><a><C><B><> c:<><C><a><ab><b> i:-1;2;3; st:A2z;a5y;a4y;a3y;a9a;b1x; mix:b1x;a3y;a4y;a5y;a9a;A2z; key:A2z;a9a;a3y;a4y;a5y;b1x;
+ok   Go ZCL_GOGEN_T_SORTRD: hit:0/3/3 mid:4/3/c first:4/1 past:8/5 tk:4/3,8/5 fs:4/4 nf:8/5 nonkey:0/4,4/0 kv:0/3 lead:0/1/1,0/3/3,4/2,8/5,4/1 second:0/3,4/0 tk2:4/4 line:4/2/f,0/2/q,8/3
+ok   JS ZCL_GOGEN_T_SORTRD: hit:0/3/3 mid:4/3/c first:4/1 past:8/5 tk:4/3,8/5 fs:4/4 nf:8/5 nonkey:0/4,4/0 kv:0/3 lead:0/1/1,0/3/3,4/2,8/5,4/1 second:0/3,4/0 tk2:4/4 line:4/2/f,0/2/q,8/3
+ok   Go ZCL_GOGEN_T_SORTRD2: ERROR NOT_COMPILED in READ TABLE: a miss on a SORTED table with a key part and components outside the key: not measured at zcl_gogen_t_sortrd2.clas.abap:28
+ok   JS ZCL_GOGEN_T_SORTRD2: ERROR NOT_COMPILED in READ TABLE: a miss on a SORTED table with a key part and components outside the key: not measured
+ok   Go ZCL_GOGEN_T_SORTREF: m:9 a:2
+ok   JS ZCL_GOGEN_T_SORTREF: m:9 a:2
+ok   Go ZCL_GOGEN_T_STATICOWNED: 0102030401ABCD0401ABCD04ABCD
+ok   JS ZCL_GOGEN_T_STATICOWNED: 0102030401ABCD0401ABCD04ABCD
+ok   Go ZCL_GOGEN_T_STATICREC: 2001
+ok   JS ZCL_GOGEN_T_STATICREC: 2001
+ok   Go ZCL_GOGEN_T_STATICWRITE: 1/00ABCD00/4/00EE/aXYd!/0000EE00/7/19/0/9000000000/2/7
+ok   JS ZCL_GOGEN_T_STATICWRITE: 1/00ABCD00/4/00EE/aXYd!/0000EE00/7/19/0/9000000000/2/7
+ok   Go ZCL_GOGEN_T_STORE: LIST n6 a CLAS:CL_ST_LIB:$LIB:lib/src/cl_st_lib.clas.abap::inactive CLAS:ZCL_ST_A:$STG:src/zcl_st_a.clas.abap:X:inactive CLAS:ZCL_ST_GEN:$STG_GEN:gen/zcl_st_gen.clas.abap::inactive DEVC:$TMP:$TMP:local/tmp/package.devc.xml:X:active INTF:ZIF_ST_B:$STG_SUB:src/sub/zif_st_b.intf.abap:X:inactive PROG:ZST_PROG:$STG:src/zst_prog.prog.abap:X:inactive #CLAS=3 #DEVC=1 #INTF=1 #PROG=1 t0;list n3 a CLAS:CL_ST_LIB:$LIB:lib/src/cl_st_lib.clas.abap::inactive CLAS:ZCL_ST_A:$STG:src/zcl_st_a.clas.abap:X:inactive CLAS:ZCL_ST_GEN:$STG_GEN:gen/zcl_st_gen.clas.abap::inactive #CLAS=3 #INTF=1 #PROG=1 t0;READ src[118] src/zcl_st_a.clas.abap $STG inactive wX n0 a CLAS:ZCL_ST_A:$STG:src/zcl_st_a.clas.abap:X:inactive t0;READ src[28] src/zcl_st_a.clas.locals_imp.abap $STG inactive wX n0 a CLAS:ZCL_ST_A:$STG:src/zcl_st_a.clas.locals_imp.abap:X:inactive t0;READ src/zcl_st_a.clas.testclasses.abap $STG inactive wX n0 a CLAS:ZCL_ST_A:$STG:src/zcl_st_a.clas.testclasses.abap:X:inactive t0;READ err[CLAS ZCL_ST_SKIP does not exist] n0 a t0;WRITE src/zst_prog.prog.abap $STG inactive wX n0 a t0;READ src[27] src/zst_prog.prog.abap $STG inactive wX n0 a PROG:ZST_PROG:$STG:src/zst_prog.prog.abap:X:inactive t0;WRITE err[CLAS CL_ST_LIB comes from a library and cannot be changed here] n0 a t0;WRITE err[CLAS ZCL_ST_GEN comes from a library and cannot be changed here] n0 a t0;WRITE src/osd/zst_new.prog.abap $STG_OSD inactive wX n0 a t0;CHECK err[check needs the compiler (abaplint over the whole system), and this binary carries none: nothing was checked. Check on the Node host, or build the binary again from this tree] n1 a !PROG:ZST_PROG:0:no_compiler t0;ACTIVATE err[activation needs a new generation (rebuild): this binary is a built generation and carries no abaplint and no transpiler, so PROG ZST_PROG stays as it is in src/zst_prog.prog.abap and is active once the binary is built again from this tree] n1 a !PROG:ZST_PROG:0:rebuild t0;TOKENS err[tokens need the parser (abaplint), and this binary carries none] n0 a t0;NOPE err[unknown store command NOPE] n0 a t0;
+ok   JS ZCL_GOGEN_T_STORE: ERROR NOT_COMPILED in CALL FUNCTION 'ZOSD_STORE': the JS emitter has no host function modules
+ok   Go ZCL_GOGEN_T_STRCOND: c:[a b] cd:[a-b-] cdel:[ a b ] cfrom:[a  b] cto:[ab] cc:[a b] cto2:[axb] cdel2:[x] sl:cde/[ab ]/x/bca sr:abc/[ ab]/x/cab slc:[ab]/[ab]//abc
+ok   JS ZCL_GOGEN_T_STRCOND: c:[a b] cd:[a-b-] cdel:[ a b ] cfrom:[a  b] cto:[ab] cc:[a b] cto2:[axb] cdel2:[x] sl:cde/[ab ]/x/bca sr:abc/[ ab]/x/cab slc:[ab]/[ab]//abc
+ok   Go ZCL_GOGEN_T_STRCRLF: ERROR NOT_COMPILED in FIND REGEX: ^ or $ in a text with a line end other than \n is not measured: a$ at zcl_gogen_t_strcrlf.clas.abap:11
+ok   JS ZCL_GOGEN_T_STRCRLF: ERROR NOT_COMPILED in FIND REGEX: ^ or $ in a text with a line end other than \n is not measured: a$
+ok   Go ZCL_GOGEN_T_STREDGE: n1 m:HelloWorld/_a_b_/AbCd/abCd/ab_cdEf/a12bC lc:helloWorld cblank:[xxb]/0 cfull:[xxxb]/0 crx:[a-]/0 cdel:[a]/0 crx2:[-]/0 cfield:[ab--------]/0 n2 esc:$1[a]b amp:a..b find:0 repl:-a#-b dollar:a-#b- bb:- empty:[-]/0 firstempty:-abc/0 rxicase:a-a n4 csep:[]/[b] c2sep:[a]/[b]/[] csrc:[a]/[b]/[] ctab:2 etab:1 stab:2 cvar:[ab x cd]/[] splitempty:abc//0 replfirstempty:-abc/0 repneg:CX_SY_STRG_PAR_VAL replfnempty:CX_SY_STRG_PAR_VAL shiftneg:CX_SY_RANGE_OUT_OF_BOUNDS shiftbig:CX_SY_RANGE_OUT_OF_BOUNDS r:CX_SY_RANGE_OUT_OF_BOUNDS src5:CX_SY_RANGE_OUT_OF_BOUNDS slc3:abc slc4:CX_SY_RANGE_OUT_OF_BOUNDS sectbig:CX_SY_RANGE_OUT_OF_BOUNDS sectok:a-c/0 sectlong:CX_SY_RANGE_OUT_OF_BOUNDS
+ok   JS ZCL_GOGEN_T_STREDGE: n1 m:HelloWorld/_a_b_/AbCd/abCd/ab_cdEf/a12bC lc:helloWorld cblank:[xxb]/0 cfull:[xxxb]/0 crx:[a-]/0 cdel:[a]/0 crx2:[-]/0 cfield:[ab--------]/0 n2 esc:$1[a]b amp:a..b find:0 repl:-a#-b dollar:a-#b- bb:- empty:[-]/0 firstempty:-abc/0 rxicase:a-a n4 csep:[]/[b] c2sep:[a]/[b]/[] csrc:[a]/[b]/[] ctab:2 etab:1 stab:2 cvar:[ab x cd]/[] splitempty:abc//0 replfirstempty:-abc/0 repneg:CX_SY_STRG_PAR_VAL replfnempty:CX_SY_STRG_PAR_VAL shiftneg:CX_SY_RANGE_OUT_OF_BOUNDS shiftbig:CX_SY_RANGE_OUT_OF_BOUNDS r:CX_SY_RANGE_OUT_OF_BOUNDS src5:CX_SY_RANGE_OUT_OF_BOUNDS slc3:abc slc4:CX_SY_RANGE_OUT_OF_BOUNDS sectbig:CX_SY_RANGE_OUT_OF_BOUNDS sectok:a-c/0 sectlong:CX_SY_RANGE_OUT_OF_BOUNDS
+ok   Go ZCL_GOGEN_T_STRFN: rep:ababab/[]/[  ]/[] r1:a-cabc r0:a-ca-c r2:abca-cabc rm1:abcabca-c r5:abcabc rq:a''b'' rx:a--a-- rxe:-a-b-c- rxg:baba rc:[a _]
+ok   JS ZCL_GOGEN_T_STRFN: rep:ababab/[]/[  ]/[] r1:a-cabc r0:a-ca-c r2:abca-cabc rm1:abcabca-c r5:abcabc rq:a''b'' rx:a--a-- rxe:-a-b-c- rxg:baba rc:[a _]
+ok   Go ZCL_GOGEN_T_STRLINES: n1:-a|-|-b n2:a-|b- n3:a-|-|b- dot:---- ff:4/0 vt:4 c1:[ xa bx ] c2:[ab] c3:[a  b] c4:[ a b ] c5:[a b] c7:[ a b ]
+ok   JS ZCL_GOGEN_T_STRLINES: n1:-a|-|-b n2:a-|b- n3:a-|-|b- dot:---- ff:4/0 vt:4 c1:[ xa bx ] c2:[ab] c3:[a  b] c4:[ a b ] c5:[a b] c7:[ a b ]
+ok   Go ZCL_GOGEN_T_STRLOOP: x1:dyn x2:root a b
+ok   JS ZCL_GOGEN_T_STRLOOP: x1:dyn x2:root a b
+ok   Go ZCL_GOGEN_T_STRMOVE: [lon]/[42 ]/[AB]/keep/12/4
+ok   JS ZCL_GOGEN_T_STRMOVE: [lon]/[42 ]/[AB]/keep/12/4
+ok   Go ZCL_GOGEN_T_STRREPL: first:aXYcabc/0 miss:aXYcabc/4 rxall:a--a--/0 rxempty:-a-b-c-/0 rxstar:-a--c- groups:baabbaab longest:-bX rxmiss:4 sect:abca-c/0 sectoff:abca-ca-c sectlen:a-cabc dollar:a$0c cwith:ab ctrail:[a X] cten:a -/0 ctrunc:aXYZ/2 icase:---
+ok   JS ZCL_GOGEN_T_STRREPL: first:aXYcabc/0 miss:aXYcabc/4 rxall:a--a--/0 rxempty:-a-b-c-/0 rxstar:-a--c- groups:baabbaab longest:-XbX rxmiss:4 sect:abca-c/0 sectoff:abca-ca-c sectlen:a-cabc dollar:a$0c cwith:ab ctrail:[a X] cten:a -/0 ctrunc:aXYZ/2 icase:---
+ok   Go ZCL_GOGEN_T_STRSPLIT: more:a/b,c,d/0 fewer:a///0 trail:a/b//0 empty:a//b none://0 lead:/a resttrail:a/b,c, trunc:ab/d/4 trunc2:ab/cd/4 space:a//b str:[a]/[b]/[] self:p/q two:a/b
+ok   JS ZCL_GOGEN_T_STRSPLIT: more:a/b,c,d/0 fewer:a///0 trail:a/b//0 empty:a//b none://0 lead:/a resttrail:a/b,c, trunc:ab/d/4 trunc2:ab/cd/4 space:a//b str:[a]/[b]/[] self:p/q two:a/b
+ok   Go ZCL_GOGEN_T_SUBRCW: subrc:7,0 empty:[] cat:[a&&b c][ab c][a, , b c]
+ok   JS ZCL_GOGEN_T_SUBRCW: subrc:7,0 empty:[] cat:[a&&b c][ab c][a, , b c]
+ok   Go ZCL_GOGEN_T_SUBX: X
+ok   JS ZCL_GOGEN_T_SUBX: X
+ok   Go ZCL_GOGEN_T_TPLPAD: zcl_x=====CP/zcl_x/ab.../000zcl_x/zcl_x==
+ok   JS ZCL_GOGEN_T_TPLPAD: zcl_x=====CP/zcl_x/ab.../000zcl_x/zcl_x==
+ok   Go ZCL_GOGEN_T_TRAVCONV: u8:61C3A4E282AC>same u16:6100E400AC20>same cut8:6162 cut16:610062006300
+ok   JS ZCL_GOGEN_T_TRAVCONV: ERROR NOT_COMPILED in Native_CONV_OUT_CONVERT: a host function of the Go runtime
+ok   Go ZCL_GOGEN_T_TRAVMISC: move:pq/42/rst back:pq/5/rst dflt:dx/7 v/7 dx/1
+ok   JS ZCL_GOGEN_T_TRAVMISC: move:pq/42/rst back:pq/5/rst dflt:dx/7 v/7 dx/1
+ok   Go ZCL_GOGEN_T_TRYAPPEND: axx
+ok   JS ZCL_GOGEN_T_TRYAPPEND: axx
+ok   Go ZCL_GOGEN_T_TRYAPPEND_CLEANUP: axx
+ok   JS ZCL_GOGEN_T_TRYAPPEND_CLEANUP: axx
+ok   Go ZCL_GOGEN_T_TRYFLOW: b cd caught a1 13!
+ok   JS ZCL_GOGEN_T_TRYFLOW: b cd caught a1 13!
+ok   Go ZCL_GOGEN_T_UCCP: A/1/65279
+ok   JS ZCL_GOGEN_T_UCCP: A/1/65279
+ok   Go ZCL_GOGEN_T_UNASSIGN: XX/  /7/1
+ok   JS ZCL_GOGEN_T_UNASSIGN: XX/  /7/1
+ok   Go ZCL_GOGEN_T_UNCATCH: ERROR NOT_COMPILED in find( ): OCC = 0 was not measured at zcl_gogen_t_uncatch.clas.abap:8
+ok   JS ZCL_GOGEN_T_UNCATCH: ERROR NOT_COMPILED in find( ) OCC = 0 was not measured
+ok   Go ZCL_GOGEN_T_UNCAUGHT: ERROR UNCAUGHT_EXCEPTION ZCX_GOGEN_T_RNOCHK at zcl_gogen_t_uncaught.clas.abap:16
+ok   JS ZCL_GOGEN_T_UNCAUGHT: ERROR UNCAUGHT_EXCEPTION ZCX_GOGEN_T_RNOCHK
+ok   Go ZCL_GOGEN_T_UNCAUGHT_READ: log:s-c-h
+ok   JS ZCL_GOGEN_T_UNCAUGHT_READ: log:s-c-h
+ok   Go ZCL_GOGEN_T_W3MI: miss:2/1 rel:1/0 hit:0 rowsdiff:0 pad:00/255 exact:0/X five:5/X zero:0 over:0/0 neg:0/0 empty:0/0
+ok   JS ZCL_GOGEN_T_W3MI: ERROR NOT_COMPILED in CALL FUNCTION 'WWWDATA_IMPORT': the JS emitter has no host function modules
+ok   Go ZCL_GOGEN_T_WGUI1: le:XXXX ns:XX ref:XXXX so:0/2,0/2,0/2,4/2,0/2 B5 c2 m1 x3 rd:0/4 cc:[abcd e][ab cd][ab- cd][ab cd][abc]4[ab]0[ab cdx] cl:[p!/r!][ab][a  b  ][a b][]0 fa:3/0,1/0,0/4,2,2,2 esc:a&lt;b&gt;&quot;c&#39;&amp;d e
+ok   JS ZCL_GOGEN_T_WGUI1: le:XXXX ns:XX ref:XXXX so:0/2,0/2,0/2,4/2,0/2 B5 c2 m1 x3 rd:0/4 cc:[abcd e][ab cd][ab- cd][ab cd][abc]4[ab]0[ab cdx] cl:[p!/r!][ab][a  b  ][a b][]0 fa:3/0,1/0,0/4,2,2,2 esc:a&lt;b&gt;&quot;c&#39;&amp;d e
+ok   Go ZCL_GOGEN_T_WGUI2: b:[a][][][k] a:[b=c][][x][][c]
+ok   JS ZCL_GOGEN_T_WGUI2: b:[a][][][k] a:[b=c][][x][][c]
+ok   Go ZCL_GOGEN_T_WGUI3: ap:2 fs:[p!/r!]
+ok   JS ZCL_GOGEN_T_WGUI3: ap:2 fs:[p!/r!]
+ok   Go ZCL_GOGEN_T_WHEN: abc abc abc d -
+ok   JS ZCL_GOGEN_T_WHEN: abc abc abc d -
+ok   Go ZCL_GOGEN_T_WHILEAPP: ababab xxx
+ok   JS ZCL_GOGEN_T_WHILEAPP: ababab xxx
+ok   Go ZCL_GOGEN_T_WLIN: 0/2/0/1/0/0/4/0
+ok   JS ZCL_GOGEN_T_WLIN: 0/2/0/1/0/0/4/0
+ok   Go ZCL_GOGEN_T_X2S: a:AB b:00 c:2C d:FF e:[0A0B] f:[DEADBEEF] g:[] h:[0A0] i:FF
+ok   JS ZCL_GOGEN_T_X2S: a:AB b:00 c:2C d:FF e:[0A0B] f:[DEADBEEF] g:[] h:[0A0] i:FF
+ok   Go ZCL_GOGEN_T_XARITH: div:F6DC4190/-153337456 mod:00000002 mul:000003FC ff:FFFFFFFF/0 x1:256 x2:65536 x8:255 xs:256 p:11.50 f:10.25 div2:4
+ok   JS ZCL_GOGEN_T_XARITH: div:F6DC4190/-153337456 mod:00000002 mul:000003FC ff:FFFFFFFF/0 x1:256 x2:65536 x8:255 xs:256 p:11.50 f:10.25 div2:4
+ok   Go ZCL_GOGEN_T_XATTR: X
+ok   JS ZCL_GOGEN_T_XATTR: X
+ok   Go ZCL_GOGEN_T_XCASE: pad/prefix/length
+ok   JS ZCL_GOGEN_T_XCASE: pad/prefix/length
+ok   Go ZCL_GOGEN_T_XCMP: a:10010010 b:101011 c:1011010 d:0100111 e:100001101111010 f:010010010111 g:10010101101 h:101111111/1; a:01100011001 b:0110 c:00000011; s:000000000000011110; m:AB00/2 z:10000
+ok   JS ZCL_GOGEN_T_XCMP: a:10010010 b:101011 c:1011010 d:0100111 e:100001101111010 f:010010010111 g:10010101101 h:101111111/1; a:01100011001 b:0110 c:00000011; s:000000000000011110; m:AB00/2 z:10000
+ok   Go ZCL_GOGEN_T_XCMPN: xi:1111110 xn:1 xsi:111 l:1111 l2:11
+ok   JS ZCL_GOGEN_T_XCMPN: xi:1111110 xn:1 xsi:111 l:1111 l2:11
+ok   Go ZCL_GOGEN_T_XCONV: x4:AB000000;00000000;A0000000;AB000000;AB000000;12345678;00000000;00000000;ABC00000;00000000; xs:1=AB;0=;1=A0;1=AB;1=AB;5=1234567890;0=;0=;2=ABC0;1=00; c:AB000000/1=AB cor:[xy]2/[AB]/7/[];[xy]/[AB]/7/[];[xy]/[AB]/7/[] xor:2=F00F/2=F00F/2=F00F conv:ABCDEF/CD/205/2
+ok   JS ZCL_GOGEN_T_XCONV: x4:AB000000;00000000;A0000000;AB000000;AB000000;12345678;00000000;00000000;ABC00000;00000000; xs:1=AB;0=;1=A0;1=AB;1=AB;5=1234567890;0=;0=;2=ABC0;1=00; c:AB000000/1=AB cor:[xy]2/[AB]/7/[];[xy]/[AB]/7/[];[xy]/[AB]/7/[] xor:2=F00F/2=F00F/2=F00F conv:ABCDEF/CD/205/2
+ok   Go ZCL_GOGEN_T_XINIT: s:2 row:2 static:2 inst:2 00000000 nested:2 00000000 000000 000 0.00 comp:00000000 000000 000 0.00 loc:00000000 000000 000 0.00 ret:1 00 value:7 2 00000000 000
+ok   JS ZCL_GOGEN_T_XINIT: s:2 row:2 static:2 inst:2 00000000 nested:2 00000000 000000 000 0.00 comp:00000000 000000 000 0.00 loc:00000000 000000 000 0.00 ret:1 00 value:7 2 00000000 000
+ok   Go ZCL_GOGEN_T_XMOVI: a:11 b:-1 c:255 d:258 e:0 f:-2147483648 g:-2 h:255 x5:2 xs5:2
+ok   JS ZCL_GOGEN_T_XMOVI: a:11 b:-1 c:255 d:258 e:0 f:-2147483648 g:-2 h:255 x5:2 xs5:2
+ok   Go ZCL_GOGEN_T_ZIP: shift:BBAA/02030401 head:504B0304 eocd:504B0506 entries:0200 name:612E747874 crc:-1167589325
+ok   JS ZCL_GOGEN_T_ZIP: ERROR NOT_COMPILED in Native_CONV_OUT_CONVERT: a host function of the Go runtime
+ok   refused :12: ZIF_GOGEN_T_RF~MV_V: VALUE on an interface DATA does not activate on A4H
+ok   refused :13: ZIF_GOGEN_T_RF->MV_RO: a write to a READ-ONLY attribute through an interface reference (a syntax error on A4H)
+ok   refused :14: ZCL_GOGEN_T_RF_OBJ->ZIF_GOGEN_T_RF~MV_RO: a write to a READ-ONLY attribute outside ZCL_GOGEN_T_RF_OBJ (a syntax error on A4H)
+ok   refused :15: ZIF_GOGEN_T_RF->CO_K: a constant through an interface reference is not in the subset
+ok   refused :17: ZIF_GOGEN_T_RF->MV_X: a write to a READ-ONLY attribute through an interface reference (a syntax error on A4H)
+ok   refused :22: FIND form: FIND REGEX lv_p IN lv_xs IN BYTE MODE MATCH OFFSET lv_o.
+ok   refused sort :54: SHOW: a STANDARD table is not type-compatible with SORTED parameter IT (A4H refusal)
+ok   refused ZCL_GOGEN_T_RF_OWN left out by abaplint's syntax check
+ok   refused RESUMABLE until continuation support is implemented

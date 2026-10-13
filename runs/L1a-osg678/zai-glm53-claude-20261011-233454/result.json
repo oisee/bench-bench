@@ -1,0 +1,23 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "npx mocha test/write-boundary.mjs",
+      "rc": 0
+    }
+  ],
+  "p2p": [],
+  "patch_lines": 123,
+  "task": "L1a-osg678",
+  "level": "L1",
+  "executor": "zai-glm53-claude",
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 353,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "2.1.296 (Claude Code)"
+}

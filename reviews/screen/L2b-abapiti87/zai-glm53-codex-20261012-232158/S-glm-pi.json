@@ -1,0 +1,48 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The new indent/Format implementation itself is strong: on the full 2111-object abaplint build it is idempotent, keeps every token stream byte-identical to baseline (only whitespace changes), satisfies the CLASS/section/CASE/TRY/END alignment invariants, and never exceeds 255 bytes. But the task explicitly scopes the work to 'auxiliary drivers, and reports' as well, and those generated artifacts (tsfront registry driver classes, zabapiti_registry_*.prog.abap, native/zabaplint.prog.abap) are still written completely unindented because only hir/abap's emit path calls Format. Remaining nits: Format hard-errors on over-long lines containing an inline \" comment before byte 255, and there is some dead/duplicated scanner code.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "cmd/abapiti/abaplint.go",
+      "line": 295,
+      "claim": "Generated auxiliary driver classes and reports never pass through Format, so the task's explicitly named targets ('auxiliary drivers, and reports', 'Generated ABAP must pass through Format') stay at column 0: sources[...clas.abap] = tsfront.RegistryRunCorpusClass/RegistryRunClass (lines 295, 330), sources[...prog.abap] = tsfront.RegistryRunReport (296-299) and tsfront.RegistryCLIReport written to native/zabaplint.prog.abap (349) are all emitted unformatted. In the produced a4h zip, zcl_abapiti_registry_a4h.clas.abap has 'PUBLIC SECTION.' and method bodies at column 0, zabapiti_registry_run.prog.abap has the WHILE body at column 0, and native/zabaplint.prog.abap has the START-OF-SELECTION body at column 0, violating 'Report event headers start at column zero with two-space-indented bodies'.",
+      "repro": "go run ./cmd/abapiti abaplint -o /tmp/out && sed -n '20,24p' /tmp/out/native/zabaplint.prog.abap && unzip -p /tmp/out/a4h/*.zip src/zabapiti_registry_run.prog.abap | sed -n '7,10p'"
+    },
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 503,
+      "claim": "Format returns 'unbreakable source line' for any line over 255 bytes whose inline \\\" comment starts before byte 255, even though safe cut points exist before the comment (safeABAPWrap returns (cut, true) on '\\\"' and Format treats inToken as fatal). The old wrap() accepted such lines. Current generated code has no \\\" comments, so the pipeline is unaffected today, but any emitter adding one on a long statement kills generation instead of wrapping.",
+      "repro": "abap.Format(\"CLASS z IMPLEMENTATION.\\nMETHOD m.\\nresult = \" + strings.Repeat(\"value \", 40) + \". \\\" short comment\\nENDMETHOD.\\nENDCLASS.\\n\")  # line 266 bytes, comment at byte 251 -> error 'unbreakable source line (270 bytes)'; with 42 or 50 repeats (comment after 255) it succeeds"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 228,
+      "claim": "indent() trims and re-indents continuation lines of multi-line string templates (which stay open across lines in the lexer), changing the literal's value, and forces full-line \\\" comment lines to column 0 regardless of nesting depth; both are only theoretical today because the emitter emits no multi-line templates and only '*' comments.",
+      "repro": "abap.Format(\"CLASS z IMPLEMENTATION.\\nMETHOD m.\\nx = |hello\\n    world|.\\nENDMETHOD.\\nENDCLASS.\\n\")  # second template line comes back indented '    world|.'"
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 46,
+      "claim": "abapScanResult.lastDone is written but never read (dead field), and the literal/template token scanner is duplicated between abapLexer.scan and safeABAPWrap, so lexer fixes must be made twice.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/membership_test.go",
+      "line": 53,
+      "claim": "The rewritten assertion drops the old check on the first chain element (' = 32\\nOR '), weakening the test to only the 46 and 10 members.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-glm-pi",
+  "critic_model": "zai/glm-5.3",
+  "anon": "1d75959d9b",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 823
+}

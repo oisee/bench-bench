@@ -1,0 +1,125 @@
+diff --git a/hir/abap/emit.go b/hir/abap/emit.go
+index 3c515a3..18e4618 100644
+--- a/hir/abap/emit.go
++++ b/hir/abap/emit.go
+@@ -91,7 +91,7 @@ func EmitNamed(p *hir.Program) (map[string]string, *hir.Names, error) {
+ 		e.traceCasts()
+ 	}
+ 	for file, src := range e.files {
+-		out, err := wrap(src)
++		out, err := Format(src)
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("%s: %w", file, err)
+ 		}
+diff --git a/hir/abap/format.go b/hir/abap/format.go
+new file mode 100644
+index 0000000..39dc93e
+--- /dev/null
++++ b/hir/abap/format.go
+@@ -0,0 +1,106 @@
++package abap
++
++import (
++	"strings"
++)
++
++// indent applies the repository's fixed ABAP indentation style.
++func indent(src string) string {
++	lines := strings.Split(strings.TrimSuffix(src, "\n"), "\n")
++	var out []string
++	depth := 0
++	class := false
++	method := false
++	for _, raw := range lines {
++		s := strings.TrimSpace(raw)
++		if s == "" {
++			out = append(out, "")
++			continue
++		}
++		if strings.HasPrefix(raw, "*") {
++			out = append(out, raw)
++			continue
++		}
++		u := strings.ToUpper(s)
++		level := depth
++		if strings.HasPrefix(u, "ENDCLASS") {
++			level = 0
++			class = false
++			method = false
++			depth = 0
++		} else if strings.HasPrefix(u, "CLASS ") && strings.Contains(u, " DEFINITION") {
++			level = 0
++			class = true
++		} else if strings.HasPrefix(u, "INTERFACE ") {
++			level = 0
++			class = true
++		} else if strings.HasPrefix(u, "ENDINTERFACE") {
++			level = 0
++			class = false
++			depth = 0
++		} else if class && (strings.HasSuffix(u, " SECTION.") || strings.HasPrefix(u, "PUBLIC SECTION") || strings.HasPrefix(u, "PROTECTED SECTION") || strings.HasPrefix(u, "PRIVATE SECTION")) {
++			level = 1
++			method = false
++			depth = 2
++		} else if strings.HasPrefix(u, "CLASS ") && strings.Contains(u, " IMPLEMENTATION") {
++			level = 0
++			class = true
++			method = false
++		} else if strings.HasPrefix(u, "METHOD ") {
++			level = 2
++			method = true
++			depth = 2
++		} else if strings.HasPrefix(u, "ENDMETHOD") {
++			level = 2
++			method = false
++			depth = 2
++		} else if strings.HasPrefix(u, "ENDTRY") || strings.HasPrefix(u, "ENDCASE") || strings.HasPrefix(u, "ENDIF") || strings.HasPrefix(u, "ENDLOOP") || strings.HasPrefix(u, "ENDWHILE") || strings.HasPrefix(u, "ENDDO") || strings.HasPrefix(u, "ENDFORM") {
++			depth -= 2
++			if depth < 0 {
++				depth = 0
++			}
++			level = depth
++		} else if strings.HasPrefix(u, "WHEN ") || strings.HasPrefix(u, "CATCH ") || strings.HasPrefix(u, "CLEANUP") || strings.HasPrefix(u, "ELSE") || strings.HasPrefix(u, "ELSEIF ") {
++			level = depth - 2
++			if level < 0 {
++				level = 0
++			}
++			depth = level + 2
++		} else if isReportEvent(u) {
++			level = 0
++			depth = 1
++		} else {
++			level = depth
++		}
++		if level < 0 {
++			level = 0
++		}
++		out = append(out, strings.Repeat("  ", level)+s)
++		// Count structural openers, avoiding declarations and runtime GET.
++		switch {
++		case strings.HasPrefix(u, "IF ") || strings.HasPrefix(u, "LOOP ") || strings.HasPrefix(u, "WHILE ") || strings.HasPrefix(u, "DO ") || strings.HasPrefix(u, "CASE ") || u == "TRY.":
++			depth = level + 2
++		case strings.HasPrefix(u, "WHEN ") || strings.HasPrefix(u, "CATCH ") || strings.HasPrefix(u, "CLEANUP") || strings.HasPrefix(u, "ELSE") || strings.HasPrefix(u, "ELSEIF "):
++			depth = level + 2
++		case strings.HasPrefix(u, "FORM "):
++			depth = 1
++		case method:
++			if depth < 2 {
++				depth = 2
++			}
++		}
++	}
++	return strings.Join(out, "\n") + "\n"
++}
++
++func isReportEvent(s string) bool {
++	for _, p := range []string{"START-OF-SELECTION", "END-OF-SELECTION", "INITIALIZATION", "AT SELECTION-SCREEN", "TOP-OF-PAGE", "END-OF-PAGE", "LOAD-OF-PROGRAM"} {
++		if strings.HasPrefix(s, p) {
++			return true
++		}
++	}
++	return false
++}
++
++// Format applies indentation, then wraps source lines at the ABAP byte limit.
++func Format(src string) (string, error) { return wrap(indent(src)) }

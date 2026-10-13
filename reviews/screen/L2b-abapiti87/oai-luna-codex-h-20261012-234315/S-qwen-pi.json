@@ -1,0 +1,27 @@
+{
+  "verdict": "incorrect",
+  "quality": 3,
+  "summary": "The patch implements ABAP indentation and line wrapping with good coverage of block structures, comments, and string literals, and all existing tests pass. However, two acceptance-criteria violations exist: (1) wrapComment has an off-by-one error that can produce lines exceeding the 255-byte limit, and (2) subsequent class sections (PROTECTED/PRIVATE SECTION) are indented at 4 spaces instead of the required 2 when they follow another section.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 410,
+      "claim": "wrapComment off-by-one: body[:limit+1] allows cut at index limit, producing output lines of markerBytes+limit+1 = 256 bytes, exceeding the 255-byte maximum. Should be body[:limit] so that cut <= limit-1 and total <= markerBytes+limit = 255.",
+      "repro": "go run: src := \"*\" + strings.Repeat(\"a\", 254) + \" \" + \"\\n\"; out, _ := abap.Format(src) → first output line is 256 bytes. Also reproducible with \"-prefixed inline comments inside blocks."
+    },
+    {
+      "severity": "P1",
+      "file": "hir/abap/format.go",
+      "line": 56,
+      "claim": "Subsequent class sections (PROTECTED SECTION, PRIVATE SECTION) are indented at depth 2 (4 spaces) instead of depth 1 (2 spaces) when they follow another section. The lineDepth computation (lines 56-64) does not recognize PUBLIC/PROTECTED/PRIVATE SECTION keywords, so they inherit the body depth of the preceding section. The task requires 'Class sections have two leading spaces.' The golden test data (global_definitions_v750.txt) was updated to match the incorrect output.",
+      "repro": "go run: src := \"CLASS c DEFINITION.\\nPUBLIC SECTION.\\nDATA x TYPE i.\\nPROTECTED SECTION.\\nDATA y TYPE i.\\nPRIVATE SECTION.\\nDATA z TYPE i.\\nENDCLASS.\\n\"; out, _ := abap.Format(src) → PROTECTED SECTION. and PRIVATE SECTION. appear at 4 spaces instead of 2."
+    }
+  ],
+  "critic": "S-qwen-pi",
+  "critic_model": "alibaba/qwen3.7-plus",
+  "anon": "a1e53f8fc1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 959
+}

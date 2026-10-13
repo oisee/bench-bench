@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The iterative rewriter is behaviorally identical to the old regex on every quote-balanced input (120k fuzz cases with quotes, escaped quotes, tabs, newlines, double quotes: zero divergence) and processes a 15M-character literal in ~200 ms with correct trimming and no stack overflow. The only divergence from the old implementation is on malformed, unterminated literals, which the acceptance criteria do not cover and which the new code handles more conservatively (leaves the tail untouched) and documents.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 45,
+      "claim": "Behavior differs from the previous regex on unterminated literals that end in an escaped quote: the old regex's backtracking would close the literal at the first quote of a trailing '' and trim the spaces before it (old: trimLiterals(\"b \\t'  ''\") === \"b \\t'''\"). The new code leaves such strings unchanged (\"b \\t'  ''\"). Every fuzz-found divergence is on input that ends inside an open literal (malformed SQL), and no call site (full statements, quoted values, where fragments) produces it, so this is an edge-case observation on garbage input, not a regression in scope; the new behavior is arguably more principled and is commented.",
+      "repro": "node -e 'const o=(s)=>s.replace(/'((?:[^']|\\'\\')*)'/g,(m,i)=>\"'\"+i.replace(/ +$/,\"\")+\"'\"); const {trimLiterals}=await import(\"/work/tools/sql-literals.mjs\"); console.log(o(\"b \\t'  ''\"), trimLiterals(\"b \\t'  ''\"));' --input-type=module"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "efb95d2ecd",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 140
+}

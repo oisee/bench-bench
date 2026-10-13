@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change maps cl_http_utility=>decode_base64 to a new abap.DecodeBase64. That function runs the existing Node-compatible DecodeXBase64 and passes the bytes to a new nodeutf8.Decode, a WHATWG-style UTF-8 decoder with one U+FFFD per maximal subpart. I compared nodeutf8.Decode with Node's Buffer.toString() on 200k random byte strings biased toward edge bytes and found 0 mismatches. I compared DecodeBase64 with Buffer.from(s,'base64').toString() on 100k random strings mixing both alphabets, padding and junk characters, also 0 mismatches. The new emit-go test passes, along with the full emit-go suite (15/15) and the listed acceptance and regression tests.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/emit-go.test.mjs",
+      "line": 533,
+      "claim": "The end-to-end compile test skips without failing when .local/lars/open-abap-core is absent (for example on a fresh clone or a CI runner without the clone). Only the Go unit test in nodeutf8 then guards the NATIVE mapping. This follows the existing pattern but is worth knowing.",
+      "repro": "mv .local/lars/open-abap-core /tmp/x && node --test --test-name-pattern=decode_base64 tools/gogen/emit-go.test.mjs  # reports skipped"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "8b9cb4ca28",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 48
+}

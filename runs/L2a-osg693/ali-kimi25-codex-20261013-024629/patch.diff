@@ -1,0 +1,258 @@
+diff --git a/test/fixtures/test-string-int8/zcl_test.clas.abap b/test/fixtures/test-string-int8/zcl_test.clas.abap
+new file mode 100644
+index 0000000..b13acc4
+--- /dev/null
++++ b/test/fixtures/test-string-int8/zcl_test.clas.abap
+@@ -0,0 +1,19 @@
++CLASS zcl_test DEFINITION PUBLIC FINAL CREATE PUBLIC.
++ENDCLASS.
++
++CLASS zcl_test IMPLEMENTATION.
++ENDCLASS.
++
++CLASS ltcl_test DEFINITION FINAL FOR TESTING.
++  PRIVATE SECTION.
++    METHODS test FOR TESTING.
++ENDCLASS.
++
++CLASS ltcl_test IMPLEMENTATION.
++  METHOD test.
++    DATA lv_str TYPE string.
++    DATA lv_i8 TYPE int8.
++    lv_str = '123.4'.
++    lv_i8 = lv_str.
++  ENDMETHOD.
++ENDCLASS.
+diff --git a/test/fixtures/test-string-int8/zcl_test.clas.testclasses.abap b/test/fixtures/test-string-int8/zcl_test.clas.testclasses.abap
+new file mode 100644
+index 0000000..b13acc4
+--- /dev/null
++++ b/test/fixtures/test-string-int8/zcl_test.clas.testclasses.abap
+@@ -0,0 +1,19 @@
++CLASS zcl_test DEFINITION PUBLIC FINAL CREATE PUBLIC.
++ENDCLASS.
++
++CLASS zcl_test IMPLEMENTATION.
++ENDCLASS.
++
++CLASS ltcl_test DEFINITION FINAL FOR TESTING.
++  PRIVATE SECTION.
++    METHODS test FOR TESTING.
++ENDCLASS.
++
++CLASS ltcl_test IMPLEMENTATION.
++  METHOD test.
++    DATA lv_str TYPE string.
++    DATA lv_i8 TYPE int8.
++    lv_str = '123.4'.
++    lv_i8 = lv_str.
++  ENDMETHOD.
++ENDCLASS.
+diff --git a/test_string_int8_min.abap b/test_string_int8_min.abap
+new file mode 100644
+index 0000000..b13acc4
+--- /dev/null
++++ b/test_string_int8_min.abap
+@@ -0,0 +1,19 @@
++CLASS zcl_test DEFINITION PUBLIC FINAL CREATE PUBLIC.
++ENDCLASS.
++
++CLASS zcl_test IMPLEMENTATION.
++ENDCLASS.
++
++CLASS ltcl_test DEFINITION FINAL FOR TESTING.
++  PRIVATE SECTION.
++    METHODS test FOR TESTING.
++ENDCLASS.
++
++CLASS ltcl_test IMPLEMENTATION.
++  METHOD test.
++    DATA lv_str TYPE string.
++    DATA lv_i8 TYPE int8.
++    lv_str = '123.4'.
++    lv_i8 = lv_str.
++  ENDMETHOD.
++ENDCLASS.
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..3b96f54 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -197,7 +197,64 @@ func ParseI(v string) int32 {
+ 
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+-
++// ParseI8 converts a character value to int8, as A4H does: blanks around it,
++// one sign -- a leading + or -, or a trailing -, a blank between it and the
++// digits allowed ('- 12' and '12 -' are -12) -- and digits with at most one
++// point; no exponent, nothing after a blank. The fraction rounds half away
++// from zero; past int8's range is CX_SY_CONVERSION_OVERFLOW, anything else
++// CX_SY_CONVERSION_NO_NUMBER. Blanks are 0.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	if len(whole) > 19 {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	var n uint64
++	for i := 0; i < len(whole); i++ {
++		d := uint64(whole[i] - '0')
++		if n > (1<<63-1)/10 {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++		n = n*10 + d
++		if n > uint64(1<<63) {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++	}
++	if frac != "" && frac[0] >= '5' {
++		if n == uint64(1<<63) {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++		n++
++	}
++	var result int64
++	if neg {
++		if n == uint64(1<<63) {
++			result = math.MinInt64
++		} else if n > uint64(1<<63) {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		} else {
++			result = -int64(n)
++		}
++	} else {
++		if n > uint64(math.MaxInt64) {
++			panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++		}
++		result = int64(n)
++	}
++	return result
++}
+ func F2I8(f float64) int64 {
+ 	r := math.Round(f)
+ 	if math.IsNaN(r) || r >= 9.223372036854775807e18 || r < -9.223372036854775808e18 {
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..8c1d4dd
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,39 @@
++package abap
++
++import (
++	"testing"
++)
++
++func TestParseI8(t *testing.T) {
++	tests := []struct {
++		input    string
++		expected int64
++		panic    bool
++	}{
++		{"", 0, false},
++		{"123", 123, false},
++		{"123.4", 123, false},
++		{"123.5", 124, false},
++		{"-123.5", -124, false},
++		{"9223372036854775807", 9223372036854775807, false},
++		{"-9223372036854775808", -9223372036854775808, false},
++		{"9223372036854775808", 0, true},
++	}
++	for _, tt := range tests {
++		func() {
++			defer func() {
++				if r := recover(); r != nil {
++					if !tt.panic {
++						t.Errorf("ParseI8(%q) panicked unexpectedly: %v", tt.input, r)
++					}
++				}
++			}()
++			result := ParseI8(tt.input)
++			if tt.panic {
++				t.Errorf("ParseI8(%q) = %d, expected panic", tt.input, result)
++			} else if result != tt.expected {
++				t.Errorf("ParseI8(%q) = %d, expected %d", tt.input, result, tt.expected)
++			}
++		}()
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..e5e4a94 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,39 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++// ParseI8 converts a character value to int8, as A4H does: blanks around it,
++// one sign -- a leading + or -, or a trailing -, a blank between it and the
++// digits allowed ('- 12' and '12 -' are -12) -- and digits with at most one
++// point; no exponent, nothing after a blank. The fraction rounds half away
++// from zero; past int8's range is CX_SY_CONVERSION_OVERFLOW, anything else
++// CX_SY_CONVERSION_NO_NUMBER. Blanks are 0. Returns a BigInt.
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "");
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  if (whole.length > 19) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  let n = whole === "" ? 0n : BigInt(whole);
++  const MAX_INT64 = 9223372036854775807n;
++  const MIN_INT64_ABS = 9223372036854775808n;
++  if (n > MIN_INT64_ABS) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  if (frac !== "" && frac[0] >= "5") {
++    if (n === MIN_INT64_ABS) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++    n = n + 1n;
++  }
++  if (neg) {
++    if (n === MIN_INT64_ABS) return -MIN_INT64_ABS;
++    if (n > MAX_INT64) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++    return -n;
++  } else {
++    if (n > MAX_INT64) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++    return n;
++  }
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its

@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The regex in trimLiterals is replaced by a linear indexOf scan. It reproduces the old regex's output exactly, including its backtracking reading of unterminated `''` fragments, and handles literals of 15M+ characters without a stack overflow. Exhaustive differential testing against the old regex (every string up to length 13 over {', space, a}, about 2.4M cases) plus 2M random strings that also include tabs, newlines and double quotes found no differences. Large-input timings were 6-400 ms.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 64,
+      "claim": "The `lastPair` fallback that imitates the regex's backtracking (`'a''` -> `'a'` with the tail kept) is subtle. It is documented in comments, but no test pins that unterminated-fragment case at small size; only the 15M test exercises an unterminated shape indirectly.",
+      "repro": "node -e \"import('/work/tools/sql-literals.mjs').then(m=>console.log(m.trimLiterals(\\\"'a ''  \\\")))\""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "55311af120",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 31
+}

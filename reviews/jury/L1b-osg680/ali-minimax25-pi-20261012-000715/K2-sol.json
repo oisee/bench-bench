@@ -1,0 +1,26 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The new native hook does not match the interface-qualified method name compiled for cl_http_utility, so decode_base64 still reaches NOT_COMPILED kernel stubs. The added UTF-8 decoder also disagrees with Node on malformed sequences, including cases where it drops valid text.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 737,
+      "claim": "The NATIVE map key omits IF_HTTP_UTILITY~. The pinned cl_http_utility implementation defines METHOD if_http_utility~decode_base64, so the compiler emits its two @KERNEL stubs instead of abap.DecodeBase64; calling cl_http_utility=>decode_base64 remains NOT_COMPILED.",
+      "repro": "node --input-type=module -e 'import {compileProgram} from \"./tools/gogen/frontend.mjs\"; const p=compileProgram({folders:[\".local/pins/open-abap-core@d5aea88bdb3c8abfe3d57d35b686e933a2bdcfae/src\"],objects:[\"CL_HTTP_UTILITY\"]}); console.log(p.classes[0].methods.find(m=>m.name.endsWith(\"~DECODE_BASE64\")).body)'"
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 51,
+      "claim": "The decoder skips all remaining bytes when a UTF-8 lead expects more bytes than remain, without checking whether they are continuations, and it does not combine a valid incomplete prefix before a noncontinuation. For decoded bytes E4 41 it drops the valid A (Node returns �A); for E4 BD 41 it produces ��A (Node returns �A).",
+      "repro": "Compare DecodeBase64(&Session{}, \"5EE=\") and DecodeBase64(&Session{}, \"5L1B\") with Node's Buffer.from(encoded, \"base64\").toString(): Go returns \"�\" and \"��A\", while Node returns \"�A\" for both."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "88e5b5790c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 84
+}

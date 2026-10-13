@@ -1,0 +1,159 @@
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..ce36c86 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -682,6 +682,7 @@ const NATIVE = new Map([
+   ["ZCL_AJSON:LCL_UTILS=>STRING_TO_XSTRING_UTF8", "Native_AJSON_ENCODE"],
+   ["ZCL_AJSON:LCL_UTILS=>XSTRING_TO_STRING_UTF8", "Native_AJSON_DECODE"],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~UNESCAPE_URL", "abap.UnescapeURL"],
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // the zip reader's CRC-32 register over a piece (src/zip): the ABAP loop,
+   // a byte at a time, was a third of a 150 MB zip read (go/abap/crc32.go)
+   ["ZCL_OSD_CRC32=>COMBINE", "abap.Crc32Combine"],
+diff --git a/tools/gogen/go/abap/b64decode_test.go b/tools/gogen/go/abap/b64decode_test.go
+index c690cca..940da83 100644
+--- a/tools/gogen/go/abap/b64decode_test.go
++++ b/tools/gogen/go/abap/b64decode_test.go
+@@ -19,3 +19,16 @@ func TestDecodeXBase64(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestDecodeBase64Text(t *testing.T) {
++	for _, tc := range []struct{ encoded, want string }{
++		{"Y2Fmw6k=", "café"},
++		{"8J-YgA", "😀"},
++		{"YQH/", "a\x01\ufffd"},
++		{"YW!Jj", "abc"},
++	} {
++		if got := DecodeBase64(&Session{}, tc.encoded); got != tc.want {
++			t.Errorf("DecodeBase64(%q) = %q, want %q", tc.encoded, got, tc.want)
++		}
++	}
++}
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..2306da5 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -9,6 +9,7 @@ import (
+ 	"osg/gogen/abaperr"
+ 	"osg/gogen/intarith"
+ 	"osg/gogen/intbytes"
++	"osg/gogen/nodeutf8"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -732,6 +733,12 @@ func DecodeXBase64(s *Session, encoded string) string {
+ 	return string(b)
+ }
+ 
++// DecodeBase64 is cl_http_utility=>decode_base64: Buffer.from(encoded,
++// "base64").toString() in the open-abap-core kernel implementation.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(DecodeXBase64(s, encoded))
++}
++
+ // CP is the pattern match, measured on A4H (2026-09-23): * is any run, + any
+ // one character, # makes the next character literal and case-sensitive;
+ // everything else compares ignoring case. A c pattern stored empty was all
+diff --git a/tools/gogen/go/nodeutf8/decode.go b/tools/gogen/go/nodeutf8/decode.go
+new file mode 100644
+index 0000000..81e0e6e
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode.go
+@@ -0,0 +1,68 @@
++// Package nodeutf8 decodes byte strings with Node.js Buffer.toString() UTF-8
++// replacement behavior.
++package nodeutf8
++
++// Decode interprets b as UTF-8, replacing malformed byte sequences with U+FFFD
++// using the maximal-subpart behavior used by Node.js.
++func Decode(b string) string {
++	runes := make([]rune, 0, len(b))
++	for i := 0; i < len(b); {
++		c := b[i]
++		if c < 0x80 {
++			runes = append(runes, rune(c))
++			i++
++			continue
++		}
++		n, lo, hi := 0, byte(0x80), byte(0xbf)
++		switch {
++		case c >= 0xc2 && c <= 0xdf:
++			n = 2
++		case c >= 0xe0 && c <= 0xef:
++			n = 3
++			if c == 0xe0 {
++				lo = 0xa0
++			}
++			if c == 0xed {
++				hi = 0x9f
++			}
++		case c >= 0xf0 && c <= 0xf4:
++			n = 4
++			if c == 0xf0 {
++				lo = 0x90
++			}
++			if c == 0xf4 {
++				hi = 0x8f
++			}
++		default:
++			runes = append(runes, '\ufffd')
++			i++
++			continue
++		}
++		consumed := 1
++		for consumed < n && i+consumed < len(b) {
++			x := b[i+consumed]
++			if x < lo || x > hi {
++				break
++			}
++			consumed++
++			lo, hi = 0x80, 0xbf
++		}
++		if consumed == n {
++			var r rune
++			switch n {
++			case 2:
++				r = rune(c&0x1f)<<6 | rune(b[i+1]&0x3f)
++			case 3:
++				r = rune(c&0x0f)<<12 | rune(b[i+1]&0x3f)<<6 | rune(b[i+2]&0x3f)
++			case 4:
++				r = rune(c&7)<<18 | rune(b[i+1]&0x3f)<<12 | rune(b[i+2]&0x3f)<<6 | rune(b[i+3]&0x3f)
++			}
++			runes = append(runes, r)
++			i += n
++		} else {
++			runes = append(runes, '\ufffd')
++			i += consumed
++		}
++	}
++	return string(runes)
++}
+diff --git a/tools/gogen/go/nodeutf8/decode_test.go b/tools/gogen/go/nodeutf8/decode_test.go
+new file mode 100644
+index 0000000..729350c
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode_test.go
+@@ -0,0 +1,21 @@
++package nodeutf8
++
++import "testing"
++
++func TestDecode(t *testing.T) {
++	cases := []struct{ in, want string }{
++		{"hello", "hello"},
++		{"caf\xc3\xa9", "café"},
++		{"\xf0\x9f\x98\x80", "😀"},
++		{"a\xe2\x82\x28z", "a\ufffd(z"},
++		{"\xe0\x80\x80", "\ufffd\ufffd\ufffd"},
++		{"\xed\xa0\x80", "\ufffd\ufffd\ufffd"},
++		{"x\xf0\x9f\x92", "x\ufffd"},
++		{"\xc0\xaf", "\ufffd\ufffd"},
++	}
++	for _, tc := range cases {
++		if got := Decode(tc.in); got != tc.want {
++			t.Errorf("Decode(% x) = %q, want %q", tc.in, got, tc.want)
++		}
++	}
++}

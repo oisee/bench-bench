@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The iterative scanner handles a 15-million-character literal and passes the focused write-boundary suite. It changes the existing transformation for fragments that end with an unmatched quote: a preceding recognized pair is no longer trimmed.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/sql-literals.mjs",
+      "line": 58,
+      "claim": "Treating a final doubled quote as an escape without backtracking makes an unmatched trailing quote suppress trimming of an earlier single-quoted pair. The previous regex trims that pair and leaves the final quote untouched, so this regresses the export's behavior on such fragments.",
+      "repro": "Input: trimLiterals(\"'a ''\") returns \"'a ''\"; baseline returns \"'a''\"."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "efb95d2ecd",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 58
+}

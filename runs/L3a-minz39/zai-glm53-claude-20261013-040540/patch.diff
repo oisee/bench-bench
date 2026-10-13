@@ -1,0 +1,955 @@
+diff --git a/minzc/go.mod b/minzc/go.mod
+index 1fa996c..bfb30bf 100644
+--- a/minzc/go.mod
++++ b/minzc/go.mod
+@@ -6,13 +6,15 @@ toolchain go1.24.3
+ 
+ require (
+ 	github.com/alecthomas/participle/v2 v2.1.4
++	github.com/cjbearman/sim6502 v0.0.1
++	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b
+ 	github.com/spf13/cobra v1.8.0
++	github.com/tetratelabs/wazero v1.11.0
+ 	github.com/yuin/gopher-lua v1.1.0
+ )
+ 
+ require (
+ 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+-	github.com/cjbearman/sim6502 v0.0.1 // indirect
+ 	github.com/codesqueak/z80 v1.1.0 // indirect
+ 	github.com/davecgh/go-spew v1.1.1 // indirect
+ 	github.com/dustin/go-humanize v1.0.1 // indirect
+@@ -27,12 +29,10 @@ require (
+ 	github.com/mattn/go-isatty v0.0.20 // indirect
+ 	github.com/ncruces/go-strftime v1.0.0 // indirect
+ 	github.com/pmezard/go-difflib v1.0.0 // indirect
+-	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b // indirect
+ 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+ 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
+ 	github.com/spf13/pflag v1.0.5 // indirect
+ 	github.com/stretchr/testify v1.9.0 // indirect
+-	github.com/tetratelabs/wazero v1.11.0 // indirect
+ 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
+ 	golang.org/x/sync v0.17.0 // indirect
+ 	golang.org/x/sys v0.38.0 // indirect
+diff --git a/minzc/pkg/hir/lower.go b/minzc/pkg/hir/lower.go
+index 6f9ca55..e33a996 100644
+--- a/minzc/pkg/hir/lower.go
++++ b/minzc/pkg/hir/lower.go
+@@ -1926,12 +1926,120 @@ func (l *lowerer) lowerCondExpr(ex *CondExpr) mir2.Reg {
+ 	return result
+ }
+ 
++// lowerLogical lowers a short-circuit && / || expression to a canonical bool
++// value (exactly 0 or 1).  The right operand lives in its own block so its
++// side effects run only when the left operand leaves the result undecided:
++//
++//	a && b  →  if a { b != 0 } else { false }
++//	a || b  →  if a { true }  else { b != 0 }
++//
++// Every edge into the join block carries a constant.  Materialising flags
++// into registers on join edges is avoided on purpose: the Z80 backend's
++// flag→register copy assumes the carry convention (SBC A,A), which corrupts
++// Z-convention comparisons such as "x != 0" (emitted as AND A, which clears
++// carry).  Constant-only edges also guarantee the canonical 0/1 result
++// independent of each backend's bool representation (the Z80 comparison
++// idiom materialises true as 0xFF).
++//
++// The nanz parser folds literal operands away (see foldLogical); the literal
++// checks below keep direct HIR builders (objc, frill) correct as well.
++func (l *lowerer) lowerLogical(ex *BinExpr) mir2.Reg {
++	isAnd := ex.Op == "&&"
++
++	if v, ok := constBool(ex.L); ok {
++		if isAnd != v {
++			// false && R | true || R — the right operand is skipped entirely.
++			return l.bld.Const(boolInt(!isAnd), mir2.TyBool, mir2.ClassGeneral)
++		}
++		// true && R | false || R — R is always evaluated; result is its truth.
++		return l.lowerTruth(ex.R)
++	}
++	if v, ok := constBool(ex.R); ok {
++		if isAnd == v {
++			// L && true | L || false — result is the truth of L.
++			return l.lowerTruth(ex.L)
++		}
++		// L && false | L || true — L still runs (side effects), result is fixed.
++		l.lowerCond(ex.L)
++		return l.bld.Const(boolInt(!isAnd), mir2.TyBool, mir2.ClassGeneral)
++	}
++
++	rhsLabel := l.fresh("logic_rhs")
++	shortLabel := l.fresh("logic_short")
++	joinLabel := l.fresh("logic_join")
++
++	condL := l.lowerCond(ex.L)
++	if isAnd {
++		// false → result decided, skip the right operand entirely
++		l.bld.BrIf(condL, rhsLabel, nil, shortLabel, nil)
++	} else {
++		// true → result decided, skip the right operand entirely
++		l.bld.BrIf(condL, shortLabel, nil, rhsLabel, nil)
++	}
++
++	// Short-circuit arm: the left operand alone fixes the result.
++	l.bld.SwitchToNewBlock(shortLabel)
++	l.bld.Jmp(joinLabel, l.bld.Const(boolInt(!isAnd), mir2.TyBool, mir2.ClassGeneral))
++
++	// Right-operand arm: evaluate R (its side effects happen only here), then
++	// route through constant arms so the join receives exactly 0 or 1.
++	l.bld.SwitchToNewBlock(rhsLabel)
++	l.bld.Jmp(joinLabel, l.lowerTruth(ex.R))
++
++	join := l.bld.SwitchToNewBlock(joinLabel)
++	return l.bld.BlockParam(join, mir2.TyBool, classForExpr(mir2.TyBool))
++}
++
++// lowerTruth lowers e to its canonical bool value (0/1) by branching on its
++// truth and joining through two constant arms — the flag itself is never
++// materialised into a register (see lowerLogical for why).
++func (l *lowerer) lowerTruth(e Expr) mir2.Reg {
++	if v, ok := constBool(e); ok {
++		return l.bld.Const(boolInt(v), mir2.TyBool, mir2.ClassGeneral)
++	}
++	cond := l.lowerCond(e)
++	trueLabel := l.fresh("logic_true")
++	falseLabel := l.fresh("logic_false")
++	joinLabel := l.fresh("logic_join")
++	l.bld.BrIf(cond, trueLabel, nil, falseLabel, nil)
++
++	l.bld.SwitchToNewBlock(trueLabel)
++	l.bld.Jmp(joinLabel, l.bld.Const(1, mir2.TyBool, mir2.ClassGeneral))
++	l.bld.SwitchToNewBlock(falseLabel)
++	l.bld.Jmp(joinLabel, l.bld.Const(0, mir2.TyBool, mir2.ClassGeneral))
++
++	join := l.bld.SwitchToNewBlock(joinLabel)
++	return l.bld.BlockParam(join, mir2.TyBool, classForExpr(mir2.TyBool))
++}
++
++// constBool mirrors the nanz parser's constant-bool detection for HIR built
++// directly by other frontends.
++func constBool(e Expr) (val bool, isConst bool) {
++	switch ex := e.(type) {
++	case *BoolLitExpr:
++		return ex.Val, true
++	case *IntLitExpr:
++		return ex.Val != 0, true
++	}
++	return false, false
++}
++
++func boolInt(v bool) int64 {
++	if v {
++		return 1
++	}
++	return 0
++}
++
+ // lowerBinExpr lowers a binary expression.
+ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
+ 	// Comparison operators → produce a flag (ClassFlag).
+ 	switch ex.Op {
+ 	case "==", "!=", "<", "<=", ">", ">=":
+ 		return l.lowerCond(ex)
++	// Short-circuit logical operators → control flow producing a bool value.
++	case "&&", "||":
++		return l.lowerLogical(ex)
+ 	}
+ 
+ 	ty := ex.Ty
+@@ -2008,6 +2116,13 @@ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
+ // Eq/Ne are sign-agnostic (bit patterns match regardless of interpretation).
+ func (l *lowerer) lowerCond(e Expr) mir2.Reg {
+ 	if bin, ok := e.(*BinExpr); ok {
++		// Short-circuit operators: lower to a bool value (control flow), then
++		// re-establish a flag with != 0 so the caller's BrIf has a Cmp to use.
++		if bin.Op == "&&" || bin.Op == "||" {
++			v := l.lowerLogical(bin)
++			zero := l.bld.Const(0, mir2.TyBool, mir2.ClassGeneral)
++			return l.bld.Cmp(mir2.CmpNe, v, zero, mir2.ClassFlag, false)
++		}
+ 		var cmp mir2.CmpCond
+ 		signed := mir2.IsSigned(bin.L.ExprTy())
+ 		switch bin.Op {
+diff --git a/minzc/pkg/mir2/z80codegen.go b/minzc/pkg/mir2/z80codegen.go
+index 1136a80..b56f390 100644
+--- a/minzc/pkg/mir2/z80codegen.go
++++ b/minzc/pkg/mir2/z80codegen.go
+@@ -2671,13 +2671,17 @@ func (g *z80cg) genInst(inst *Inst) {
+ 			g.constVals[inst.Dst] = inst.Imm
+ 		}
+ 		if dst == "F" {
+-			// Bool constant into flag register: SCF (true) or AND A (false, clears C+sets Z).
++			// Bool constant into flag register, carry convention (condCode
++			// returns C/NC for constant flags): true → SCF; false → SCF+CCF.
++			// Both leave A and the Z flag untouched, so consumers that test
++			// either convention agree; AND A would set Z from A's stale value.
+ 			g.lastFlagsLhs = ""
+ 			g.lastFlagsRhs = ""
+ 			if inst.Imm != 0 {
+ 				g.emit("    SCF")
+ 			} else {
+-				g.emit("    AND A") // A=A (no change), clears C, sets Z based on A
++				g.emit("    SCF")
++				g.emit("    CCF")
+ 			}
+ 			return
+ 		}
+@@ -7330,6 +7334,15 @@ func (g *z80cg) condCode(f *Func, cond Reg) string {
+ 		return cmpCondCode(fc)
+ 	}
+ 
++	// Constant boolean in the flag register: OpConst materialises constants
++	// into F with the carry convention — the carry bit holds the constant's
++	// truth (true → SCF, false → SCF+CCF) — so the condition code is C for
++	// either value.  Without this the fallback below returns NZ, which tests
++	// a stale Z flag and branches arbitrarily.
++	if _, ok := g.constVals[cond]; ok {
++		return "C"
++	}
++
+ 	for _, b := range f.Blocks {
+ 		for _, inst := range b.Insts {
+ 			if inst.Dst == cond && inst.Op == OpCmp {
+diff --git a/minzc/pkg/nanz/logical_e2e_test.go b/minzc/pkg/nanz/logical_e2e_test.go
+new file mode 100644
+index 0000000..1a54c98
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_e2e_test.go
+@@ -0,0 +1,324 @@
++package nanz_test
++
++// End-to-end tests for the short-circuit logical operators && and ||.
++//
++// Each test compiles through the full pipeline (nanz → HIR → MIR2 → Z80).
++// pipeline.CompileHIR evaluates `assert` statements on the MIR2 VM and on the
++// Z80 emulator, so an unqualified assert below verifies BOTH paths; asserts
++// marked "via mir2" check the VM only.
++//
++// The VM verifies all semantics.  The Z80 backend has pre-existing defects in
++// areas these tests steer around (documented in each case):
++//   - while loops whose head/body contain extra basic blocks are miscompiled
++//     (an `if` inside a `while` body already fails on master), so
++//     while-conditions are asserted via mir2 only;
++//   - `!` and eq/ne comparisons materialised as bool *values* are broken on
++//     Z80 independently of the logical operators, so tests use ordering
++//     comparisons (<, >) where Z80 verification matters.
++//
++// Naming note: test functions avoid single-letter names that collide with Z80
++// register names (a, b, c, d, e, f, h, l) — the backend renames those labels
++// (sanitizeIdent → "v_x") and the assert bootstrap cannot call them.
++
++import (
++	"testing"
++
++	"github.com/minz/minzc/pkg/nanz"
++	"github.com/minz/minzc/pkg/pipeline"
++)
++
++// compileAsserts parses src and runs its asserts on the MIR2 VM and Z80.
++func compileAsserts(t *testing.T, src string) {
++	t.Helper()
++	m, err := nanz.Parse(src, "logical_e2e_test")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	if _, err := pipeline.CompileHIR(m); err != nil {
++		t.Fatalf("compile: %v", err)
++	}
++}
++
++// TestLogical_E2E_TruthTable covers every operand combination of && and ||
++// on comparison operands (VM + Z80).
++func TestLogical_E2E_TruthTable(t *testing.T) {
++	compileAsserts(t, `
++fun conj(x: u8, y: u8) -> bool { return x > 10 && y > 10 }
++assert conj(0, 0) == 0
++assert conj(0, 20) == 0
++assert conj(20, 0) == 0
++assert conj(20, 20) == 1
++
++fun disj(x: u8, y: u8) -> bool { return x > 10 || y > 10 }
++assert disj(0, 0) == 0
++assert disj(0, 20) == 1
++assert disj(20, 0) == 1
++assert disj(20, 20) == 1
++`)
++}
++
++// TestLogical_E2E_ShortCircuitSideEffects proves the right operand runs only
++// when the left operand leaves the result undecided.  bump_x/bump_y increment
++// a shared call counter and return the value of a global, so the encoding
++// calls*4 + result records both how often the right operand ran and what the
++// expression produced (VM + Z80).
++//
++// The side-effect functions read globals instead of taking parameters: a
++// parameter held live across a CALL is clobbered by the register allocator on
++// Z80 — a pre-existing bug that affects plain nested `if` statements the same
++// way (see CLAUDE.md "Register Allocator & Loop Codegen Bugs").
++func TestLogical_E2E_ShortCircuitSideEffects(t *testing.T) {
++	compileAsserts(t, `
++global calls: u8 = 0
++global in_x: u8 = 0
++global in_y: u8 = 0
++
++fun bump_x() -> u8 { calls = calls + 1
++ return in_x }
++fun bump_y() -> u8 { calls = calls + 1
++ return in_y }
++
++fun run_conj(x: u8, y: u8) -> u8 {
++    calls = 0
++    in_x = x
++    in_y = y
++    let r: bool = bump_x() > 0 && bump_y() > 0
++    return calls * 4 + (if r { 1 } else { 0 })
++}
++assert run_conj(0, 0) == 4    // left false:  right never runs, result false
++assert run_conj(0, 50) == 4
++assert run_conj(50, 0) == 8   // left true: right runs, result false
++assert run_conj(50, 50) == 9  // left true: right runs, result true
++
++fun run_disj(x: u8, y: u8) -> u8 {
++    calls = 0
++    in_x = x
++    in_y = y
++    let r: bool = bump_x() > 0 || bump_y() > 0
++    return calls * 4 + (if r { 1 } else { 0 })
++}
++assert run_disj(0, 0) == 8    // left false: right runs, result false
++assert run_disj(0, 50) == 9   // left false: right runs, result true
++assert run_disj(50, 0) == 5   // left true:  right never runs, result true
++assert run_disj(50, 50) == 5
++`)
++}
++
++// TestLogical_E2E_CanonicalBoolValue: the result of a logical expression is
++// exactly 0 or 1 even when the operands are non-boolean (truthy) scalars —
++// `2 && 3` is 1, not 3 (VM + Z80).
++func TestLogical_E2E_CanonicalBoolValue(t *testing.T) {
++	compileAsserts(t, `
++fun conj_val(x: u8, y: u8) -> bool { return x && y }
++assert conj_val(2, 3) == 1
++assert conj_val(2, 0) == 0
++assert conj_val(0, 3) == 0
++assert conj_val(0, 0) == 0
++
++fun disj_val(x: u8, y: u8) -> bool { return x || y }
++assert disj_val(2, 3) == 1
++assert disj_val(0, 7) == 1
++assert disj_val(7, 0) == 1
++assert disj_val(0, 0) == 0
++
++fun stored(x: u8, y: u8) -> u8 {
++    let r: bool = x && y
++    if r { return 100 }
++    return 200
++}
++assert stored(2, 3) == 100
++assert stored(2, 0) == 200
++`)
++}
++
++// TestLogical_E2E_IfCondition: logical expressions as `if` conditions,
++// including else branches and nesting (VM + Z80).
++func TestLogical_E2E_IfCondition(t *testing.T) {
++	compileAsserts(t, `
++fun gate(x: u8, y: u8) -> u8 {
++    if x > 10 && y > 10 { return 1 }
++    return 0
++}
++assert gate(20, 20) == 1
++assert gate(20, 0) == 0
++assert gate(0, 20) == 0
++
++fun either(x: u8, y: u8) -> u8 {
++    if x > 10 || y > 10 { return 1 }
++    return 0
++}
++assert either(20, 0) == 1
++assert either(0, 20) == 1
++assert either(0, 0) == 0
++
++fun if_else(x: u8, y: u8) -> u8 {
++    if x > 10 && y > 10 { return 10 }
++    else { return 20 }
++}
++assert if_else(20, 20) == 10
++assert if_else(0, 20) == 20
++`)
++}
++
++// TestLogical_E2E_NestedPrecedence: || binds less tightly than &&; both bind
++// less tightly than comparisons and bitwise operators (VM + Z80).
++func TestLogical_E2E_NestedPrecedence(t *testing.T) {
++	compileAsserts(t, `
++// a || b && c  ≡  a || (b && c)
++fun prec_or_and(x: u8, y: u8, z: u8) -> bool { return x > 10 || y > 10 && z > 10 }
++assert prec_or_and(0, 0, 0) == 0
++assert prec_or_and(0, 0, 50) == 0   // (b && c) false although c true
++assert prec_or_and(0, 50, 0) == 0   // b alone does not satisfy &&
++assert prec_or_and(0, 50, 50) == 1
++assert prec_or_and(50, 0, 0) == 1   // a alone satisfies ||
++
++// (a && b) || c — explicit grouping agrees
++fun prec_paren(x: u8, y: u8, z: u8) -> bool { return (x > 10 && y > 10) || z > 10 }
++assert prec_paren(0, 0, 50) == 1
++assert prec_paren(50, 0, 0) == 0
++assert prec_paren(50, 50, 0) == 1
++
++// left associativity: a && b && c needs all three
++fun chain_and(x: u8, y: u8, z: u8) -> bool { return x > 10 && y > 10 && z > 10 }
++assert chain_and(50, 50, 50) == 1
++assert chain_and(50, 50, 0) == 0
++assert chain_and(50, 0, 50) == 0
++assert chain_and(0, 50, 50) == 0
++
++fun chain_or(x: u8, y: u8, z: u8) -> bool { return x > 10 || y > 10 || z > 10 }
++assert chain_or(0, 0, 0) == 0
++assert chain_or(0, 0, 50) == 1
++assert chain_or(0, 50, 0) == 1
++assert chain_or(50, 0, 0) == 1
++
++// bitwise & binds tighter than &&
++fun bit_tighter(x: u8, y: u8) -> bool { return x & 1 && y > 10 }
++assert bit_tighter(3, 50) == 1
++assert bit_tighter(4, 50) == 0
++assert bit_tighter(3, 0) == 0
++`)
++}
++
++// TestLogical_E2E_MixedOperators: logical operators combined with arithmetic,
++// shifts and bitwise operators keep the documented relative precedence
++// (VM + Z80).
++func TestLogical_E2E_MixedOperators(t *testing.T) {
++	compileAsserts(t, `
++fun mixed(x: u8, y: u8) -> bool { return x + 1 > 2 && y << 1 < 8 }
++assert mixed(2, 2) == 1   // 3 > 2 && 4 < 8
++assert mixed(1, 2) == 0   // 2 > 2 false
++assert mixed(2, 4) == 0   // 8 < 8 false
++
++fun xor_mix(x: u8, y: u8) -> bool { return x xor 1 > 0 || y > 10 }
++assert xor_mix(2, 0) == 1   // (2 xor 1)=1 > 0
++assert xor_mix(1, 0) == 0   // (1 xor 1)=0
++assert xor_mix(1, 50) == 1  // y saves it
++`)
++}
++
++// TestLogical_E2E_ConstantOperands: literal operands fold without losing
++// short-circuit semantics (VM + Z80).
++func TestLogical_E2E_ConstantOperands(t *testing.T) {
++	compileAsserts(t, `
++fun const_true1() -> bool { return true && true }
++assert const_true1() == 1
++fun const_true2() -> bool { return false || true }
++assert const_true2() == 1
++fun const_false1() -> bool { return true && false }
++assert const_false1() == 0
++fun const_false2() -> bool { return false && true }
++assert const_false2() == 0
++fun const_mix(x: u8) -> bool { return true && x > 10 }
++assert const_mix(50) == 1
++assert const_mix(0) == 0
++fun const_mix2(x: u8) -> bool { return x > 10 && true }
++assert const_mix2(50) == 1
++assert const_mix2(0) == 0
++fun const_chain() -> bool { return true && false || true }
++assert const_chain() == 1
++`)
++}
++
++// TestLogical_E2E_WhileCondition_VM: logical expressions as `while`
++// conditions, including loop-carried mutations on both sides of the operator.
++//
++// via mir2: the Z80 backend currently miscompiles while loops whose condition
++// lowers to more than one basic block (a plain `if` inside the loop body fails
++// the same way on master).
++func TestLogical_E2E_WhileCondition_VM(t *testing.T) {
++	compileAsserts(t, `
++fun sum_until(n: u8, cap: u8) -> u8 {
++    var i: u8 = 0
++    var sum: u8 = 0
++    while i < n && sum < cap {
++        sum = sum + i
++        i = i + 1
++    }
++    return sum
++}
++assert sum_until(0, 10) == 0 via mir2
++assert sum_until(2, 10) == 1 via mir2
++assert sum_until(5, 10) == 10 via mir2   // capped by sum < 10, not by n
++assert sum_until(20, 10) == 10 via mir2
++
++fun until_either(n: u8, m: u8) -> u8 {
++    var i: u8 = 0
++    while i < n || i < m {
++        i = i + 1
++    }
++    return i
++}
++assert until_either(3, 7) == 7 via mir2
++assert until_either(7, 3) == 7 via mir2
++assert until_either(0, 0) == 0 via mir2
++
++fun loop_guard(x: u8) -> u8 {
++    var i: u8 = 0
++    var s: u8 = 0
++    while i < 10 && x > 0 {
++        s = s + 1
++        i = i + 1
++    }
++    return s
++}
++assert loop_guard(1) == 10 via mir2
++assert loop_guard(0) == 0 via mir2
++`)
++}
++
++// TestLogical_E2E_NotOfLogical: `!` applied to a logical expression (De Morgan
++// territory), via mir2 — the Z80 backend miscompiles `!` on its own
++// (`return !(a < b)` fails on master without any logical operator).
++func TestLogical_E2E_NotOfLogical_VM(t *testing.T) {
++	compileAsserts(t, `
++fun not_conj(x: u8, y: u8) -> bool { return !(x > 10 && y > 10) }
++assert not_conj(0, 0) == 1 via mir2
++assert not_conj(50, 0) == 1 via mir2
++assert not_conj(0, 50) == 1 via mir2
++assert not_conj(50, 50) == 0 via mir2
++`)
++}
++
++// TestLogical_E2E_BitwiseUnchanged: the bitwise operators keep working next to
++// the new logical operators, and chained bitwise expressions are unaffected
++// (VM + Z80).
++func TestLogical_E2E_BitwiseUnchanged(t *testing.T) {
++	compileAsserts(t, `
++fun and_or_chain(x: u8, y: u8) -> u8 { return x & 3 | y }
++assert and_or_chain(0, 4) == 4
++assert and_or_chain(1, 4) == 5
++assert and_or_chain(6, 0) == 2
++
++fun xor_chain(x: u8, y: u8) -> u8 { return x xor y xor 1 }
++assert xor_chain(5, 3) == 7
++assert xor_chain(0, 0) == 1
++
++fun shift_chain(x: u8) -> u8 { return x << 1 >> 2 }
++assert shift_chain(8) == 4
++
++// bitwise result used as a logical operand
++fun combined(x: u8) -> bool { return x & 1 && x | 2 > 2 }
++assert combined(1) == 1
++assert combined(0) == 0
++`)
++}
+diff --git a/minzc/pkg/nanz/logical_test.go b/minzc/pkg/nanz/logical_test.go
+new file mode 100644
+index 0000000..39095c8
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_test.go
+@@ -0,0 +1,197 @@
++package nanz_test
++
++// Parser-level tests for the short-circuit logical operators && and ||:
++// tokenisation, precedence, associativity, constant folding, and type checks.
++// Execution semantics (short-circuit evaluation, canonical bool result) are
++// covered by logical_e2e_test.go.
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/minz/minzc/pkg/hir"
++	"github.com/minz/minzc/pkg/mir2"
++	"github.com/minz/minzc/pkg/nanz"
++)
++
++// parseReturnExpr parses "fun probe(...) -> T { return <expr> }" and returns
++// the returned expression.
++func parseReturnExpr(t *testing.T, expr string) hir.Expr {
++	t.Helper()
++	src := "fun probe(a: u8, b: u8, c: u8) -> bool { return " + expr + " }"
++	m, err := nanz.Parse(src, "logical_parse_test")
++	if err != nil {
++		t.Fatalf("parse %q: %v", expr, err)
++	}
++	ret, ok := m.Funcs[0].Body.Body[0].(*hir.ReturnStmt)
++	if !ok {
++		t.Fatalf("first statement of %q is %T, want ReturnStmt", expr, m.Funcs[0].Body.Body[0])
++	}
++	return ret.Val
++}
++
++// expectBin asserts e is a BinExpr with the given op and returns it.
++func expectBin(t *testing.T, e hir.Expr, op string) *hir.BinExpr {
++	t.Helper()
++	bin, ok := e.(*hir.BinExpr)
++	if !ok {
++		t.Fatalf("got %T, want BinExpr %s", e, op)
++	}
++	if bin.Op != op {
++		t.Fatalf("got BinExpr %q, want %q", bin.Op, op)
++	}
++	return bin
++}
++
++func TestLogicalAndOrParse(t *testing.T) {
++	for _, tc := range []struct {
++		expr string
++		op   string
++	}{{"a > 0 && b > 0", "&&"}, {"a > 0 || b > 0", "||"}} {
++		e := parseReturnExpr(t, tc.expr)
++		bin := expectBin(t, e, tc.op)
++		if bin.Ty != mir2.TyBool {
++			t.Errorf("%s: result type %s, want bool", tc.expr, bin.Ty)
++		}
++		if _, ok := bin.L.(*hir.BinExpr); !ok {
++			t.Errorf("%s: left operand is %T, want comparison BinExpr", tc.expr, bin.L)
++		}
++		if _, ok := bin.R.(*hir.BinExpr); !ok {
++			t.Errorf("%s: right operand is %T, want comparison BinExpr", tc.expr, bin.R)
++		}
++	}
++}
++
++// TestLogicalPrecedence verifies the relative binding strength of && and ||
++// against each other and against the bitwise and comparison operators.
++// || binds loosest, then &&, then |, xor, &, ==/!=, relational, shifts,
++// additive, multiplicative.
++func TestLogicalPrecedence(t *testing.T) {
++	cases := []struct {
++		expr   string
++		topOp  string // operator expected at the root of the tree
++		lhsOp  string // operator expected on the left subtree ("-" = variable ref)
++		rhsOp  string // operator expected on the right subtree
++	}{
++		// && binds tighter than ||
++		{"a || b && c", "||", "-", "&&"},
++		{"a && b || c", "||", "&&", "-"},
++		// bitwise OR binds tighter than both logical operators
++		{"a || b | c", "||", "-", "|"},
++		{"a && b | c", "&&", "-", "|"},
++		// xor sits between | and &
++		{"a || b xor c", "||", "-", "^"},
++		{"a && b xor c", "&&", "-", "^"},
++		{"a xor b && c", "&&", "^", "-"},
++		// bitwise AND binds tighter than xor and the logical operators
++		{"a && b & c", "&&", "-", "&"},
++		{"a xor b & c", "^", "-", "&"},
++		// comparisons bind tighter than bitwise AND (as before)
++		{"a & b == c", "&", "-", "=="},
++		// comparisons bind tighter than the logical operators
++		{"a == 1 && b == 2", "&&", "==", "=="},
++		{"a < 1 || b > 2", "||", "<", ">"},
++		// shifts still bind tighter than additive, which binds tighter than
++		// comparisons and the logical operators
++		{"a << 1 + 2 == 3 && b", "&&", "==", "-"},
++		{"a + 1 << 2 || b", "||", "<<", "-"},
++	}
++	for _, tc := range cases {
++		e := parseReturnExpr(t, tc.expr)
++		bin := expectBin(t, e, tc.topOp)
++		checkSide := func(side hir.Expr, wantOp string, name string) {
++			t.Helper()
++			if wantOp == "-" {
++				if _, ok := side.(*hir.VarRefExpr); !ok {
++					t.Errorf("%s: %s operand is %T, want VarRefExpr", tc.expr, name, side)
++				}
++				return
++			}
++			sideBin, ok := side.(*hir.BinExpr)
++			if !ok {
++				t.Errorf("%s: %s operand is %T, want BinExpr", tc.expr, name, side)
++				return
++			}
++			if sideBin.Op != wantOp {
++				t.Errorf("%s: %s operand op %q, want %q", tc.expr, name, sideBin.Op, wantOp)
++			}
++		}
++		checkSide(bin.L, tc.lhsOp, "left")
++		checkSide(bin.R, tc.rhsOp, "right")
++	}
++}
++
++// TestLogicalAssociativity: both operators are left-associative.
++func TestLogicalAssociativity(t *testing.T) {
++	bin := expectBin(t, parseReturnExpr(t, "a > 0 && b > 0 && c > 0"), "&&")
++	if _, ok := bin.L.(*hir.BinExpr); !ok {
++		t.Errorf("left of &&-chain is %T, want nested BinExpr (left-associative)", bin.L)
++	}
++	bin = expectBin(t, parseReturnExpr(t, "a > 0 || b > 0 || c > 0"), "||")
++	if _, ok := bin.L.(*hir.BinExpr); !ok {
++		t.Errorf("left of ||-chain is %T, want nested BinExpr (left-associative)", bin.L)
++	}
++}
++
++// TestLogicalBitwiseDistinct: && / || are single tokens, distinct from the
++// bitwise & / | — "a && b" must not parse as "a & (&b)".
++func TestLogicalBitwiseDistinct(t *testing.T) {
++	bin := expectBin(t, parseReturnExpr(t, "a && b"), "&&")
++	if _, ok := bin.R.(*hir.VarRefExpr); !ok {
++		t.Errorf("right operand of && is %T, want VarRefExpr (no address-of)", bin.R)
++	}
++	bin = expectBin(t, parseReturnExpr(t, "a || b"), "||")
++	if _, ok := bin.R.(*hir.VarRefExpr); !ok {
++		t.Errorf("right operand of || is %T, want VarRefExpr", bin.R)
++	}
++	// Bitwise forms keep working (right side of & may be an address-of).
++	amp := expectBin(t, parseReturnExpr(t, "a & b"), "&")
++	if amp.L.(*hir.VarRefExpr).Name != "a" {
++		t.Errorf("bitwise & left operand changed: %v", amp.L)
++	}
++}
++
++// TestLogicalConstantFoldShapes: a literal left operand that decides the
++// result folds to a literal (and the fold cascades); every other case keeps
++// the operator so the lowerer can preserve evaluation order and produce a
++// canonical 0/1 result.
++func TestLogicalConstantFoldShapes(t *testing.T) {
++	// Decided cases fold to literals; the other operand is dropped entirely.
++	for _, tc := range []struct {
++		expr string
++		want bool
++	}{{"false && a", false}, {"true || a", true}, {"false && true", false}, {"true || false", true}} {
++		lit, ok := parseReturnExpr(t, tc.expr).(*hir.BoolLitExpr)
++		if !ok {
++			t.Errorf("%s: not folded to BoolLitExpr", tc.expr)
++			continue
++		}
++		if lit.Val != tc.want {
++			t.Errorf("%s: folded to %v, want %v", tc.expr, lit.Val, tc.want)
++		}
++	}
++	// Undecided literal operands keep the operator node.
++	for _, expr := range []string{
++		"true && a", "false || a", "a > 0 && true", "a > 0 || false",
++		"(true && false) || a",
++	} {
++		if _, ok := parseReturnExpr(t, expr).(*hir.BinExpr); !ok {
++			t.Errorf("%s: expected unfolded BinExpr", expr)
++		}
++	}
++}
++
++// TestLogicalOperandTypeErrors: aggregates cannot be used as boolean operands.
++func TestLogicalOperandTypeErrors(t *testing.T) {
++	bad := []string{
++		"struct Point { x: u8, y: u8 }\nfun probe() -> bool { var p: Point\n return true && p }",
++		"struct Point { x: u8, y: u8 }\nfun probe() -> bool { var p: Point\n return p || false }",
++	}
++	for _, src := range bad {
++		if _, err := nanz.Parse(src, "logical_err_test"); err == nil {
++			t.Errorf("parsed %q without error, want type error", src)
++		} else if !strings.Contains(err.Error(), "want bool or scalar") {
++			t.Errorf("error for %q mentions no operand type: %v", src, err)
++		}
++	}
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..f0350bc 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -112,6 +112,8 @@ const (
+ 	tokPercent    // %
+ 	tokAmp        // &
+ 	tokPipe       // |
++	tokAmpAmp     // &&
++	tokPipePipe   // ||
+ 	tokCaret      // ^ (also used as pointer dereference)
+ 	tokTilde      // ~
+ 	tokLtLt       // <<
+@@ -222,6 +224,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAmpAmp, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokPipePipe, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '=' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokFatArrow, "=>", line)
+ 			l.pos += 2
+@@ -3759,12 +3769,17 @@ func (p *parser) parseReturn() (hir.Stmt, error) {
+ 			}
+ 			return &hir.ReturnStmt{Vals: vals}, nil
+ 		}
+-		// Single parenthesised expression — consume ')' and treat as single return.
++		// Single parenthesised expression — consume ')' and keep parsing any
++		// trailing binary operators: "return (a) + 1", "return (a && b) || c".
+ 		if _, err2 := p.l.eat(tokRParen); err2 != nil {
+ 			return nil, err2
+ 		}
+-		p.warnUninitInExpr(first)
+-		return &hir.ReturnStmt{Val: first}, nil
++		val, err2 := p.parseBinaryFrom(first, 0)
++		if err2 != nil {
++			return nil, err2
++		}
++		p.warnUninitInExpr(val)
++		return &hir.ReturnStmt{Val: val}, nil
+ 	}
+ 	val, err := p.parseExpr()
+ 	if err != nil {
+@@ -4396,24 +4411,41 @@ type binop struct {
+ 	prec int
+ }
+ 
++// Binary operator precedence (higher binds tighter):
++//
++//	1  ||        logical OR (short-circuit)
++//	2  &&        logical AND (short-circuit)
++//	3  |         bitwise OR
++//	4  xor       bitwise XOR (keyword operator, see parseBinary)
++//	5  &         bitwise AND
++//	6  == !=
++//	7  < <= > >=
++//	8  << >>
++//	9  + -
++//	10 * / %
++//
++// Both logical operators bind looser than every bitwise operator and
++// comparison (as in C), and && binds tighter than ||.
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	tokPipePipe: {"||", 1},
++	tokAmpAmp:   {"&&", 2},
++	tokPipe:     {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4421,6 +4453,14 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	return p.parseBinaryFrom(lhs, minPrec)
++}
++
++// parseBinaryFrom continues parsing binary operators with lhs as the already
++// parsed left operand.  It lets callers that consumed a parenthesised
++// sub-expression themselves (e.g. parseReturn's multi-return disambiguation)
++// still apply trailing operators: "return (a && b) || c".
++func (p *parser) parseBinaryFrom(lhs hir.Expr, minPrec int) (hir.Expr, error) {
+ 	for {
+ 		t := p.l.peek()
+ 		// "expr as type" cast — high precedence postfix.
+@@ -4471,10 +4511,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 4, between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -4491,6 +4531,19 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 		if err != nil {
+ 			return nil, err
+ 		}
++		// Short-circuit logical operators: always boolean, never overloaded,
++		// and lowered to control flow so the right operand only runs when
++		// the left leaves the result undecided (see lowerLogical).
++		if bo.op == "&&" || bo.op == "||" {
++			if !isTruthyTy(p.exprTy(lhs)) {
++				return nil, fmt.Errorf("line %d: %s: left operand has type %s, want bool or scalar", t.line, bo.op, p.exprTy(lhs))
++			}
++			if !isTruthyTy(p.exprTy(rhs)) {
++				return nil, fmt.Errorf("line %d: %s: right operand has type %s, want bool or scalar", t.line, bo.op, p.exprTy(rhs))
++			}
++			lhs = p.foldLogical(bo.op, lhs, rhs)
++			continue
++		}
+ 		// Operator overloading: multi-dispatch by (lhsTy, rhsTy).
+ 		// Struct overloads match when lhsTy is nil (legacy) or exact.
+ 		// Scalar overloads match on exact type pair — enables widening mul, narrowing div, etc.
+@@ -5467,6 +5520,53 @@ func matchOpOverload(ovs []opOverload, lTy, rTy mir2.Ty) (opOverload, bool) {
+ 	return opOverload{}, false
+ }
+ 
++// isTruthyTy reports whether ty is acceptable as an operand of the logical
++// && / || operators: bool, an integer/fixed scalar, or a pointer (tested as
++// != 0).  Aggregates and void have no truth value.
++func isTruthyTy(ty mir2.Ty) bool {
++	if ty == nil || ty == mir2.TyVoid {
++		return false
++	}
++	switch ty.(type) {
++	case *mir2.ArrayTy, *mir2.StructTy, *mir2.TupleTy, *mir2.SliceTy:
++		return false
++	}
++	return true
++}
++
++// constBool reports whether e is a boolean/integer literal and, if so, its
++// truth value.  Used to constant-fold logical operators.
++func constBool(e hir.Expr) (val bool, isConst bool) {
++	switch ex := e.(type) {
++	case *hir.BoolLitExpr:
++		return ex.Val, true
++	case *hir.IntLitExpr:
++		return ex.Val != 0, true
++	}
++	return false, false
++}
++
++// foldLogical constant-folds a parsed && / || node when a literal left
++// operand decides the result outright.  Folding here (rather than only at
++// lowering) lets nested operators cascade: "(false && a) || b" already sees
++// a literal left operand for the ||.
++//
++//	false && R  → false    (R is never evaluated — short-circuit)
++//	true  || R  → true     (R is never evaluated — short-circuit)
++//
++// The remaining literal cases keep the binary node — the other operand may
++// still need evaluating for its side effects, and the lowerer (lowerLogical)
++// produces a canonical 0/1 result for them.
++func (p *parser) foldLogical(op string, l, r hir.Expr) hir.Expr {
++	isAnd := op == "&&"
++	if v, ok := constBool(l); ok {
++		if isAnd != v {
++			return &hir.BoolLitExpr{Val: !isAnd}
++		}
++	}
++	return &hir.BinExpr{Op: op, L: l, R: r, Ty: mir2.TyBool}
++}
++
+ func resultTy(l, r mir2.Ty, op string) mir2.Ty {
+ 	switch op {
+ 	case "==", "!=", "<", "<=", ">", ">=":

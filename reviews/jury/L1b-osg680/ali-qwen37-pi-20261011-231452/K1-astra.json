@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The change successfully wires compiled ABAP calls to the new decoder, and the UTF-8 implementation matched Node in 165,536 differential cases; the Go package tests also pass. However, the reused Base64 decoder differs from Node for non-ASCII input, leaving a reproducible gap in the required input semantics.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 19,
+      "claim": "Delegating to DecodeXBase64 does not preserve Node semantics for non-ASCII encoded strings. That helper filters UTF-8 bytes, whereas Node uses the low byte of each UTF-16 code unit when decoding Base64. Consequently, U+0159 acts as Y in Node but is discarded here, and U+013D acts as padding in Node but is discarded here. This produces missing or extra decoded text for inputs covered by the requirement to follow Node handling of extraneous characters.",
+      "repro": "Compiled ABAP: cl_abap_unit_assert=>assert_equals( act = cl_http_utility=>decode_base64( 'řQ==' ) exp = 'a' ). This compiles but fails with Expected 'a', got ''. Node oracle: node -e \"console.log(JSON.stringify(Buffer.from('\\u0159Q==', 'base64').toString()))\" prints \"a\". Also, input 'YQĽQQ==' returns 'a\\u0004\\u0010' here, versus 'a' in Node."
+    }
+  ],
+  "critic": "K1-astra",
+  "anon": "c41628ea8d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 114
+}

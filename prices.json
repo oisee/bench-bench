@@ -1,0 +1,19 @@
+{
+  "_doc": "USD per 1M tokens (API list price) or per-plan unit cost. null = unknown: the cost stays empty, nothing is guessed. Edit and re-run bin/export.py.",
+  "api_per_mtok": {
+    "glm-5.3":      {"input": 1.4, "cache_read": 0.26, "output": 4.4, "source": "~/.pi/agent/models.json, zai provider cost"},
+    "glm-5.3[1m]":  {"same_as": "glm-5.3"},
+    "opus":         {"use_harness_cost": true, "source": "Claude Code total_cost_usd (Anthropic list price)"},
+    "gpt-6.1-sol":  null,
+    "gpt-6-astra":  null,
+    "gpt-6-sol":    null,
+    "qwen3.7-plus": null,
+    "kimi-k2.5":    null,
+    "MiniMax-M2.5": null,
+    "glm-5":        null
+  },
+  "plans": {
+    "alibaba": {"usd_per_month": 50, "units_per_month": 90000, "unit": "llm_call", "source": "Alibaba Coding Plan Pro: $50/mo, up to 90,000 requests/month"},
+    "zai":     {"usd_per_month": null, "units_per_month": null, "unit": null, "source": "Z.ai Coding Max: price/quota units not recorded yet"}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./nodeutf8)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/osgo-unit.mjs tools/gogen/testdata/osgo-cases --class ZCL_OSGT_DECODE_BASE64 2>&1 | tee /dev/stderr | grep -q \"SUCCESS: 4, FAILURE: 0, NOT_COMPILED: 0\"",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 366,
+  "task": "L1b-osg680",
+  "level": "L1",
+  "executor": "zai-glm53-claude",
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 1339,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "2.1.296 (Claude Code)"
+}

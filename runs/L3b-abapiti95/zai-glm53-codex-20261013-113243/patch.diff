@@ -1,0 +1,208 @@
+diff --git a/tsfront/anonymous_shapes_test.go b/tsfront/anonymous_shapes_test.go
+new file mode 100644
+index 0000000..1149687
+--- /dev/null
++++ b/tsfront/anonymous_shapes_test.go
+@@ -0,0 +1,86 @@
++package tsfront
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++	"github.com/oisee/abapiti/hir/golang"
++)
++
++func TestStatementsAnonymousObjectShapes(t *testing.T) {
++	source := `
++export function direct(): { a: string; b?: number } {
++  return { a: "x" };
++}
++export function nested(): { outer: { a: string; b?: number } } {
++  return { outer: { b: 2, a: "x" } };
++}
++export function argument(x: { readonly a: string; b?: number }): string {
++  return x.a;
++}
++export function callArgument(): string {
++  return argument({ b: 3, a: "x" });
++}
++export function assignment(): { a: string; b?: number } {
++  let x: { a: string; b?: number };
++  x = { a: "x" };
++  return x;
++}
++export function optional(): { a: string; b?: number } | undefined {
++  return { a: "x" };
++}
++export function empty(): { a?: string } {
++  return {};
++}
++export function record(): Record<string, number> {
++  const values: Record<string, number> = {};
++  return values;
++}
++export function inferred(): string {
++  const value = { a: "x" };
++  value.a = "y";
++  return value.a;
++}
++export function satisfies(): { readonly a: string } {
++  return { a: "x" } satisfies { readonly a: string };
++}
++type Alias = { readonly a: string };
++export function namedAlias(value: Alias): string {
++  return value.a;
++}
++`
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": source}, []string{"probe.ts"})
++	dump := hir.Dump(prog)
++	shapeCount := strings.Count(dump, "class shape.")
++	if shapeCount != 4 {
++		t.Fatalf("expected structural reuse, got %d shape classes:\n%s", shapeCount, dump)
++	}
++	for _, class := range prog.Classes {
++		if !strings.HasPrefix(class.Name, "shape.") {
++			continue
++		}
++		for _, field := range class.Fields {
++			if field.Name == "a" && field.Type.Kind == hir.String && !field.Readonly {
++				t.Fatalf("readonly metadata missing from %s.%s", class.Name, field.Name)
++			}
++		}
++	}
++	var aliasReadonly bool
++	for _, class := range prog.Classes {
++		if class.Name != "probe.ts.Alias" || len(class.Fields) != 1 {
++			continue
++		}
++		aliasReadonly = class.Fields[0].Readonly
++	}
++	if !aliasReadonly {
++		t.Fatal("named shape lost readonly metadata")
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := golang.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/tsfront/lower_class.go b/tsfront/lower_class.go
+index 291b90f..098e485 100644
+--- a/tsfront/lower_class.go
++++ b/tsfront/lower_class.go
+@@ -148,14 +148,14 @@ func (l *lowerer) dataInterfaceClass(node *ast.Node, i *hir.Interface) {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(m), Name: name, Type: ft})
++		c.Fields = append(c.Fields, hir.Field{Node: l.node(m), Name: name, Type: ft, Readonly: propertyIsReadonly(m.Symbol())})
+ 		ctor.Params = append(ctor.Params, hir.Param{Name: name, Type: ft})
+ 		list = append(list, &hir.Stmt{Kind: hir.Assign, Node: l.node(m),
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(m), Name: name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(m), Type: hir.Ref(c.Name)}},
+ 			Y: hir.V(name, ft)})
+ 		if ms := m.Symbol(); ms != nil {
+-			l.fields[ms] = hir.Field{Node: l.node(m), Name: name, Type: ft}
++			l.fields[ms] = hir.Field{Node: l.node(m), Name: name, Type: ft, Readonly: propertyIsReadonly(ms)}
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+diff --git a/tsfront/lower_types.go b/tsfront/lower_types.go
+index a697fe5..22638b1 100644
+--- a/tsfront/lower_types.go
++++ b/tsfront/lower_types.go
+@@ -3,6 +3,7 @@ package tsfront
+ import (
+ 	"crypto/sha256"
+ 	"fmt"
++	"sort"
+ 	"strings"
+ 
+ 	"github.com/oisee/abapiti/hir"
+@@ -569,6 +570,7 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ // synthFromProperties builds a shape class from a list of property symbols.
+ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Class {
+ 	var fields []hir.Field
++	identifiers := make([]string, 0, len(props))
+ 	var identity strings.Builder
+ 	for _, p := range props {
+ 		before := len(l.diags)
+@@ -592,8 +594,13 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 		if p.Flags&ast.SymbolFlagsOptional != 0 && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
+-		fmt.Fprintf(&identity, "%q:%s;", p.Name, ft.String())
++		readonly := propertyIsReadonly(p)
++		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft, Readonly: readonly})
++		identifiers = append(identifiers, fmt.Sprintf("%q:%s;", p.Name, ft.String()))
++	}
++	sort.Strings(identifiers)
++	for _, identifier := range identifiers {
++		identity.WriteString(identifier)
+ 	}
+ 	// Required and optional reference properties have one physical layout.
+ 	// Reuse the existing shape; the checker narrows required reads at use sites.
+@@ -630,6 +637,7 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			for _, p := range props {
+ 				for k := range c.Fields {
+ 					if c.Fields[k].Name == p.Name {
++						c.Fields[k].Readonly = c.Fields[k].Readonly || propertyIsReadonly(p)
+ 						l.fields[p] = c.Fields[k]
+ 					}
+ 				}
+@@ -683,6 +691,7 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			for _, p := range props {
+ 				for _, cf := range c.Fields {
+ 					if cf.Name == p.Name {
++						cf.Readonly = cf.Readonly || propertyIsReadonly(p)
+ 						l.fields[p] = cf
+ 					}
+ 				}
+@@ -717,9 +726,9 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(n), Name: p.Name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
+ 			Y: value})
+-		l.fields[p] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++		l.fields[p] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft, Readonly: propertyIsReadonly(p)}
+ 		if p.Parent != nil {
+-			l.fieldsBy[p.Parent.Name+"."+p.Name] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++			l.fieldsBy[p.Parent.Name+"."+p.Name] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft, Readonly: propertyIsReadonly(p)}
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+@@ -728,6 +737,21 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 	return c
+ }
+ 
++func propertyIsReadonly(p *ast.Symbol) bool {
++	if p == nil {
++		return false
++	}
++	if p.CheckFlags&ast.CheckFlagsReadonly != 0 {
++		return true
++	}
++	for _, declaration := range p.Declarations {
++		if ast.HasModifier(declaration, ast.ModifierFlagsReadonly) {
++			return true
++		}
++	}
++	return false
++}
++
+ // checkNumberLiteral rejects values outside the finite binary64 domain.
+ func (l *lowerer) checkNumberLiteral(n *ast.Node, v any) {
+ 	f, ok := v.(float64)
+@@ -811,7 +835,7 @@ func (l *lowerer) synthFromAlias(n *ast.Node, sym *ast.Symbol) *hir.Class {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft}
++		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft, Readonly: propertyIsReadonly(m.Symbol())}
+ 		c.Fields = append(c.Fields, f)
+ 		if ms := m.Symbol(); ms != nil {
+ 			l.fields[ms] = f

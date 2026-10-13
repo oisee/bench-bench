@@ -1,0 +1,254 @@
+diff --git a/tools/gogen/emit-go.test.mjs b/tools/gogen/emit-go.test.mjs
+index 953d4e6..15ee551 100644
+--- a/tools/gogen/emit-go.test.mjs
++++ b/tools/gogen/emit-go.test.mjs
+@@ -111,6 +111,63 @@ test("generic numeric comparison keeps packed decimal boundaries in JS", () => {
+   assert.equal(CmpNumericData(cell(1.5, TF), cell("1.5", TP(4, 1))), 0);
+ });
+ 
++test("Base64 text decoding reaches its Go native", () => {
++  const sourceDir = mkdtempSync(join(tmpdir(), "gogen-b64-native-"));
++  const goDir = mkdtempSync(join(here, "go", "cmd", "gogen-b64-test-"));
++  try {
++    writeFileSync(join(sourceDir, "if_http_utility.intf.abap"), `
++INTERFACE if_http_utility PUBLIC.
++  CLASS-METHODS decode_base64 IMPORTING encoded TYPE string RETURNING VALUE(decoded) TYPE string.
++ENDINTERFACE.
++`);
++    writeFileSync(join(sourceDir, "cl_http_utility.clas.abap"), `
++CLASS cl_http_utility DEFINITION PUBLIC.
++  PUBLIC SECTION.
++    INTERFACES if_http_utility.
++    ALIASES decode_base64 FOR if_http_utility~decode_base64.
++ENDCLASS.
++CLASS cl_http_utility IMPLEMENTATION.
++  METHOD if_http_utility~decode_base64.
++  ENDMETHOD.
++ENDCLASS.
++`);
++    writeFileSync(join(sourceDir, "zcl_gogen_b64_native.clas.abap"), `
++CLASS zcl_gogen_b64_native DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++CLASS zcl_gogen_b64_native IMPLEMENTATION.
++  METHOD run.
++    rv = cl_http_utility=>decode_base64( '8J-YgA' ).
++  ENDMETHOD.
++ENDCLASS.
++`);
++    const program = compileProgram({folders: [sourceDir], objects: ["ZCL_GOGEN_B64_NATIVE", "CL_HTTP_UTILITY"]});
++    const go = emitGo(program);
++    assert.match(go, /abap\.DecodeBase64\(s, encoded\)/);
++    writeFileSync(join(goDir, "zz_generated.go"), go);
++    writeFileSync(join(goDir, "zz_generated_test.go"), `package main
++
++import (
++	"testing"
++
++	"osg/gogen/abap"
++)
++
++func TestDecodeBase64(t *testing.T) {
++	if got := CL_HTTP_UTILITY_IF_HTTP_UTILITY__DECODE_BASE64(&abap.Session{}, "8J-YgA"); got != "😀" {
++		t.Fatalf("DecodeBase64() = %q", got)
++	}
++}
++`);
++    const build = spawnSync("go", ["test", "-vet=off", `./cmd/${basename(goDir)}`], {cwd: join(here, "go"), encoding: "utf8", timeout: 120000});
++    assert.equal(build.status, 0, build.stderr || build.stdout);
++  } finally {
++    rmSync(sourceDir, {recursive: true, force: true});
++    rmSync(goDir, {recursive: true, force: true});
++  }
++});
++
+ test("SELECT clauses come from syntax nodes, not WHERE string literals", () => {
+   const sourceDir = mkdtempSync(join(tmpdir(), "gogen-select-literals-"));
+   try {
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..0cf9061 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,7 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/abap/b64decode_test.go b/tools/gogen/go/abap/b64decode_test.go
+index c690cca..7ed6ee3 100644
+--- a/tools/gogen/go/abap/b64decode_test.go
++++ b/tools/gogen/go/abap/b64decode_test.go
+@@ -19,3 +19,25 @@ func TestDecodeXBase64(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestDecodeBase64(t *testing.T) {
++	for _, tc := range []struct{ encoded, want string }{
++		{"w6mAw6k=", "é�é"},
++		{"w6mAw6k", "é�é"},
++		{"4oKs", "€"},
++		{"4oKs==", "€"},
++		{"8J-YgA", "😀"},
++		{"7aCA", "���"},
++		{"9JCAgA==", "����"},
++		{"4oI=", "�"},
++		{"Y @WJhcA==", "abap"},
++		{"", ""},
++	} {
++		if got := DecodeBase64(&Session{}, tc.encoded); got != tc.want {
++			t.Errorf("DecodeBase64(%q) = %q, want %q", tc.encoded, got, tc.want)
++		}
++	}
++	if got := Strlen(DecodeBase64(&Session{}, "4oKs")); got != 1 {
++		t.Errorf("strlen of decoded text = %d, want 1", got)
++	}
++}
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..0152cdc 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,9 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: Base64 bytes decoded as
++// Node does, then interpreted as UTF-8.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(DecodeXBase64(s, encoded))
++}
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8.go b/tools/gogen/go/nodeutf8/nodeutf8.go
+new file mode 100644
+index 0000000..aee10b2
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8.go
+@@ -0,0 +1,78 @@
++// Package nodeutf8 interprets raw bytes as UTF-8 with Node's replacement
++// behavior for malformed sequences.
++package nodeutf8
++
++import (
++	"strings"
++	"unicode/utf8"
++)
++
++const replacement = "\uFFFD"
++
++// Decode returns the Node-compatible UTF-8 text interpretation of b.
++func Decode(b string) string {
++	if utf8.ValidString(b) {
++		return b
++	}
++
++	out := strings.Builder{}
++	out.Grow(len(b))
++	var codePoint rune
++	var bytesNeeded, bytesSeen int
++	lowerBoundary, upperBoundary := byte(0x80), byte(0xBF)
++
++	for index := 0; index < len(b); index++ {
++		value := b[index]
++		if bytesNeeded == 0 {
++			switch {
++			case value < utf8.RuneSelf:
++				out.WriteByte(value)
++			case value >= 0xC2 && value <= 0xDF:
++				bytesNeeded, bytesSeen = 1, 0
++				codePoint = rune(value & 0x1F)
++			case value >= 0xE0 && value <= 0xEF:
++				lowerBoundary, upperBoundary = 0x80, 0xBF
++				if value == 0xE0 {
++					lowerBoundary = 0xA0
++				} else if value == 0xED {
++					upperBoundary = 0x9F
++				}
++				bytesNeeded, bytesSeen = 2, 0
++				codePoint = rune(value & 0x0F)
++			case value >= 0xF0 && value <= 0xF4:
++				lowerBoundary, upperBoundary = 0x80, 0xBF
++				if value == 0xF0 {
++					lowerBoundary = 0x90
++				} else if value == 0xF4 {
++					upperBoundary = 0x8F
++				}
++				bytesNeeded, bytesSeen = 3, 0
++				codePoint = rune(value & 0x07)
++			default:
++				out.WriteString(replacement)
++			}
++			continue
++		}
++
++		if value < lowerBoundary || value > upperBoundary {
++			codePoint, bytesNeeded, bytesSeen = 0, 0, 0
++			lowerBoundary, upperBoundary = 0x80, 0xBF
++			out.WriteString(replacement)
++			index--
++			continue
++		}
++
++		lowerBoundary, upperBoundary = 0x80, 0xBF
++		codePoint = codePoint<<6 | rune(value&0x3F)
++		bytesSeen++
++		if bytesSeen == bytesNeeded {
++			out.WriteRune(codePoint)
++			codePoint, bytesNeeded, bytesSeen = 0, 0, 0
++		}
++	}
++
++	if bytesNeeded != 0 {
++		out.WriteString(replacement)
++	}
++	return out.String()
++}
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8_test.go b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+new file mode 100644
+index 0000000..d1975e1
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+@@ -0,0 +1,32 @@
++package nodeutf8
++
++import "testing"
++
++func TestDecode(t *testing.T) {
++	for _, tc := range []struct {
++		name  string
++		bytes []byte
++		want  string
++	}{
++		{"empty", nil, ""},
++		{"ascii", []byte("Node compatible"), "Node compatible"},
++		{"nul", []byte{0}, "\x00"},
++		{"two bytes", []byte{0xC2, 0x80}, ""},
++		{"three bytes", []byte{0xE2, 0x82, 0xAC}, "€"},
++		{"four bytes", []byte{0xF0, 0x9F, 0x98, 0x80}, "😀"},
++		{"invalid continuation", []byte{0x80}, "�"},
++		{"incomplete two bytes", []byte{0xC2}, "�"},
++		{"incomplete three bytes", []byte{0xE2, 0x82}, "�"},
++		{"incomplete four bytes", []byte{0xF0, 0x9F, 0x98}, "�"},
++		{"invalid continuation is not masked when ascii", []byte{0xE2, 0x82, 'A'}, "�A"},
++		{"invalid continuation is restored", []byte{0xE0, 0x80}, "��"},
++		{"overlong sequence", []byte{0xE0, 0x9F, 0xBF}, "���"},
++		{"surrogate", []byte{0xED, 0xA0, 0x80}, "���"},
++		{"above unicode", []byte{0xF4, 0x90, 0x80, 0x80}, "����"},
++		{"valid text around malformed bytes", []byte{0xC3, 0xA9, 0x80, 0xC3, 0xA9}, "é�é"},
++	} {
++		if got := Decode(string(tc.bytes)); got != tc.want {
++			t.Errorf("%s: Decode() = %q, want %q", tc.name, got, tc.want)
++		}
++	}
++}

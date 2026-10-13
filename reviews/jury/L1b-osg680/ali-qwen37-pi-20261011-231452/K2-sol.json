@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The change routes cl_http_utility=>decode_base64 through the existing Node-compatible Base64 byte decoder and converts the result to UTF-8 text with appropriate replacement characters. The reported acceptance and regression tests pass, and a differential check of 105,536 byte sequences found no mismatch with Node's UTF-8 decoding.",
+  "findings": [],
+  "critic": "K2-sol",
+  "anon": "c41628ea8d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 47
+}

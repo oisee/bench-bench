@@ -1,0 +1,673 @@
+diff --git a/minzc/go.mod b/minzc/go.mod
+index 1fa996c..1a9af8a 100644
+--- a/minzc/go.mod
++++ b/minzc/go.mod
+@@ -6,13 +6,20 @@ toolchain go1.24.3
+ 
+ require (
+ 	github.com/alecthomas/participle/v2 v2.1.4
++	github.com/cjbearman/sim6502 v0.0.1
++	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b
+ 	github.com/spf13/cobra v1.8.0
++	github.com/tetratelabs/wazero v1.11.0
+ 	github.com/yuin/gopher-lua v1.1.0
++	modernc.org/mathutil v1.7.1
++	modernc.org/opt v0.1.4
++	modernc.org/sortutil v1.2.1
++	modernc.org/strutil v1.2.1
++	modernc.org/token v1.1.0
+ )
+ 
+ require (
+ 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+-	github.com/cjbearman/sim6502 v0.0.1 // indirect
+ 	github.com/codesqueak/z80 v1.1.0 // indirect
+ 	github.com/davecgh/go-spew v1.1.1 // indirect
+ 	github.com/dustin/go-humanize v1.0.1 // indirect
+@@ -27,12 +34,10 @@ require (
+ 	github.com/mattn/go-isatty v0.0.20 // indirect
+ 	github.com/ncruces/go-strftime v1.0.0 // indirect
+ 	github.com/pmezard/go-difflib v1.0.0 // indirect
+-	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b // indirect
+ 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+ 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
+ 	github.com/spf13/pflag v1.0.5 // indirect
+ 	github.com/stretchr/testify v1.9.0 // indirect
+-	github.com/tetratelabs/wazero v1.11.0 // indirect
+ 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
+ 	golang.org/x/sync v0.17.0 // indirect
+ 	golang.org/x/sys v0.38.0 // indirect
+@@ -40,11 +45,6 @@ require (
+ 	gopkg.in/yaml.v3 v3.0.1 // indirect
+ 	modernc.org/cc/v4 v4.27.1 // indirect
+ 	modernc.org/libc v1.67.6 // indirect
+-	modernc.org/mathutil v1.7.1 // indirect
+ 	modernc.org/memory v1.11.0 // indirect
+-	modernc.org/opt v0.1.4 // indirect
+-	modernc.org/sortutil v1.2.1 // indirect
+ 	modernc.org/sqlite v1.46.1 // indirect
+-	modernc.org/strutil v1.2.1 // indirect
+-	modernc.org/token v1.1.0 // indirect
+ )
+diff --git a/minzc/pkg/mir2/z80codegen.go b/minzc/pkg/mir2/z80codegen.go
+index 1136a80..48961ef 100644
+--- a/minzc/pkg/mir2/z80codegen.go
++++ b/minzc/pkg/mir2/z80codegen.go
+@@ -696,24 +696,41 @@ func elimJrToRet(lines []string) []string {
+ 		}
+ 	}
+ 
+-	// Pass 3b: check for DJNZ fall-through — if a DJNZ instruction immediately
+-	// precedes a label+RET (ignoring blanks/comments), the label is an implicit
+-	// fall-through target and must not be removed.
++	// Pass 3b: check for fall-through — if the instruction immediately
++	// preceding a replaced label+RET can fall through (anything except an
++	// unconditional RET/JP/HALT — note that conditional RET cc, JR cc, CALL cc
++	// and DJNZ all fall through when their condition is not met), the label is
++	// an implicit fall-through target and must not be removed. Without this,
++	//   JRS Z, .sk / INC A / .sk: / RET  →  RET Z / INC A
++	// would drop the only RET on the fall-through path.
++	canFallThrough := func(line string) bool {
++		t := strings.TrimSpace(line)
++		if t == "" || strings.HasPrefix(t, ";") || strings.HasSuffix(t, ":") {
++			return true // not an instruction — keep looking
++		}
++		if t == "RET" || t == "HALT" || strings.HasPrefix(t, "JP ") || t == "JP (HL)" {
++			return false // unconditional transfer — no fall-through
++		}
++		return true // any other instruction (incl. conditional transfers) falls through
++	}
+ 	for i := 0; i < len(out); i++ {
+ 		t := strings.TrimSpace(out[i])
+ 		if strings.HasSuffix(t, ":") {
+ 			label := strings.TrimSuffix(t, ":")
+ 			if _, ok := replaced[label]; ok {
+-				// Walk backward to find the preceding instruction.
++				// Walk backward past blanks, comments and label lines to the
++			// nearest instruction; if it can fall through, keep the label.
+ 				for j := i - 1; j >= 0; j-- {
+-					prev := strings.TrimSpace(out[j])
+-					if prev == "" || strings.HasPrefix(prev, ";") {
+-						continue
++					if !canFallThrough(out[j]) {
++						break // unconditional transfer above — no fall-through
++					}
++					if strings.HasSuffix(strings.TrimSpace(out[j]), ":") {
++						continue // label line — fall-through comes from further up
+ 					}
+-					if strings.HasPrefix(prev, "DJNZ ") {
++					if strings.TrimSpace(out[j]) != "" && !strings.HasPrefix(strings.TrimSpace(out[j]), ";") {
+ 						labelRefs[label]++ // implicit fall-through reference
++						break
+ 					}
+-					break
+ 				}
+ 			}
+ 		}
+@@ -855,16 +872,27 @@ type z80cg struct {
+ 	// pendingFlagReg is the ClassFlag virtual register produced by the most
+ 	// recent genCmp that has not yet been consumed (by OR/AND/brif).
+ 	// Before any new CP that would clobber F, materializePendingFlag() checks
+-	// whether this register is still live and, if so, emits SBC A,A; LD D,A
+-	// so the value survives in "D" (via physOverride).
++	// whether this register is still live and, if so, emits a canonical 0/1
++	// materialisation into a scratch register (via physOverride).
+ 	pendingFlagReg Reg
+ 
++	// flagSkipCount generates unique labels for emitFlagToA's conditional-skip
++	// sequences.
++	flagSkipCount int
++
+ 	// pendingAccReg is a ClassAcc virtual register currently in A that may be
+ 	// clobbered by an upcoming "LD A, imm" in a subsequent genCmp.
+ 	// When genCmp is about to emit "LD A, imm", if pendingAccReg is still live
+ 	// downstream, it emits LD D,A and reroutes pendingAccReg to "D".
+ 	pendingAccReg Reg
+ 
++	// live is the per-block liveness analysis of the function being emitted
++	// (set in genFunc). It lets A-clobber checks (accStillNeeded) and scratch
++	// selection (pickScratch8) account for values that are live ACROSS blocks —
++	// e.g. loop-carried variables in a while loop whose condition spans several
++	// blocks (&& / || conditions, CondExpr conditions).
++	live *LivenessResult
++
+ 	// ptrAddPushHL: set by scanPtrAddBase when a ptr_add's base is in HL and
+ 	// the base virtual is live after the instruction (needs to survive across
+ 	// the loop body). The value is the ptr_add result virtual (Dst).
+@@ -948,6 +976,10 @@ type parallelCopy struct {
+ 	srcName string
+ 	dstName string
+ 	ty      Ty
++	// srcFlag is the ClassFlag virtual register when srcName == "F"
++	// (flag→value materialisation needs the producing comparison's convention;
++	// see emitFlagToA).
++	srcFlag Reg
+ 	// isImm marks a constant rematerialisation: no source register, just emit
+ 	// LD dstName, immVal after all register-to-register copies are resolved.
+ 	isImm  bool
+@@ -1084,6 +1116,9 @@ func (g *z80cg) holdsValue(a, b string) bool {
+ func (g *z80cg) emitLDA(src string) {
+ 	if src == "F" {
+ 		// F register cannot be loaded directly. Materialise carry flag.
++		// NOTE: carry convention only — call sites that know the producing
++		// comparison's virtual register should use emitFlagToA instead, which
++		// also handles the Z/NZ conventions and canonicalises to 0/1.
+ 		g.emit("    SBC A, A") // A=0xFF if C=1, A=0x00 if C=0
+ 		g.invalidate("A")
+ 		return
+@@ -1099,6 +1134,61 @@ func (g *z80cg) emitLDA(src string) {
+ 	g.setCopy("A", src)
+ }
+ 
++// emitFlagToA materialises the boolean result held by the ClassFlag virtual
++// register cond into A as a CANONICAL 0/1 value, honouring the flag
++// convention of the comparison that produced it:
++//
++//   - "C"/"NC" conventions (Lt/Ge, SBC-based): SBC A,A gives 0xFF/0x00;
++//     AND 1 (resp. INC A) canonicalises to 1/0.
++//   - "Z"/"NZ" conventions (Eq/Ne, rhs==0 tests via AND A where carry is
++//     ALWAYS clear): conditional-skip sequence, since SBC A,A would
++//     constantly yield 0.
++//   - "CLE"/"CGT" two-condition sentinels: two-jump skip.
++//
++// The MIR2 VM canonicalises every cmp result to 0/1; the Z80 backend must
++// match that or bool values diverge between the two execution paths
++// (e.g. `let r = a != 0` used as a value, block args of a CondExpr join,
++// or stores of comparison results).
++func (g *z80cg) emitFlagToA(cond Reg) {
++	cc := g.condCode(g.fn, cond)
++	g.flagSkipCount++
++	skip := fmt.Sprintf(".%s_flag%d_sk", sanitizeIdent(g.fn.Name), g.flagSkipCount)
++	switch cc {
++	case "C":
++		// SBC A,A → 0xFF if C (true), 0x00 if NC; AND 1 → 1/0.
++		g.emit("    SBC A, A")
++		g.emit("    AND 1")
++	case "NC":
++		// SBC A,A → 0x00 if NC (true), 0xFF if C; INC A → 1/0 (0xFF+1 = 0).
++		g.emit("    SBC A, A")
++		g.emit("    INC A")
++	case "CLE":
++		// true ⟺ C || Z (a ≤ b)
++		g.emit("    LD A, 0")
++		g.emitf("    JR C, %s_set", skip)
++		g.emitf("    JR Z, %s_set", skip)
++		g.emitf("    JR %s", skip)
++		g.emitf("%s_set:", skip)
++		g.emit("    INC A")
++		g.emitf("%s:", skip)
++	case "CGT":
++		// true ⟺ NC && NZ (a > b)
++		g.emit("    LD A, 0")
++		g.emitf("    JR Z, %s", skip)
++		g.emitf("    JR C, %s", skip)
++		g.emit("    INC A")
++		g.emitf("%s:", skip)
++	default:
++		// Z/NZ (and any other single condition): LD doesn't touch flags, so
++		// test the comparison result and set bit 0 when the condition holds.
++		g.emit("    LD A, 0")
++		g.emitf("    JR %s, %s", invertCC(cc), skip)
++		g.emit("    INC A")
++		g.emitf("%s:", skip)
++	}
++	g.invalidate("A")
++}
++
+ // loc returns the physical location name for virtual register r.
+ // For LocMem registers the allocator stores the actual byte address in Offset;
+ // return it as a hex literal so the assembler resolves it correctly.
+@@ -1461,6 +1551,10 @@ func (g *z80cg) genFunc(f *Func) {
+ 	g.cmpNeedsTwo = make(map[Reg]bool)
+ 	g.callFlags = make(map[Reg]CmpCond)
+ 	g.constVals = make(map[Reg]int64)
++	// Function-level liveness: used by accStillNeeded/pickScratch8 to keep
++	// values that are live across blocks (loop-carried variables, live-through
++	// condition operands) from being clobbered by transient A usage.
++	g.live = ComputeLiveness(f)
+ 	// Build set of block-parameter registers: their values change per iteration
+ 	// (even if PreallocCoalesce merged an OpConst into the same Reg). Excluding
+ 	// them from constVals prevents the codegen from treating loop counters as
+@@ -2544,6 +2638,20 @@ func (g *z80cg) genBlock(f *Func, b *Block) {
+ 			break
+ 		}
+ 	}
++	// Live-through values in A are equally at risk: a vreg that is live-in
++	// (defined in an earlier block) and allocated to A gets clobbered by any
++	// "LD A, lhs" in this block. This is what breaks loop conditions that span
++	// multiple blocks (e.g. `while i < 10 && a != 0`): the loop-carried variable
++	// sits in A while the second comparison reloads A with its operand.
++	if g.pendingAccReg == NoReg && g.live != nil {
++		if li := g.live.LiveInOf(f, b); li != nil {
++			li.Each(func(r Reg) {
++				if g.pendingAccReg == NoReg && r != NoReg && g.ar.Loc(r).Name == "A" {
++					g.pendingAccReg = r
++				}
++			})
++		}
++	}
+ 	// Also check function contract params (entry block has no block params).
+ 	if g.pendingAccReg == NoReg && b == g.fn.Entry() {
+ 		for _, cp := range g.fn.Contract.Params {
+@@ -2736,6 +2844,20 @@ func (g *z80cg) genInst(inst *Inst) {
+ 		if dst == src {
+ 			return // no-op
+ 		}
++		if src == "F" {
++			// Flag → value: materialise the comparison result as a canonical
++			// 0/1 using the producing comparison's flag convention.
++			g.emitFlagToA(inst.Src[0])
++			if dst != "A" {
++				if isPairReg(dst) {
++					g.emitf("    LD %s, A", lowByte(dst))
++					g.emitf("    LD %s, 0", highByte(dst))
++				} else {
++					g.emitLD8(dst, "A")
++				}
++			}
++			return
++		}
+ 		g.emitMov(dst, src, inst.Ty.Width())
+ 
+ 	case OpAdd:
+@@ -3302,6 +3424,12 @@ func (g *z80cg) genInst(inst *Inst) {
+ 		ptr := g.loc(inst.Src[0])
+ 		val := g.loc(inst.Src[1])
+ 		w := inst.Ty.Width()
++		// Flag value operand: materialise the comparison result as a canonical
++		// 0/1 into A first (e.g. storing a bool comparison to a global/local).
++		if val == "F" && w <= 8 {
++			g.emitFlagToA(inst.Src[1])
++			val = "A"
++		}
+ 		// If ptr is spilled to a memory slot ($Fxxx), reload it into HL first.
+ 		if isSpill(ptr) {
+ 			g.emitf("    LD HL, (%s)   ; reload spilled ptr", ptr)
+@@ -3792,6 +3920,20 @@ func (g *z80cg) genBinOp(mnem string, inst *Inst) {
+ 		return
+ 	}
+ 
++	// Flag operands: Z80 cannot LD r, F. For OR the special case below emits a
++	// cheaper conditional-skip; every other mnemonic materialises the flag
++	// vreg's canonical 0/1 value into A first.
++	if mnem != "OR" {
++		if lhs == "F" {
++			g.emitFlagToA(inst.Src[0])
++			lhs = "A"
++		}
++		if rhs == "F" {
++			g.emitFlagToA(inst.Src[1])
++			rhs = "A"
++		}
++	}
++
+ 	if w <= 8 {
+ 		if lhs == dst && dst != "A" && dst != "F" && !isSpill(dst) {
+ 			if cv, ok := g.constVals[inst.Src[1]]; ok {
+@@ -5577,11 +5719,21 @@ func (g *z80cg) flagStillNeeded(upcomingInst *Inst) bool {
+ 
+ // accStillNeeded reports whether pendingAccReg is used as a source
+ // in any instruction AFTER upcomingInst in the current block, or by
+-// the block's terminal (e.g. passed as a block arg to a successor).
++// the block's terminal (e.g. passed as a block arg to a successor),
++// or is live-out of the current block (used by a successor block —
++// directly or via block args on some outgoing edge).
+ func (g *z80cg) accStillNeeded(upcomingInst *Inst) bool {
+ 	if g.curBlock == nil {
+ 		return false
+ 	}
++	// Cross-block liveness: the value must survive to some successor block.
++	// This covers loop-carried variables in multi-block loop conditions,
++	// which have no in-block uses of their own.
++	if g.live != nil {
++		if lo := g.live.LiveOutOf(g.fn, g.curBlock); lo != nil && lo.Has(g.pendingAccReg) {
++			return true
++		}
++	}
+ 	seen := false
+ 	for _, inst := range g.curBlock.Insts {
+ 		if inst == upcomingInst {
+@@ -5632,6 +5784,25 @@ func (g *z80cg) pickScratch8(upcomingInst *Inst) string {
+ 			}
+ 		}
+ 	}
++	// Also protect values that are live OUT of this block (used by successors):
++	// they may occupy a register without any in-block use after upcomingInst.
++	// Protect both the override-resolved location (where the value currently is)
++	// and the allocator-assigned location (where block boundaries expect it).
++	if g.live != nil && g.fn != nil {
++		if lo := g.live.LiveOutOf(g.fn, g.curBlock); lo != nil {
++			lo.Each(func(r Reg) {
++				if r == NoReg {
++					return
++				}
++				if loc := g.loc(r); loc != "" {
++					livePhys[loc] = true
++				}
++				if canon := g.ar.Loc(r).Name; canon != "" {
++					livePhys[canon] = true
++				}
++			})
++		}
++	}
+ 	// Also protect any physOverride destinations already in use.
+ 	for _, loc := range g.physOverride {
+ 		livePhys[loc] = true
+@@ -5662,9 +5833,10 @@ func (g *z80cg) materializePendingFlag(upcomingInst *Inst) {
+ 		return
+ 	}
+ 	scratch := g.pickScratch8(upcomingInst)
+-	// Materialize carry → 0xFF (true) or 0x00 (false) via SBC A, A.
+-	g.emit("    SBC A, A")
+-	g.invalidate("A")
++	// Materialize the comparison result as a CANONICAL 0/1 value (matching
++	// the MIR2 VM, which canonicalises cmp results to 0/1). Uses the flag
++	// convention of the producing comparison, not just the carry flag.
++	g.emitFlagToA(g.pendingFlagReg)
+ 	g.emitf("    LD %s, A", scratch)
+ 	g.physOverride[g.pendingFlagReg] = scratch
+ 	g.pendingFlagReg = NoReg
+@@ -6911,7 +7083,11 @@ func (g *z80cg) buildReturnCopies(vals []Reg) []parallelCopy {
+ 		retLoc := canonicalReturnLoc(ret.Class, ret.Ty)
+ 		src := g.loc(rv)
+ 		if src != retLoc && !g.holdsValue(retLoc, src) {
+-			copies = append(copies, parallelCopy{srcName: src, dstName: retLoc, ty: ret.Ty})
++			pc := parallelCopy{srcName: src, dstName: retLoc, ty: ret.Ty}
++			if src == "F" {
++				pc.srcFlag = rv
++			}
++			copies = append(copies, pc)
+ 		}
+ 	}
+ 	return copies
+@@ -6959,7 +7135,11 @@ func (g *z80cg) buildBlockCopies(f *Func, targetName string, args []Reg) []paral
+ 			continue
+ 		}
+ 		if src != "" {
+-			copies = append(copies, parallelCopy{srcName: src, dstName: dst, ty: ty})
++			pc := parallelCopy{srcName: src, dstName: dst, ty: ty}
++			if src == "F" {
++				pc.srcFlag = arg
++			}
++			copies = append(copies, pc)
+ 		}
+ 	}
+ 	return copies
+@@ -6976,6 +7156,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 	type move struct {
+ 		src, dst string
+ 		ty       Ty
++		flagSrc  Reg // flag vreg when src == "F"
+ 		done     bool
+ 	}
+ 	// Separate constants from register moves; emit register moves first.
+@@ -6990,7 +7171,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 	}
+ 	moves := make([]move, len(regCopies))
+ 	for i, c := range regCopies {
+-		moves[i] = move{src: c.srcName, dst: c.dstName, ty: c.ty}
++		moves[i] = move{src: c.srcName, dst: c.dstName, ty: c.ty, flagSrc: c.srcFlag}
+ 	}
+ 
+ 	for {
+@@ -7008,7 +7189,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 				}
+ 			}
+ 			if !dstNeeded {
+-				g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty)
++				g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty, moves[i].flagSrc)
+ 				moves[i].done = true
+ 				progress = true
+ 				break
+@@ -7094,7 +7275,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 
+ 			firstDst := m.dst
+ 			if m.src != scratch {
+-				g.emitSingleCopy(m.src, scratch, m.ty)
++				g.emitSingleCopy(m.src, scratch, m.ty, m.flagSrc)
+ 			}
+ 			m.done = true
+ 			cur := m.src // start at the freed slot (m.src saved to scratch)
+@@ -7102,7 +7283,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 				found := false
+ 				for i := range moves {
+ 					if !moves[i].done && moves[i].dst == cur {
+-						g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty)
++						g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty, moves[i].flagSrc)
+ 						cur = moves[i].src // the source is the new freed slot
+ 						moves[i].done = true
+ 						found = true
+@@ -7114,7 +7295,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 				}
+ 			}
+ 			if firstDst != scratch {
+-				g.emitSingleCopy(scratch, firstDst, m.ty)
++				g.emitSingleCopy(scratch, firstDst, m.ty, NoReg)
+ 			}
+ 		} else {
+ 			// u16 cycle: use stack.
+@@ -7133,7 +7314,7 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 				found := false
+ 				for i := range moves {
+ 					if !moves[i].done && moves[i].src == cur {
+-						g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty)
++						g.emitSingleCopy(moves[i].src, moves[i].dst, moves[i].ty, moves[i].flagSrc)
+ 						cur = moves[i].dst
+ 						moves[i].done = true
+ 						found = true
+@@ -7178,13 +7359,30 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 
+ // emitSingleCopy emits a non-destructive register copy (src → dst).
+ // For 16-bit, this emits two LD instructions (not EX DE,HL which is a swap).
+-func (g *z80cg) emitSingleCopy(src, dst string, ty Ty) {
++// flagSrc is the ClassFlag virtual register when src == "F" (NoReg otherwise):
++// it lets the flag→value materialisation use the producing comparison's
++// flag convention and canonicalise the result to 0/1 (see emitFlagToA).
++func (g *z80cg) emitSingleCopy(src, dst string, ty Ty, flagSrc Reg) {
+ 	if src == dst {
+ 		return
+ 	}
+ 	// F register: cannot be accessed directly. Materialise flag→register or
+ 	// register→flag via the same logic as emitMov.
+ 	if src == "F" {
++		if flagSrc != NoReg {
++			// Flag → register with a known producing comparison:
++			// canonical 0/1 result (matches the MIR2 VM).
++			g.emitFlagToA(flagSrc)
++			if dst != "A" {
++				if isPairReg(dst) {
++					g.emitf("    LD %s, A", lowByte(dst))
++					g.emitf("    LD %s, 0", highByte(dst))
++				} else {
++					g.emitLD8(dst, "A")
++				}
++			}
++			return
++		}
+ 		// Flag → register: SBC A,A materialises carry into A (0xFF/0x00).
+ 		if dst == "A" {
+ 			g.emit("    SBC A, A")
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..ddee8aa 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -120,6 +120,8 @@ const (
+ 	tokColonColon // ::
+ 	tokAt         // @
+ 	tokFatArrow   // =>
++	tokAndAnd     // && (logical AND, short-circuit)
++	tokOrOr       // || (logical OR, short-circuit; also zero-param lambda in prefix position)
+ )
+ 
+ type token struct {
+@@ -218,6 +220,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokColonColon, "::", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAndAnd, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokOrOr, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+@@ -4397,23 +4407,26 @@ type binop struct {
+ }
+ 
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
+-	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
++	// Short-circuit logical operators bind loosest: || < && < any bitwise op.
++	tokOrOr:  {"||", 1},
++	tokAndAnd: {"&&", 2},
++	tokPipe:  {"|", 3},
++	// XOR uses the `xor` keyword operator (see parseBinary, precedence 4), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4471,10 +4484,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 4, between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -4487,6 +4500,17 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			break
+ 		}
+ 		p.l.next()
++		// Short-circuit logical operators. They must NOT take the bitwise ALU
++		// path below (and are not overloadable): lower them to a CondExpr so
++		// the right operand is only evaluated on the path that needs it.
++		if t.kind == tokAndAnd || t.kind == tokOrOr {
++			rhs, err := p.parseBinary(bo.prec)
++			if err != nil {
++				return nil, err
++			}
++			lhs = p.makeLogicalExpr(bo.op, lhs, rhs)
++			continue
++		}
+ 		rhs, err := p.parseBinary(bo.prec)
+ 		if err != nil {
+ 			return nil, err
+@@ -4508,6 +4532,52 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 	return lhs, nil
+ }
+ 
++// makeLogicalExpr builds a short-circuit boolean expression for && and ||:
++//
++//	L && R  →  if L { bool(R) } else { false }
++//	L || R  →  if L { true } else { bool(R) }
++//
++// The right operand only appears on the branch where its value is needed, so
++// lowering to a CondExpr (control flow) preserves short-circuit semantics:
++// side effects in R run only when L is true (&&) / false (||). The result is
++// a canonical bool (0/1) usable both as a value and as an if/while condition.
++func (p *parser) makeLogicalExpr(op string, l, r hir.Expr) hir.Expr {
++	if op == "&&" {
++		return &hir.CondExpr{
++			Cond: l,
++			Then: p.asBoolExpr(r),
++			Else: hir.Bool(false),
++			Ty:   mir2.TyBool,
++		}
++	}
++	return &hir.CondExpr{
++		Cond: l,
++		Then: hir.Bool(true),
++		Else: p.asBoolExpr(r),
++		Ty:   mir2.TyBool,
++	}
++}
++
++// asBoolExpr coerces an operand of a logical operator to a canonical boolean
++// value (0/1). Bool-typed operands (comparisons, bool vars, nested &&/||)
++// pass through unchanged; anything else is wrapped in `e != 0`.
++func (p *parser) asBoolExpr(e hir.Expr) hir.Expr {
++	ty := p.exprTy(e)
++	if ty == mir2.TyBool {
++		return e
++	}
++	zeroTy := ty
++	if zeroTy == nil {
++		zeroTy = mir2.TyU8
++	}
++	return &hir.BinExpr{
++		Op: "!=",
++		L:  e,
++		R:  &hir.IntLitExpr{Val: 0, Ty: zeroTy},
++		Ty: mir2.TyBool,
++	}
++}
++
+ func (p *parser) parseUnary() (hir.Expr, error) {
+ 	t := p.l.peek()
+ 	switch t.kind {
+@@ -5075,6 +5145,13 @@ func (p *parser) parsePrimary() (hir.Expr, error) {
+ 		// |params| expr  or  |params| { stmts }  — non-capturing lambda
+ 		return p.parseLambda()
+ 
++	case tokOrOr:
++		// || in prefix position: zero-parameter lambda (|| expr / || { stmts }).
++		// Infix || (logical OR) is handled in parseBinary; only the leading ||
++		// of an expression can start a lambda parameter list.
++		p.l.next()
++		return p.parseLambdaRest(nil)
++
+ 	case tokAt:
+ 		// @print(expr), @print_nl(), @print_u8(expr), @ptr(T, addr)
+ 		p.l.next()
+@@ -5368,6 +5445,13 @@ func (p *parser) parseLambda() (hir.Expr, error) {
+ 	if _, err := p.l.eat(tokPipe); err != nil {
+ 		return nil, fmt.Errorf("lambda: expected closing '|': %w", err)
+ 	}
++	return p.parseLambdaRest(params)
++}
++
++// parseLambdaRest parses the body of a lambda whose parameter list has been
++// consumed and registers the lifted function. Shared by |params| lambdas and
++// the zero-parameter || form.
++func (p *parser) parseLambdaRest(params []hir.Param) (hir.Expr, error) {
+ 
+ 	// Parse body: block { ... } or single expression → implicit return
+ 	var body *hir.Block

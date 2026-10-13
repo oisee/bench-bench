@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The rewrite of trimLiterals as an iterative indexOf walk faithfully reproduces the old regex's behavior while eliminating the stack overflow on ~15M-character literals (old code confirmed to throw RangeError on that size; new code trims it in ~20ms). Equivalence was verified by fuzzing ~480k inputs (exhaustive up to length 7 over quotes/double quotes/spaces/tabs/newlines, plus random and multi-megabyte cases) with zero mismatches, including the subtle unclosed-literal backtracking and post-match rescan semantics. All acceptance criteria are covered by passing tests and worst-case inputs (15M spaces, 7.5M escaped-quote pairs, 100k literals) complete in linear time.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 43,
+      "claim": "The variable `const len = sql.length;` is declared but never used anywhere in the function (the walk uses sql.indexOf/sql.slice directly). Dead code left over from the rewrite.",
+      "repro": "grep -n '\\blen\\b' tools/sql-literals.mjs  # only the declaration on line 43 and an unrelated comment on line 3"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "83157fb7be",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 140
+}

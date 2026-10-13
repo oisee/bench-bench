@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change implements indent/Format in hir/abap and routes all generated sources (EmitNamed files plus every tsfront driver/report) through them; I verified each acceptance bullet, ran the project's tests, fuzzed 25k inputs for panics/idempotency/token preservation/255-byte caps, and re-emitted the full 1538-file abaplint corpus on baseline vs. patch: token streams are byte-identical across all 2111 files and the layout matches abaplint's default style. Remaining findings are narrow edge cases that generated code never produces.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "hir/abap/format.go",
+      "line": 209,
+      "claim": "Backquoted (\\`) literals that span lines - legal ABAP, and preserved by the old wrap() - are re-lexed as code, so the continuation line's leading blanks are rewritten and the literal's value changes, violating 'preserve literal values'. The ''/'' case stops at end of line and does not carry an open \\` literal across lines the way template modes do for |...|.",
+      "repro": "go test ./hir/abap -run X with: indent(\"METHOD m.\\nx = `abc\\n   def`.\\ny = 1.\\nENDMETHOD.\\n\") returns \"...x = `abc\\n  def`...\" - the literal's embedded 3 blanks became 2 (old wrap left the line untouched). Generated code only emits single-line \\` literals, so the real corpus is unaffected."
+    },
+    {
+      "severity": "P3",
+      "file": "hir/abap/format.go",
+      "line": 69,
+      "claim": "A continuation line of a statement that is not the first statement on its line takes the first statement's line indentation (lineIndent[stmts[l.cont].line]) instead of the statement's own column, so for shared lines 'continuation/wrapped lines retain the statement's indentation' holds only for the line's first statement; the deviation is documented in the indent doc comment.",
+      "repro": "indent(\"METHOD m.\\nIF a = 1. x = 1 +\\n2.\\nENDIF.\\nENDMETHOD.\\n\") puts '2.' at 2 spaces while the continued statement x = 1 + 2. sits inside IF at column 4; same effect when Format wraps a non-first statement, e.g. 'IF c = 1. x = f(' + 60*' p = \\'a b c d\\'' + ' ).' indents the wrapped pieces at the IF's column, not x's."
+    }
+  ],
+  "critic": "S-glm-pi",
+  "critic_model": "zai/glm-5.3",
+  "anon": "7d6bdb3cca",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1480
+}

@@ -1,0 +1,11 @@
+{
+  "harness": "codex",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "effort": "medium",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-12T23:42:37+01:00",
+  "finished_at": "2026-10-12T23:43:09+01:00",
+  "exit_code": "0"
+}

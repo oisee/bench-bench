@@ -1,0 +1,19 @@
+{
+  "verdict": "incorrect",
+  "quality": 4,
+  "summary": "The rewrite handles the large literal and passes the focused suite. It changes the prior transformation for a complete SQL statement containing an odd run of apostrophes inside a double quoted identifier, contrary to the requested compatibility behavior.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/sql-literals.mjs",
+      "line": 52,
+      "claim": "The scanner always consumes adjacent apostrophes as an escape, even when no later closing apostrophe exists. The previous regex backtracked and used the first as a closing quote, so this changes trimming in complete statements with apostrophes inside double quoted identifiers; double quotes are specified not to affect single quote recognition.",
+      "repro": "Input: SELECT \"a 'b  ''\" FROM t. Current trimLiterals output: SELECT \"a 'b  ''\" FROM t. Baseline output: SELECT \"a 'b''\" FROM t."
+    }
+  ],
+  "critic": "K2-sol",
+  "anon": "47a62e492d",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 89
+}

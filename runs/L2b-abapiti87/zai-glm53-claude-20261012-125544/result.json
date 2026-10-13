@@ -1,0 +1,28 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1395,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "zai-glm53-claude",
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "agent_exit": 124,
+  "duration_s": 3149,
+  "stop": "TIMEOUT",
+  "leak_suspect": false,
+  "harness_version": "2.1.296 (Claude Code)"
+}

@@ -1,0 +1,33 @@
+{
+  "verdict": "incorrect",
+  "quality": 2,
+  "summary": "The patch adds a well-documented nodeutf8.Decode package and a DecodeBase64 host function, but the headline acceptance fails: cl_http_utility=>decode_base64 is never registered in the NATIVE map of tools/gogen/frontend.mjs, so it still fails with NOT_COMPILED under osgo. Additionally Decode diverges from Node's replacement-character behavior on a whole class of malformed inputs (interrupted sequences whose second byte violates the lead byte's restricted range), which is what the hidden nodeutf8 acceptance test caught.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 736,
+      "claim": "abap.DecodeBase64 is defined but never wired into the NATIVE map, so cl_http_utility=>decode_base64 (alias of IF_HTTP_UTILITY~DECODE_BASE64) still fails NOT_COMPILED; the task's primary acceptance ('compiles and executes successfully') is not met. Adding [\"CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64\", {fn: \"abap.DecodeBase64\", args: [\"ENCODED:string\"]}] next to the ENCODE_BASE64 entry (line 736) makes the same test pass (verified in a scratch copy of the tree).",
+      "repro": "mkdir -p /tmp/b64 && printf 'CLASS zcl_d DEFINITION PUBLIC FINAL CREATE PUBLIC.\\n PUBLIC SECTION.\\n  CLASS-METHODS r RETURNING VALUE(v) TYPE string.\\nENDCLASS.\\nCLASS zcl_d IMPLEMENTATION.\\n METHOD r.\\n  v = cl_http_utility=>decode_base64( `aGVsbG8=` ).\\n ENDMETHOD.\\nENDCLASS.\\n' > /tmp/b64/zcl_d.clas.abap && printf 'CLASS ltcl DEFINITION FOR TESTING DURATION SHORT.\\n PRIVATE SECTION.\\n  METHODS t FOR TESTING.\\nENDCLASS.\\nCLASS ltcl IMPLEMENTATION.\\n METHOD t.\\n  cl_abap_unit_assert=>assert_equals( act = zcl_d=>r( ) exp = `hello` ).\\n ENDMETHOD.\\nENDCLASS.\\n' > /tmp/b64/zcl_d.clas.testclasses.abap && node tools/osgo-unit.mjs /tmp/b64 --class ZCL_D  # -> NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64"
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 82,
+      "claim": "While inside a multi-byte sequence the code accepts any 0x80-0xBF byte as a continuation and only applies the restricted second-byte ranges (E0:A0-BF, ED:80-9F, F0:90-BF, F4:80-8F) when the sequence completes (decodeSequence) or at end of input (wouldBeValid). When such a sequence is interrupted mid-stream by a non-continuation byte, Decode emits a single U+FFFD for the whole prefix, but Node (WHATWG semantics) resets at the out-of-range second byte and reprocesses it, emitting one U+FFFD per byte. A differential fuzz of Node 26 Buffer.toString('utf8') vs Decode over 352,064 inputs (all 1- and 2-byte strings, systematic 3/4-byte shapes, 200k random biased strings) shows 17,780 mismatches (~5%), always with Node emitting more U+FFFD; a WHATWG reference implementation matches Node on all 352,064 inputs, so the divergence is entirely this bug. This breaks the acceptance bullet 'Malformed UTF-8 produces the same replacement characters as Node ... for invalid continuations'.",
+      "repro": "node -e 'console.log(JSON.stringify(Buffer.from([0xE0,0x80,0x41]).toString()))'  # \"\\uFFFD\\uFFFDA\"  vs  nodeutf8.Decode(\"\\xE0\\x80\\x41\") -> \"\\uFFFDA\" (one FFFD). Same for F0 80 80 41 (Node: 3 U+FFFD + 'A', Go: 1), F4 90 41, ED A0 41, E0 80 C2."
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 247,
+      "claim": "The new/edited Go files (decode.go, decode_test.go, b64decode_test.go, http_utility.go) end without a trailing newline, so gofmt flags them (repo precedent is mixed, but the new package files are otherwise gofmt-clean).",
+      "repro": "cd tools/gogen/go && gofmt -l nodeutf8 abap | grep -E 'nodeutf8|b64decode_test|http_utility'"
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "b21ac024f4",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 717
+}

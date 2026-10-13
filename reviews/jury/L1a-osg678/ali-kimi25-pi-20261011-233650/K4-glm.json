@@ -1,0 +1,26 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The manual scanner correctly replaces the regex: a 15M-character literal completes in ~50ms where the baseline throws RangeError: Maximum call stack size exceeded (reproduced), trailing spaces before each closing quote are removed, and leading/internal spaces, tabs, newlines, doubled single quotes, characters outside literals, empty and space-only literals, double quotes and multi-literal statements all behave as before. Differential testing (~200k exhaustive short strings over {a, space, quote} plus 500k random strings over {a, space, tab, quote, dquote, newline}) found zero divergences from the baseline on quote-balanced inputs; the only divergences are on unbalanced-quote input, which the task explicitly leaves outside the preservation scope and which no call site can produce. Two minor nits: a dead conditional and that undocumented unbalanced-input semantics change.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 51,
+      "claim": "The condition `if (contentEnd <= literalEnd - 1)` is dead code: contentEnd is initialized to literalEnd - 1 and only ever decreases inside the preceding while loop, so the guard is always true and the closing quote is always appended. It suggests a case that cannot occur and makes the reader hunt for it.",
+      "repro": "grep -n 'contentEnd' tools/sql-literals.mjs  # contentEnd starts at literalEnd-1 (== j) and only decrements"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 61,
+      "claim": "Behavior on unbalanced-quote input differs from the baseline: the old regex's greedy backtracking could trim trailing spaces inside a fragment that later proves unterminated (for the 6-char string open-quote a space space quote quote, old trims the spaces, new leaves it verbatim), while the new code leaves any unterminated literal verbatim. All ~1400 divergences found by fuzzing are of this kind; no quote-balanced input diverges, no call site (installTrim passes complete statements or individual quoted values) can produce such input, and the task scopes preservation to quote-balanced fragments, so this is informational only.",
+      "repro": "node -e \"const o=s=>s.replace(/'((?:[^']|'')*)'/g,(m,i)=>String.fromCharCode(39)+i.replace(/ +$/,'')+String.fromCharCode(39)); o('a  '+''.padEnd(0)+String.fromCharCode(39,39))\" — compare with node -e \"import('/work/tools/sql-literals.mjs').then(m=>console.log(m.trimLiterals('a  '+''.padEnd(0)+String.fromCharCode(39,39))))\""
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "228580eee4",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 220
+}

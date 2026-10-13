@@ -1,0 +1,144 @@
+diff --git a/tools/gogen/emit-go.mjs b/tools/gogen/emit-go.mjs
+index 165c026..69627bd 100644
+--- a/tools/gogen/emit-go.mjs
++++ b/tools/gogen/emit-go.mjs
+@@ -2320,6 +2320,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/emit-js.mjs b/tools/gogen/emit-js.mjs
+index 67206f9..2b9e452 100644
+--- a/tools/gogen/emit-js.mjs
++++ b/tools/gogen/emit-js.mjs
+@@ -1148,6 +1148,7 @@ function conv(e, ctx) {
+     case "c2n":
+       if (to === "f") return `abap.ParseF(${x})`;
+       if (to === "i") return `abap.ParseI(${x})`;
++      if (to === "int8") return `abap.ParseI8(${x})`;
+       break;
+     default: break;
+   }
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..e563bea 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/hex"
+ 	"errors"
+ 	"math"
++	"math/big"
+ 	"net/url"
+ 	"osg/gogen/abaperr"
+ 	"osg/gogen/intarith"
+@@ -195,6 +196,42 @@ func ParseI(v string) int32 {
+ 	return int32(n)
+ }
+ 
++// ParseI8 converts decimal text to a signed 64-bit integer exactly. The
++// decimal is rounded half away from zero before checking the int8 range.
++func ParseI8(v string) int64 {
++	t := strings.Trim(v, " ")
++	if t == "" {
++		return 0
++	}
++	neg, body, ok := numSign(t)
++	body = strings.Trim(body, " ")
++	if !ok || !decimalDigits(body) {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	whole, frac := body, ""
++	if i := strings.IndexByte(body, '.'); i >= 0 {
++		whole, frac = body[:i], body[i+1:]
++	}
++	whole = strings.TrimLeft(whole, "0")
++	if whole == "" {
++		whole = "0"
++	}
++	n, good := new(big.Int).SetString(whole, 10)
++	if !good {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_NO_NUMBER", Op: "c->int8"})
++	}
++	if frac != "" && frac[0] >= '5' {
++		n.Add(n, big.NewInt(1))
++	}
++	if neg {
++		n.Neg(n)
++	}
++	if !n.IsInt64() {
++		panic(ArithmeticError{Class: "CX_SY_CONVERSION_OVERFLOW", Op: "c->int8"})
++	}
++	return n.Int64()
++}
++
+ // I8ToI and F2I8: int8 into i with an overflow check, f into int8 rounded.
+ func I8ToI(v int64) int32 { return check(v, "int8->i") }
+ 
+diff --git a/tools/gogen/go/abap/parsei8_test.go b/tools/gogen/go/abap/parsei8_test.go
+new file mode 100644
+index 0000000..3678752
+--- /dev/null
++++ b/tools/gogen/go/abap/parsei8_test.go
+@@ -0,0 +1,31 @@
++package abap
++
++import "testing"
++
++func TestParseI8ExactDecimal(t *testing.T) {
++	for _, tc := range []struct{ in, want string }{
++		{"", "0"}, {"   ", "0"}, {" +12.4 ", "12"}, {"-12.5", "-13"},
++		{"9223372036854775807", "9223372036854775807"},
++		{"-9223372036854775808", "-9223372036854775808"},
++		{"9223372036854775806.5", "9223372036854775807"},
++	} {
++		if got := FmtI8(ParseI8(tc.in)); got != tc.want {
++			t.Errorf("ParseI8(%q) = %s, want %s", tc.in, got, tc.want)
++		}
++	}
++	for _, tc := range []struct{ in, class string }{
++		{"9223372036854775807.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"-9223372036854775808.5", "CX_SY_CONVERSION_OVERFLOW"},
++		{"12x", "CX_SY_CONVERSION_NO_NUMBER"},
++	} {
++		func() {
++			defer func() {
++				r := recover()
++				if e, ok := r.(ArithmeticError); !ok || e.Class != tc.class {
++					t.Errorf("ParseI8(%q) panic = %#v, want %s", tc.in, r, tc.class)
++				}
++			}()
++			ParseI8(tc.in)
++		}()
++	}
++}
+diff --git a/tools/gogen/js/abap.mjs b/tools/gogen/js/abap.mjs
+index d4b8241..3d6b4ed 100644
+--- a/tools/gogen/js/abap.mjs
++++ b/tools/gogen/js/abap.mjs
+@@ -162,6 +162,23 @@ export function ParseI(v) {
+   if (n > 2147483647 || n < -2147483648) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->i");
+   return n;
+ }
++const MAX_I8 = 9223372036854775807n;
++const MIN_I8 = -9223372036854775808n;
++export function ParseI8(v) {
++  const t = v.replace(/^ +| +$/g, "");
++  if (t === "") return 0n;
++  const {neg, body: raw, ok} = numSign(t);
++  const body = raw.replace(/^ +| +$/g, "");
++  if (!ok || !decimalDigits(body)) throw new AbapError("CX_SY_CONVERSION_NO_NUMBER", "c->int8");
++  const dot = body.indexOf(".");
++  const whole = (dot < 0 ? body : body.slice(0, dot)).replace(/^0+/, "") || "0";
++  const frac = dot < 0 ? "" : body.slice(dot + 1);
++  let n = BigInt(whole);
++  if (frac !== "" && frac[0] >= "5") n++;
++  if (neg) n = -n;
++  if (n > MAX_I8 || n < MIN_I8) throw new AbapError("CX_SY_CONVERSION_OVERFLOW", "c->int8");
++  return n;
++}
+ export const ToUpper = (v) => v.toUpperCase();
+ export const ToLower = (v) => v.toLowerCase();
+ // A string without surrogates has one UTF-16 unit per character, so its

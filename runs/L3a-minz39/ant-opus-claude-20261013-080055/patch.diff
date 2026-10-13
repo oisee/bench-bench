@@ -1,0 +1,1024 @@
+diff --git a/docs/Nanz_Language_Book.md b/docs/Nanz_Language_Book.md
+index db8ae97..335ed72 100644
+--- a/docs/Nanz_Language_Book.md
++++ b/docs/Nanz_Language_Book.md
+@@ -262,20 +262,28 @@ a >  b   a >= b
+ 
+ ```nanz
+ !a       // logical NOT (unary)
++a && b   // logical AND — b is evaluated only if a is true
++a || b   // logical OR  — b is evaluated only if a is false
+ ```
+ 
++`&&` and `||` short-circuit and produce a `bool` (0 or 1). Any non-zero operand
++counts as true. They bind more loosely than comparisons and bitwise operators,
++so `lo <= x && x < hi || x == 0` reads as `((lo <= x) && (x < hi)) || (x == 0)`.
++
+ **Precedence table** (highest to lowest):
+ 
+ | Level | Operators |
+ |-------|-----------|
+-| 8 | `*` `/` `%` |
+-| 7 | `+` `-` |
+-| 6 | `<<` `>>` |
+-| 5 | `<` `<=` `>` `>=` |
+-| 4 | `==` `!=` |
+-| 3 | `&` |
+-| 2 | `^` (XOR) |
+-| 1 | `\|` |
++| 10 | `*` `/` `%` |
++| 9 | `+` `-` |
++| 8 | `<<` `>>` |
++| 7 | `<` `<=` `>` `>=` |
++| 6 | `==` `!=` |
++| 5 | `&` |
++| 4 | `^` (XOR) |
++| 3 | `\|` |
++| 2 | `&&` |
++| 1 | `\|\|` |
+ 
+ Parentheses override precedence: `(a + b) * c`.
+ 
+diff --git a/docs/Nanz_Language_Book_v2.md b/docs/Nanz_Language_Book_v2.md
+index 7ab9459..492bc5c 100644
+--- a/docs/Nanz_Language_Book_v2.md
++++ b/docs/Nanz_Language_Book_v2.md
+@@ -228,20 +228,23 @@ false       // bool
+ `==` `!=` `<` `<=` `>` `>=`
+ 
+ **Logical:**
+-`!` (NOT, unary)
++`!` (NOT, unary) `&&` (AND) `||` (OR) — `&&`/`||` short-circuit (the right
++operand is evaluated only when needed) and produce a `bool`.
+ 
+ **Precedence** (highest to lowest):
+ 
+ | Level | Operators |
+ |-------|-----------|
+-| 8 | `*` `/` `%` |
+-| 7 | `+` `-` |
+-| 6 | `<<` `>>` |
+-| 5 | `<` `<=` `>` `>=` |
+-| 4 | `==` `!=` |
+-| 3 | `&` |
+-| 2 | `^` (XOR) |
+-| 1 | `\|` |
++| 10 | `*` `/` `%` |
++| 9 | `+` `-` |
++| 8 | `<<` `>>` |
++| 7 | `<` `<=` `>` `>=` |
++| 6 | `==` `!=` |
++| 5 | `&` |
++| 4 | `^` (XOR) |
++| 3 | `\|` |
++| 2 | `&&` |
++| 1 | `\|\|` |
+ 
+ Parentheses override precedence: `(a + b) * c`.
+ 
+diff --git a/minzc/pkg/hir/lower.go b/minzc/pkg/hir/lower.go
+index 6f9ca55..363fabc 100644
+--- a/minzc/pkg/hir/lower.go
++++ b/minzc/pkg/hir/lower.go
+@@ -644,10 +644,9 @@ func (l *lowerer) lowerExprForRet(e Expr) mir2.Reg {
+ 		//   then: Ret(X)
+ 		//   else: Ret(Y)
+ 		// This avoids a join block and enables CondRetSink + FuseAbsDiff.
+-		cond := l.lowerCond(ex.Cond)
+ 		thenLabel := l.fresh("cret_then")
+ 		elseLabel := l.fresh("cret_else")
+-		l.bld.BrIf(cond, thenLabel, nil, elseLabel, nil)
++		l.lowerBranch(ex.Cond, thenLabel, nil, elseLabel, nil)
+ 
+ 		l.bld.SwitchToNewBlock(thenLabel)
+ 		thenVal := l.lowerExpr(ex.Then)
+@@ -1202,15 +1201,14 @@ func (l *lowerer) lowerIf(st *IfStmt) bool {
+ 	}
+ 
+ 	// Emit the branch.
+-	condReg := l.lowerCond(st.Cond)
+ 	if hasElse {
+-		l.bld.BrIf(condReg, thenLabel, nil, elseLabel, nil)
++		l.lowerBranch(st.Cond, thenLabel, nil, elseLabel, nil)
+ 	} else {
+ 		// No else: false edge goes to join with the current (pre-then) values
+ 		// of mutated vars.  The true (then) edge will jump to join with the
+ 		// post-mutation values.  The join block will have block params for each
+ 		// mutated var that receives from both paths.
+-		l.bld.BrIf(condReg, thenLabel, nil, joinLabel, falseEdgeArgs)
++		l.lowerBranch(st.Cond, thenLabel, nil, joinLabel, falseEdgeArgs)
+ 	}
+ 
+ 	// ── then branch ──
+@@ -1337,11 +1335,10 @@ func (l *lowerer) lowerWhile(st *WhileStmt) {
+ 
+ 	prevInLoopCtx := l.inLoopContext
+ 	l.inLoopContext = true
+-	cond := l.lowerCond(st.Cond)
+ 	// True → body (no block params on body, no args needed).
+ 	// False → exit (with block params, pass current head-env values).
+ 	exitArgs := l.collectArgs(mutated)
+-	l.bld.BrIf(cond, bodyLabel, nil, exitLabel, exitArgs)
++	l.lowerBranch(st.Cond, bodyLabel, nil, exitLabel, exitArgs)
+ 
+ 	// ── loop_body ──
+ 	l.bld.SwitchToNewBlock(bodyLabel)
+@@ -1899,14 +1896,13 @@ func (l *lowerer) lowerIndex(ex *IndexExpr) mir2.Reg {
+ // Emits a BrIf to a then-block and an else-block, both converging at a join
+ // block with a block parameter that carries the result value.
+ func (l *lowerer) lowerCondExpr(ex *CondExpr) mir2.Reg {
+-	cond := l.lowerCond(ex.Cond)
+ 	cls := classForExpr(ex.Ty)
+ 
+ 	thenLabel := l.fresh("cond_then")
+ 	elseLabel := l.fresh("cond_else")
+ 	joinLabel := l.fresh("cond_join")
+ 
+-	l.bld.BrIf(cond, thenLabel, nil, elseLabel, nil)
++	l.lowerBranch(ex.Cond, thenLabel, nil, elseLabel, nil)
+ 
+ 	// then-branch
+ 	thenBlk := l.bld.SwitchToNewBlock(thenLabel)
+@@ -1932,6 +1928,8 @@ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
+ 	switch ex.Op {
+ 	case "==", "!=", "<", "<=", ">", ">=":
+ 		return l.lowerCond(ex)
++	case "&&", "||":
++		return l.lowerLogicalValue(ex)
+ 	}
+ 
+ 	ty := ex.Ty
+@@ -2001,6 +1999,72 @@ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
+ 	}
+ }
+ 
++// isLogicalExpr reports whether e is a short-circuit && / || expression,
++// possibly under one or more boolean "!".
++func isLogicalExpr(e Expr) bool {
++	switch ex := e.(type) {
++	case *BinExpr:
++		return ex.Op == "&&" || ex.Op == "||"
++	case *UnaryExpr:
++		return ex.Op == "!" && isLogicalExpr(ex.X)
++	}
++	return false
++}
++
++// lowerBranch emits a conditional branch on e: to tLabel(tArgs...) when e is
++// true, to fLabel(fArgs...) otherwise.  Short-circuit && and || become a chain
++// of branches, so the right operand is evaluated only when the left operand
++// does not already decide the result:
++//
++//	a && b:  brif a @rhs @false;  rhs: brif b @true @false
++//	a || b:  brif a @true @rhs;   rhs: brif b @true @false
++//
++// Any other condition lowers exactly as lowerCond + BrIf.
++func (l *lowerer) lowerBranch(e Expr, tLabel string, tArgs []mir2.Reg, fLabel string, fArgs []mir2.Reg) {
++	switch ex := e.(type) {
++	case *BinExpr:
++		if ex.Op == "&&" || ex.Op == "||" {
++			rhsLabel := l.fresh("sc_rhs")
++			if ex.Op == "&&" {
++				l.lowerBranch(ex.L, rhsLabel, nil, fLabel, fArgs)
++			} else {
++				l.lowerBranch(ex.L, tLabel, tArgs, rhsLabel, nil)
++			}
++			l.bld.SwitchToNewBlock(rhsLabel)
++			l.lowerBranch(ex.R, tLabel, tArgs, fLabel, fArgs)
++			return
++		}
++	case *UnaryExpr:
++		if ex.Op == "!" && isLogicalExpr(ex.X) {
++			l.lowerBranch(ex.X, fLabel, fArgs, tLabel, tArgs)
++			return
++		}
++	}
++	cond := l.lowerCond(e)
++	l.bld.BrIf(cond, tLabel, tArgs, fLabel, fArgs)
++}
++
++// lowerLogicalValue lowers a short-circuit && / || used as a value.  The
++// result is a canonical bool (0 or 1) delivered through a join block param.
++func (l *lowerer) lowerLogicalValue(ex *BinExpr) mir2.Reg {
++	trueLabel := l.fresh("sc_true")
++	falseLabel := l.fresh("sc_false")
++	joinLabel := l.fresh("sc_join")
++
++	l.lowerBranch(ex, trueLabel, nil, falseLabel, nil)
++
++	l.bld.SwitchToNewBlock(trueLabel)
++	one := l.bld.Const(1, mir2.TyBool, mir2.ClassGeneral)
++	l.bld.Jmp(joinLabel, one)
++
++	l.bld.SwitchToNewBlock(falseLabel)
++	zero := l.bld.Const(0, mir2.TyBool, mir2.ClassGeneral)
++	l.bld.Jmp(joinLabel, zero)
++
++	join := l.bld.SwitchToNewBlock(joinLabel)
++	return l.bld.BlockParam(join, mir2.TyBool, mir2.ClassGeneral)
++}
++
+ // lowerCond lowers a condition expression and returns a ClassFlag vreg.
+ // Handles comparison ops directly; for non-bool expressions wraps in != 0.
+ // For ordering comparisons (<, <=, >, >=), picks signed or unsigned CmpCond
+diff --git a/minzc/pkg/hirwat/codegen.go b/minzc/pkg/hirwat/codegen.go
+index db5dad9..a6e72d4 100644
+--- a/minzc/pkg/hirwat/codegen.go
++++ b/minzc/pkg/hirwat/codegen.go
+@@ -449,6 +449,15 @@ func (g *gen) compileExprRaw(e hir.Expr) string {
+ func (g *gen) compileBinExpr(ex *hir.BinExpr) string {
+ 	l := g.compileExpr(ex.L)
+ 	r := g.compileExpr(ex.R)
++
++	// Short-circuit logical operators: R is evaluated only inside the
++	// branch that needs it; the result is a canonical 0/1.
++	switch ex.Op {
++	case "&&":
++		return fmt.Sprintf("(if (result i32) %s (then (i32.ne %s (i32.const 0))) (else (i32.const 0)))", l, r)
++	case "||":
++		return fmt.Sprintf("(if (result i32) %s (then (i32.const 1)) (else (i32.ne %s (i32.const 0))))", l, r)
++	}
+ 	signed := isSigned(ex.Ty)
+ 
+ 	var op string
+diff --git a/minzc/pkg/mir2/z80codegen.go b/minzc/pkg/mir2/z80codegen.go
+index 1136a80..1e0693d 100644
+--- a/minzc/pkg/mir2/z80codegen.go
++++ b/minzc/pkg/mir2/z80codegen.go
+@@ -763,6 +763,8 @@ type z80cg struct {
+ 	sb             *strings.Builder
+ 	mod            *Module                    // parent module (for callee contract lookup at call sites)
+ 	fn             *Func                      // current function
++	liveFn         *Func                      // function liveRes was computed for
++	liveRes        *LivenessResult            // block liveness of liveFn (lazy)
+ 	blockIdx       int                        // index of current block in fn.Blocks (for fall-through)
+ 	cmpSwapped     map[Reg]bool               // dst reg → operands were swapped in genCmp
+ 	cmpAndZero     map[Reg]bool               // dst reg → comparison used AND A (rhs=0), use NZ/Z not NC/C
+@@ -952,6 +954,22 @@ type parallelCopy struct {
+ 	// LD dstName, immVal after all register-to-register copies are resolved.
+ 	isImm  bool
+ 	immVal int64
++	// live lists locations that already hold a value the edge passes in place
++	// (src == dst, so no move was recorded).  They are live across the whole
++	// parallel copy and must not be used as a cycle-breaking scratch register.
++	live []string
++}
++
++// markLiveInPlace attaches the in-place locations to every copy so that
++// emitParallelCopy can see them.  The slice length is unchanged: callers use
++// len(copies) == 0 to mean "nothing to emit".
++func markLiveInPlace(copies []parallelCopy, inPlace []string) {
++	if len(copies) == 0 || len(inPlace) == 0 {
++		return
++	}
++	for i := range copies {
++		copies[i].live = inPlace
++	}
+ }
+ 
+ func (g *z80cg) emit(s string) {
+@@ -5518,10 +5536,63 @@ func (g *z80cg) genExt(inst *Inst) {
+ 		g.emitf("    LD %s, 0", hi)
+ 		return
+ 	}
++	if srcW < 8 && (dstW == 8 || dstW == 16) && src != "F" && !g.isFlagValue(inst.Src[0]) {
++		// bool held in an 8-bit register as 0/1 (e.g. the join param of a
++		// short-circuit && / ||): widening is a plain move / zero-extend.
++		// Flag-class sources still fall through — their value lives in F.
++		if dstW == 8 {
++			if src != dst {
++				g.emitSingleCopy(src, dst, inst.Ty)
++			}
++			return
++		}
++		if isPairReg(dst) && !isPairReg(src) && !isSpill(src) && !isSpill(dst) {
++			lo := lowByte(dst)
++			if src != lo {
++				if (isIXYReg(src) && (lo == "H" || lo == "L")) ||
++					((src == "H" || src == "L") && isIXYReg(lo)) {
++					g.emitMovViaAltA(lo, src)
++				} else {
++					g.emitLD8(lo, src)
++				}
++			}
++			g.emitf("    LD %s, 0", highByte(dst))
++			return
++		}
++	}
+ 	// Fallback.
+ 	g.comment(fmt.Sprintf("TODO: ext %s→%s %s→%s", inst.SrcTy, inst.Ty, src, dst))
+ }
+ 
++// isFlagValue reports whether r is a flag-class value (comparison result or
++// ClassFlag call/param result) whose truth lives in F rather than a register.
++func (g *z80cg) isFlagValue(r Reg) bool {
++	if _, ok := g.callFlags[r]; ok {
++		return true
++	}
++	if g.fn == nil {
++		return false
++	}
++	for _, p := range g.fn.Contract.Params {
++		if p.Reg == r {
++			return p.Class == ClassFlag
++		}
++	}
++	for _, b := range g.fn.Blocks {
++		for _, bp := range b.Params {
++			if bp.Dst == r {
++				return bp.Class == ClassFlag
++			}
++		}
++		for _, in := range b.Insts {
++			if in.Dst == r {
++				return in.Op == OpCmp || in.Cls == ClassFlag
++			}
++		}
++	}
++	return false
++}
++
+ func (g *z80cg) genSext(inst *Inst) {
+ 	dst := g.loc(inst.Dst)
+ 	src := g.loc(inst.Src[0])
+@@ -6900,6 +6971,7 @@ func (g *z80cg) branchLabel(f *Func, target string, copies []parallelCopy) strin
+ // constant folding/PBQP — sequential moves would clobber one value.
+ func (g *z80cg) buildReturnCopies(vals []Reg) []parallelCopy {
+ 	var copies []parallelCopy
++	var inPlace []string
+ 	for i, rv := range vals {
+ 		if i >= len(g.fn.Contract.Returns) {
+ 			break
+@@ -6912,8 +6984,11 @@ func (g *z80cg) buildReturnCopies(vals []Reg) []parallelCopy {
+ 		src := g.loc(rv)
+ 		if src != retLoc && !g.holdsValue(retLoc, src) {
+ 			copies = append(copies, parallelCopy{srcName: src, dstName: retLoc, ty: ret.Ty})
++		} else {
++			inPlace = append(inPlace, retLoc)
+ 		}
+ 	}
++	markLiveInPlace(copies, inPlace)
+ 	return copies
+ }
+ 
+@@ -6934,6 +7009,7 @@ func (g *z80cg) buildBlockCopies(f *Func, targetName string, args []Reg) []paral
+ 		return nil
+ 	}
+ 	var copies []parallelCopy
++	var inPlace []string
+ 	for i, arg := range args {
+ 		if i >= len(target.Params) {
+ 			break
+@@ -6945,7 +7021,10 @@ func (g *z80cg) buildBlockCopies(f *Func, targetName string, args []Reg) []paral
+ 		// moved to their canonical destination in the target block.
+ 		src := g.loc(arg)
+ 		if src == dst {
+-			continue // pre-coalescing or same-location allocation — no copy needed
++			// Pre-coalescing or same-location allocation — no copy needed, but
++			// the value stays live while the other args are shuffled.
++			inPlace = append(inPlace, dst)
++			continue
+ 		}
+ 		// If this argument is a compile-time constant, mark it for deferred
+ 		// rematerialisation AFTER all register-to-register copies are resolved.
+@@ -6962,6 +7041,7 @@ func (g *z80cg) buildBlockCopies(f *Func, targetName string, args []Reg) []paral
+ 			copies = append(copies, parallelCopy{srcName: src, dstName: dst, ty: ty})
+ 		}
+ 	}
++	markLiveInPlace(copies, inPlace)
+ 	return copies
+ }
+ 
+@@ -6981,7 +7061,15 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 	// Separate constants from register moves; emit register moves first.
+ 	var immCopies []parallelCopy
+ 	var regCopies []parallelCopy
++	liveInPlace := map[string]bool{}
+ 	for _, c := range copies {
++		for _, loc := range c.live {
++			liveInPlace[loc] = true
++			if isPairReg(loc) {
++				liveInPlace[highByte(loc)] = true
++				liveInPlace[lowByte(loc)] = true
++			}
++		}
+ 		if c.isImm {
+ 			immCopies = append(immCopies, c)
+ 		} else {
+@@ -7082,6 +7170,10 @@ func (g *z80cg) emitParallelCopy(copies []parallelCopy) {
+ 					cycleRegs[moves[i].dst] = true
+ 				}
+ 			}
++			// Values passed in place (liveInPlace) are just as live.
++			for r := range liveInPlace {
++				cycleRegs[r] = true
++			}
+ 			scratch := "A"
+ 			if cycleRegs["A"] {
+ 				for _, r := range []string{"C", "E", "H", "L", "D", "B"} {
+@@ -8229,10 +8321,14 @@ func (g *z80cg) callerSavePairs(inst *Inst, callee *Func) []string {
+ 
+ 	// Compute which virtual regs are live AFTER this call instruction.
+ 	// A reg is live-across-call if it's used by any instruction after the call
+-	// in the same block, or by the block's terminator, or by a successor block
+-	// (approximated by checking all remaining uses in the function — conservative
+-	// but much tighter than "all allocated regs").
++	// in the same block, or by the block's terminator, or is live into a
++	// successor block (e.g. the right operand of a short-circuit && reads a
++	// param that was live across the left operand's CALL).  PUSH/POP restores
++	// the value to the same register, so including live-out values is safe.
+ 	liveAfter := g.regsLiveAfterInst(inst)
++	if out := g.curBlockLiveOut(); out != nil {
++		out.Each(func(r Reg) { liveAfter[r] = true })
++	}
+ 
+ 	// Collect physical regs that are (a) clobbered by callee and (b) hold a
+ 	// value that is live after the call. Exclude call args and result regs
+@@ -8457,6 +8553,19 @@ func (g *z80cg) isVregLiveAfter(vreg Reg, target *Inst) bool {
+ 	return false
+ }
+ 
++// curBlockLiveOut returns the vregs live at the exit of the current block,
++// computing block liveness for the current function on first use.
++func (g *z80cg) curBlockLiveOut() *RegSet {
++	if g.fn == nil || g.curBlock == nil {
++		return nil
++	}
++	if g.liveFn != g.fn || g.liveRes == nil {
++		g.liveRes = ComputeLiveness(g.fn)
++		g.liveFn = g.fn
++	}
++	return g.liveRes.LiveOutOf(g.fn, g.curBlock)
++}
++
+ func (g *z80cg) regsLiveAfterInst(target *Inst) map[Reg]bool {
+ 	live := make(map[Reg]bool)
+ 	if g.curBlock == nil {
+diff --git a/minzc/pkg/nanz/logical_ops_test.go b/minzc/pkg/nanz/logical_ops_test.go
+new file mode 100644
+index 0000000..d3a6ce0
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_ops_test.go
+@@ -0,0 +1,382 @@
++package nanz_test
++
++// Short-circuit logical operators && and || — parsing, precedence and
++// end-to-end behaviour on the MIR2 VM and the Z80 binary (dual-VM asserts).
++
++import (
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/minz/minzc/pkg/hir"
++	"github.com/minz/minzc/pkg/mir2"
++	"github.com/minz/minzc/pkg/nanz"
++	"github.com/minz/minzc/pkg/pipeline"
++)
++
++// retExpr parses src and returns the value of the first statement (a return)
++// of the function named fn.
++func retExpr(t *testing.T, src, fn string) hir.Expr {
++	t.Helper()
++	m, err := nanz.Parse(src, "logical_parse")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	for _, f := range m.Funcs {
++		if f.Name != fn {
++			continue
++		}
++		ret, ok := f.Body.Body[0].(*hir.ReturnStmt)
++		if !ok {
++			t.Fatalf("%s: first stmt is %T, want *hir.ReturnStmt", fn, f.Body.Body[0])
++		}
++		return ret.Val
++	}
++	t.Fatalf("function %q not found", fn)
++	return nil
++}
++
++// shape renders an expression tree as fully-parenthesised prefix form so
++// precedence can be checked with a single string comparison.
++func shape(e hir.Expr) string {
++	switch ex := e.(type) {
++	case *hir.BinExpr:
++		return "(" + ex.Op + " " + shape(ex.L) + " " + shape(ex.R) + ")"
++	case *hir.UnaryExpr:
++		return "(" + ex.Op + " " + shape(ex.X) + ")"
++	case *hir.VarRefExpr:
++		return ex.Name
++	case *hir.IntLitExpr:
++		return strconv.FormatInt(ex.Val, 10)
++	case *hir.CallExpr:
++		return ex.Fn + "()"
++	}
++	return "?"
++}
++
++func TestLogicalOps_Precedence(t *testing.T) {
++	cases := []struct {
++		expr string
++		want string
++	}{
++		// || is loosest, then &&.
++		{"a || b && c", "(|| a (&& b c))"},
++		{"a && b || c", "(|| (&& a b) c)"},
++		{"a || b || c", "(|| (|| a b) c)"},
++		{"a && b && c", "(&& (&& a b) c)"},
++		// Both are looser than comparisons...
++		{"a < b && b < c", "(&& (< a b) (< b c))"},
++		{"a == 1 || b != 2", "(|| (== a 1) (!= b 2))"},
++		// ...and than every bitwise operator.
++		{"a & 1 && b | 2", "(&& (& a 1) (| b 2))"},
++		{"a | b || c xor 1", "(|| (| a b) (^ c 1))"},
++		{"a & b || c & 1 && b", "(|| (& a b) (&& (& c 1) b))"},
++		// Arithmetic / shifts are unaffected.
++		{"a + 1 && b << 1", "(&& (+ a 1) (<< b 1))"},
++		// Existing bitwise precedence is preserved: | < xor < & < == < + .
++		{"a | b xor c & 1", "(| a (^ b (& c 1)))"},
++		{"a & b == c", "(& a (== b c))"},
++		{"a | b + c", "(| a (+ b c))"},
++		// Parentheses and ! still work.
++		{"(a || b) && c", "(&& (|| a b) c)"},
++		{"!(a && b) || c", "(|| (! (&& a b)) c)"},
++	}
++	for _, c := range cases {
++		src := "fun f(a: u8, b: u8, c: u8) -> bool {\n    return " + c.expr + "\n}\n"
++		e := retExpr(t, src, "f")
++		if got := shape(e); got != c.want {
++			t.Errorf("%s: got %s, want %s", c.expr, got, c.want)
++		}
++	}
++}
++
++func TestLogicalOps_ResultIsBool(t *testing.T) {
++	src := `fun f(a: u16, b: u8) -> bool {
++    return a && b
++}
++`
++	e := retExpr(t, src, "f")
++	bin, ok := e.(*hir.BinExpr)
++	if !ok || bin.Op != "&&" {
++		t.Fatalf("got %T %v, want && BinExpr", e, e)
++	}
++	if bin.Ty != mir2.TyBool {
++		t.Errorf("&& type: got %v, want bool", bin.Ty)
++	}
++}
++
++// || must still lex as an empty lambda parameter list in primary position.
++func TestLogicalOps_EmptyLambdaStillParses(t *testing.T) {
++	src := `fun f() -> void {
++    let g = || 7
++}
++`
++	m, err := nanz.Parse(src, "empty_lambda")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	for _, fn := range m.Funcs {
++		if strings.HasPrefix(fn.Name, "lambda_") {
++			if len(fn.Params) != 0 {
++				t.Errorf("%s: want 0 params, got %d", fn.Name, len(fn.Params))
++			}
++			return
++		}
++	}
++	t.Fatal("no lambda generated for || 7")
++}
++
++// compileWithAsserts runs every assert in src on both the MIR2 VM and the
++// Z80 binary.
++func compileWithAsserts(t *testing.T, src, name string) string {
++	t.Helper()
++	m, err := nanz.Parse(src, name)
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	asm, err := pipeline.CompileHIR(m)
++	if err != nil {
++		t.Fatalf("compile/asserts: %v", err)
++	}
++	return asm
++}
++
++func TestLogicalOps_E2E_Values(t *testing.T) {
++	src := `
++fun and_val(a: u8, b: u8) -> u8 {
++    let r: bool = a > 0 && b > 0
++    if r { return 1 }
++    return 0
++}
++
++fun or_val(a: u8, b: u8) -> u8 {
++    if a > 0 || b > 0 { return 1 }
++    return 0
++}
++
++fun truthy_and(a: u8, b: u8) -> u8 {
++    if a && b { return 1 }
++    return 0
++}
++
++fun truthy_or(a: u8, b: u8) -> u8 {
++    if a || b { return 1 }
++    return 0
++}
++
++fun canon(a: u8, b: u8) -> u8 {
++    return u8(a && b)
++}
++
++fun canon_or(a: u8, b: u8) -> u8 {
++    return u8(a || b)
++}
++
++fun wide(x: u16, y: u16) -> u8 {
++    if x > 300 && y < 1000 { return 1 }
++    return 0
++}
++
++fun prec(a: u8, b: u8, c: u8) -> u8 {
++    if a == 1 || b == 1 && c == 1 { return 1 }
++    return 0
++}
++
++fun grouped(a: u8, b: u8, c: u8) -> u8 {
++    if (a > 0 || b > 0) && c > 0 { return 1 }
++    return 0
++}
++
++fun nor(a: u8, b: u8) -> u8 {
++    if !(a > 0 || b > 0) { return 1 }
++    return 0
++}
++
++fun bits(a: u8, b: u8) -> u8 {
++    if (a & 1) != 0 && (b | 2) == 3 { return 1 }
++    return 0
++}
++
++fun bitwise_kept(a: u8, b: u8) -> u8 {
++    return a & 3 | b
++}
++
++fun ret_grouped(a: u8, b: u8, c: u8) -> bool {
++    return (a || b) && c
++}
++
++fun ret_paren_tail(a: u8, b: u8, c: u8) -> u8 {
++    return (a | b) & c
++}
++
++assert and_val(1, 1) == 1
++assert and_val(1, 0) == 0
++assert and_val(0, 1) == 0
++assert or_val(0, 0) == 0
++assert or_val(0, 5) == 1
++assert or_val(5, 0) == 1
++assert truthy_and(2, 4) == 1
++assert truthy_and(2, 0) == 0
++assert truthy_and(0, 4) == 0
++assert truthy_or(0, 0) == 0
++assert truthy_or(0, 4) == 1
++assert truthy_or(4, 0) == 1
++assert canon(7, 9) == 1
++assert canon(7, 0) == 0
++assert canon(0, 9) == 0
++assert canon_or(0, 9) == 1
++assert canon_or(0, 0) == 0
++assert wide(301, 999) == 1
++assert wide(300, 999) == 0
++assert wide(400, 1000) == 0
++assert prec(1, 0, 0) == 1
++assert prec(0, 1, 1) == 1
++assert prec(0, 1, 0) == 0
++assert grouped(1, 0, 1) == 1
++assert grouped(0, 1, 1) == 1
++assert grouped(0, 0, 1) == 0
++assert grouped(1, 1, 0) == 0
++assert nor(0, 0) == 1
++assert nor(0, 1) == 0
++assert nor(1, 0) == 0
++assert bits(1, 1) == 1
++assert bits(2, 1) == 0
++assert bits(1, 4) == 0
++assert bitwise_kept(1, 4) == 5
++assert bitwise_kept(7, 8) == 11
++assert ret_grouped(0, 1, 1) == true
++assert ret_grouped(1, 0, 0) == false
++assert ret_grouped(0, 0, 1) == false
++assert ret_paren_tail(1, 2, 6) == 2
++`
++	compileWithAsserts(t, src, "logical_values")
++}
++
++func TestLogicalOps_E2E_Loops(t *testing.T) {
++	src := `
++fun count_and(n: u8, lim: u8) -> u8 {
++    let i: u8 = 0
++    while i < n && i < lim {
++        i = i + 1
++    }
++    return i
++}
++
++fun count_or(n: u8) -> u8 {
++    let i: u8 = 0
++    while i < 3 || i < n {
++        i = i + 1
++    }
++    return i
++}
++
++assert count_and(10, 3) == 3
++assert count_and(2, 3) == 2
++assert count_and(0, 3) == 0
++assert count_and(3, 0) == 0
++assert count_or(0) == 3
++assert count_or(7) == 7
++`
++	compileWithAsserts(t, src, "logical_loops")
++}
++
++// The right operand must run only when the left operand does not already
++// decide the result.  The callee counts its invocations in a global.
++func TestLogicalOps_E2E_ShortCircuitSideEffects(t *testing.T) {
++	src := `
++global calls: u8 = 0
++
++fun t(v: u8) -> u8 {
++    calls = calls + 1
++    return v
++}
++
++fun bump(r: bool) -> bool {
++    calls = calls + 1
++    return r
++}
++
++fun and_sc(a: u8) -> u8 {
++    calls = 0
++    if a > 0 && bump(true) { return calls + 10 }
++    return calls
++}
++
++fun or_sc(a: u8) -> u8 {
++    calls = 0
++    if a > 0 || bump(false) { return calls + 10 }
++    return calls
++}
++
++fun and3(a: u8, b: u8, c: u8) -> u8 {
++    calls = 0
++    if t(a) > 0 && t(b) > 0 && t(c) > 0 { return calls + 100 }
++    return calls
++}
++
++fun or3(a: u8, b: u8, c: u8) -> u8 {
++    calls = 0
++    if t(a) > 0 || t(b) > 0 || t(c) > 0 { return calls + 100 }
++    return calls
++}
++
++fun val_and(a: u8, b: u8) -> u8 {
++    calls = 0
++    let r: bool = t(a) != 0 && t(b) != 0
++    if r { return calls + 100 }
++    return calls
++}
++
++fun val_or(a: u8, b: u8) -> u8 {
++    calls = 0
++    let r: bool = t(a) != 0 || t(b) != 0
++    if r { return calls + 100 }
++    return calls
++}
++
++assert and_sc(0) == 0
++assert and_sc(1) == 11
++assert or_sc(1) == 10
++assert or_sc(0) == 1
++assert and3(1, 1, 1) == 103
++assert and3(0, 1, 1) == 1
++assert and3(1, 0, 1) == 2
++assert and3(1, 1, 0) == 3
++assert or3(1, 0, 0) == 101
++assert or3(0, 1, 0) == 102
++assert or3(0, 0, 1) == 103
++assert or3(0, 0, 0) == 3
++assert val_and(0, 1) == 1
++assert val_and(1, 0) == 2
++assert val_and(1, 1) == 102
++assert val_or(1, 0) == 101
++assert val_or(0, 1) == 102
++assert val_or(0, 0) == 2
++`
++	compileWithAsserts(t, src, "logical_side_effects")
++}
++
++// In a condition, && / || lower to branches only — no 0/1 materialisation.
++func TestLogicalOps_ConditionLowersToBranches(t *testing.T) {
++	src := `
++fun both(a: u8, b: u8) -> u8 {
++    if a && b { return 1 }
++    return 0
++}
++`
++	asm := compileWithAsserts(t, src, "logical_branches")
++	start := strings.Index(asm, "\nboth:")
++	if start < 0 {
++		t.Fatalf("function both not found:\n%s", asm)
++	}
++	body := asm[start:]
++	if end := strings.Index(body, "\n\n"); end > 0 {
++		body = body[:end]
++	}
++	if strings.Contains(body, "sc_join") {
++		t.Errorf("condition use should not build a value join block:\n%s", body)
++	}
++	if strings.Count(body, "JR") < 2 && strings.Count(body, "JP") < 2 {
++		t.Errorf("expected two conditional branches:\n%s", body)
++	}
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..b6edfff 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -117,6 +117,8 @@ const (
+ 	tokLtLt       // <<
+ 	tokGtGt       // >>
+ 	tokPipeGt     // |>
++	tokAmpAmp     // && (short-circuit logical AND)
++	tokPipePipe   // || (short-circuit logical OR; also an empty lambda param list)
+ 	tokColonColon // ::
+ 	tokAt         // @
+ 	tokFatArrow   // =>
+@@ -222,6 +224,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAmpAmp, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokPipePipe, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '=' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokFatArrow, "=>", line)
+ 			l.pos += 2
+@@ -3759,12 +3769,22 @@ func (p *parser) parseReturn() (hir.Stmt, error) {
+ 			}
+ 			return &hir.ReturnStmt{Vals: vals}, nil
+ 		}
+-		// Single parenthesised expression — consume ')' and treat as single return.
++		// Single parenthesised expression — consume ')' and continue parsing
++		// the rest of the expression with it as the leftmost operand, so that
++		// `return (a || b) && c` and `return (a | b) + c` keep their tails.
+ 		if _, err2 := p.l.eat(tokRParen); err2 != nil {
+ 			return nil, err2
+ 		}
+-		p.warnUninitInExpr(first)
+-		return &hir.ReturnStmt{Val: first}, nil
++		val, err := p.parsePostfix(first)
++		if err != nil {
++			return nil, err
++		}
++		val, err = p.parseBinaryFrom(val, 0)
++		if err != nil {
++			return nil, err
++		}
++		p.warnUninitInExpr(val)
++		return &hir.ReturnStmt{Val: val}, nil
+ 	}
+ 	val, err := p.parseExpr()
+ 	if err != nil {
+@@ -4396,24 +4416,28 @@ type binop struct {
+ 	prec int
+ }
+ 
++// Precedence, loosest first: || < && < | < xor < & < ==,!= < <,<=,>,>= <
++// <<,>> < +,- < *,/,%.  && and || short-circuit and yield a canonical bool.
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	tokPipePipe: {"||", 1},
++	tokAmpAmp:   {"&&", 2},
++	tokPipe:     {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4421,6 +4445,12 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	return p.parseBinaryFrom(lhs, minPrec)
++}
++
++// parseBinaryFrom continues a binary expression whose leftmost operand has
++// already been parsed.
++func (p *parser) parseBinaryFrom(lhs hir.Expr, minPrec int) (hir.Expr, error) {
+ 	for {
+ 		t := p.l.peek()
+ 		// "expr as type" cast — high precedence postfix.
+@@ -4471,10 +4501,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 4, between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -4491,6 +4521,11 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 		if err != nil {
+ 			return nil, err
+ 		}
++		// Short-circuit logical operators: never overloaded, always bool.
++		if bo.op == "&&" || bo.op == "||" {
++			lhs = &hir.BinExpr{Op: bo.op, L: lhs, R: rhs, Ty: mir2.TyBool}
++			continue
++		}
+ 		// Operator overloading: multi-dispatch by (lhsTy, rhsTy).
+ 		// Struct overloads match when lhsTy is nil (legacy) or exact.
+ 		// Scalar overloads match on exact type pair — enables widening mul, narrowing div, etc.
+@@ -5071,8 +5106,9 @@ func (p *parser) parsePrimary() (hir.Expr, error) {
+ 		}
+ 		return &hir.AddrOfExpr{Sym: fmt.Sprintf("@mir2.str.%d", idx)}, nil
+ 
+-	case tokPipe:
++	case tokPipe, tokPipePipe:
+ 		// |params| expr  or  |params| { stmts }  — non-capturing lambda
++		// (|| lexes as one token: the empty parameter list).
+ 		return p.parseLambda()
+ 
+ 	case tokAt:
+@@ -5338,13 +5374,16 @@ func paramTysFromFunc(f *hir.Func) []mir2.Ty {
+ //	lambda = '|' [param (',' param)*] '|' ('{' stmt* '}' | expr)
+ //	param  = IDENT [':' type]
+ func (p *parser) parseLambda() (hir.Expr, error) {
+-	if _, err := p.l.eat(tokPipe); err != nil {
++	emptyParams := p.l.is(tokPipePipe)
++	if emptyParams {
++		p.l.next()
++	} else if _, err := p.l.eat(tokPipe); err != nil {
+ 		return nil, err
+ 	}
+ 
+ 	// Parse parameter list: |x: u8, y: u8|  or  |x, y|  or  ||
+ 	var params []hir.Param
+-	for !p.l.is(tokPipe) && !p.l.is(tokEOF) {
++	for !emptyParams && !p.l.is(tokPipe) && !p.l.is(tokEOF) {
+ 		pname, err := p.l.eat(tokIdent)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("line %d: lambda: expected parameter name: %w", pname.line, err)
+@@ -5365,8 +5404,10 @@ func (p *parser) parseLambda() (hir.Expr, error) {
+ 			p.l.next()
+ 		}
+ 	}
+-	if _, err := p.l.eat(tokPipe); err != nil {
+-		return nil, fmt.Errorf("lambda: expected closing '|': %w", err)
++	if !emptyParams {
++		if _, err := p.l.eat(tokPipe); err != nil {
++			return nil, fmt.Errorf("lambda: expected closing '|': %w", err)
++		}
+ 	}
+ 
+ 	// Parse body: block { ... } or single expression → implicit return

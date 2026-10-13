@@ -1,0 +1,11 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change handles 15-million-character literals and preserves the expected trimming behavior for complete statements and short quote-balanced fragments. Exhaustive short-input comparison, randomized differential checks, and large-input probes found no correctness defects.",
+  "findings": [],
+  "critic": "K2-sol",
+  "anon": "83157fb7be",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 66
+}

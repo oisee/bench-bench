@@ -1,0 +1,11 @@
+{
+  "harness": "codex",
+  "provider": "alibaba",
+  "model": "kimi-k2.5",
+  "effort": "medium",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-13T03:24:54+01:00",
+  "finished_at": "2026-10-13T03:52:49+01:00",
+  "exit_code": "0"
+}

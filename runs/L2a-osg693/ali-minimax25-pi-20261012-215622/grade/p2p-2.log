@@ -1,0 +1,17 @@
+not compiled: ZCL_AJSON=>CREATE_FROM: ZCL_AJSON=>CREATE_FROM LO_MUTATOR_QUEUE: REF TO LCL_MUTATOR_QUEUE, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL: ZCL_AJSON=>ZIF_AJSON~GET_TIMESTAMPL LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program; ZCL_AJSON=>ZIF_AJSON~SETX: ZCL_AJSON=>ZIF_AJSON~SETX LV_DEC: type DecFloat34Type is outside the subset; ZCL_AJSON=>ZIF_AJSON~TO_ABAP: ZCL_AJSON=>ZIF_AJSON~TO_ABAP LO_TO_ABAP: REF TO LCL_JSON_TO_ABAP, which is not in the program
+file:///work/tools/gogen/emit-go.mjs:2327
+  throw new Error(`no Go for conversion ${e.kind} ${from}->${to}`);
+        ^
+
+Error: no Go for conversion c2n string->int8
+    at conv (file:///work/tools/gogen/emit-go.mjs:2327:9)
+    at expr (file:///work/tools/gogen/emit-go.mjs:2154:25)
+    at stmtLines (file:///work/tools/gogen/emit-go.mjs:1301:148)
+    at stmt (file:///work/tools/gogen/emit-go.mjs:1276:17)
+    at file:///work/tools/gogen/emit-go.mjs:989:47
+    at Array.flatMap (<anonymous>)
+    at method (file:///work/tools/gogen/emit-go.mjs:989:31)
+    at emitGo (file:///work/tools/gogen/emit-go.mjs:399:46)
+    at file:///work/tools/gogen/semantics.mjs:859:45
+
+Node.js v26.9.0

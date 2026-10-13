@@ -1,0 +1,260 @@
+diff --git a/tools/gogen/emit-go.test.mjs b/tools/gogen/emit-go.test.mjs
+index 953d4e6..04ea75e 100644
+--- a/tools/gogen/emit-go.test.mjs
++++ b/tools/gogen/emit-go.test.mjs
+@@ -1,7 +1,7 @@
+ import {test} from "node:test";
+ import assert from "node:assert/strict";
+ import {spawnSync} from "node:child_process";
+-import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
++import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+ import {tmpdir} from "node:os";
+ import {dirname, join, basename} from "node:path";
+ import {fileURLToPath} from "node:url";
+@@ -527,3 +527,60 @@ ENDCLASS.`);
+     assert.equal(cls.FIELDS(s), "00/001/E/one/two/three/four");
+   } finally { rmSync(dir, {recursive: true, force: true}); }
+ });
++
++test("cl_http_utility=>decode_base64 reads the bytes as Node's Buffer.toString() does", (t) => {
++  const core = join(here, "..", "..", ".local", "lars", "open-abap-core", "src");
++  if (!existsSync(core)) return t.skip("no open-abap-core clone in .local/lars");
++  const sourceDir = mkdtempSync(join(tmpdir(), "gogen-b64text-"));
++  const goDir = mkdtempSync(join(here, "go", "cmd", "gogen-b64text-"));
++  try {
++    writeFileSync(join(sourceDir, "zcl_gogen_b64text.clas.abap"), `
++CLASS zcl_gogen_b64text DEFINITION PUBLIC FINAL CREATE PUBLIC.
++PUBLIC SECTION.
++CLASS-METHODS run IMPORTING encoded TYPE string EXPORTING ev_text TYPE string ev_len TYPE i.
++ENDCLASS.
++CLASS zcl_gogen_b64text IMPLEMENTATION.
++METHOD run.
++ev_text = cl_http_utility=>decode_base64( encoded ).
++ev_len = strlen( ev_text ).
++ENDMETHOD.
++ENDCLASS.
++`);
++    const program = compileProgram({folders: [sourceDir, core], objects: ["ZCL_GOGEN_B64TEXT", "CL_HTTP_UTILITY"]});
++    assert.ok(!program.partial.some((x) => /DECODE_BASE64/.test(x)), program.partial.join("\n"));
++    // the bytes of each case, encoded padded, unpadded, URL-safe and with
++    // characters base64 does not have; Node's answer is the expectation
++    const hexes = ["", "61626170", "c3a4e282acf09f9880", "efbbbf41", "e28241", "f0908041", "eda080", "c0af",
++      "f4908080", "f09f98", "61e282ac62ff63", "fbff", "3e3f3e"];
++    const rows = [];
++    for (const hex of hexes) {
++      const std = Buffer.from(hex, "hex").toString("base64");
++      for (const encoded of [std, std.replace(/=+$/, ""), Buffer.from(hex, "hex").toString("base64url"), ` ${std.slice(0, 2)}\n${std.slice(2)}!`]) {
++        const text = Buffer.from(encoded, "base64").toString();
++        assert.equal(text, Buffer.from(hex, "hex").toString());
++        rows.push(`{${JSON.stringify(encoded)}, "${Buffer.from(text).toString("hex")}", ${text.length}},`);
++      }
++    }
++    writeFileSync(join(goDir, "zz_generated.go"), emitGo(program));
++    writeFileSync(join(goDir, "zz_generated_test.go"), `package main
++import ("encoding/hex"; "testing"; "osg/gogen/abap")
++func TestDecodeBase64Text(t *testing.T) {
++ for _, tc := range []struct{ encoded, hex string; n int32 }{
++${rows.join("\n")}
++ } {
++  var text string
++  var n int32
++  ZCL_GOGEN_B64TEXT_RUN(&abap.Session{}, tc.encoded, &text, &n)
++  if got := hex.EncodeToString([]byte(text)); got != tc.hex || n != tc.n {
++   t.Errorf("decode_base64(%q) = %s (strlen %d), want %s (strlen %d)", tc.encoded, got, n, tc.hex, tc.n)
++  }
++ }
++}
++`);
++    const run = spawnSync("go", ["test", `./cmd/${basename(goDir)}`], {cwd: join(here, "go"), encoding: "utf8", timeout: 120000});
++    assert.equal(run.status, 0, run.stderr || run.stdout);
++  } finally {
++    rmSync(sourceDir, {recursive: true, force: true});
++    rmSync(goDir, {recursive: true, force: true});
++  }
++});
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..11a94b4 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,9 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  // base64 to text: decode_x_base64's bytes read as UTF-8 the way
++  // Buffer.toString() does, U+FFFD per malformed sequence (go/nodeutf8)
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/README.md b/tools/gogen/go/README.md
+index ddff057..d1c171c 100644
+--- a/tools/gogen/go/README.md
++++ b/tools/gogen/go/README.md
+@@ -16,6 +16,8 @@
+ 
+ `nodehdr/` implements Node-compatible duplicate-header joining for ICF and HTTP clients.
+ 
++`nodeutf8/` reads bytes as UTF-8 with Node's replacement characters for malformed sequences.
++
+ `sxmlscan/` scans XML byte boundaries and UTF-8 text.
+ 
+ Go package tests sit beside their implementations as `*_test.go` files. The generated code and parity workflow are described in [gogen's README](../README.md).
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..c982e60 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,11 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: Buffer.from(encoded,
++// "base64").toString(), the bytes of decode_x_base64 read as UTF-8 with
++// Node's replacement characters for malformed sequences (go/nodeutf8).
++// A system converts from its own code page; not measured on A4H.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(DecodeXBase64(s, encoded))
++}
+diff --git a/tools/gogen/go/nodeutf8/README.md b/tools/gogen/go/nodeutf8/README.md
+new file mode 100644
+index 0000000..4eb9305
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/README.md
+@@ -0,0 +1,6 @@
++# nodeutf8
++
++Bytes read as UTF-8 the way Node's `Buffer.toString()` reads them.
++`Decode` returns valid UTF-8 unchanged and puts one U+FFFD per maximal
++subpart of a malformed sequence (the WHATWG decoder), keeping a BOM as text.
++`cl_http_utility=>decode_base64` uses it (`abap.DecodeBase64`).
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8.go b/tools/gogen/go/nodeutf8/nodeutf8.go
+new file mode 100644
+index 0000000..7fa9847
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8.go
+@@ -0,0 +1,68 @@
++// Package nodeutf8 reads bytes as UTF-8 the way Node's Buffer.toString()
++// does: the WHATWG decoder, one U+FFFD per maximal subpart of a malformed
++// sequence, and a byte order mark kept as text.
++package nodeutf8
++
++import (
++	"strings"
++	"unicode/utf8"
++)
++
++// Decode returns the text of the raw bytes in b. Valid UTF-8 comes back as
++// it is; each malformed sequence becomes U+FFFD as Node replaces it.
++func Decode(b string) string {
++	if utf8.ValidString(b) {
++		return b
++	}
++	var out strings.Builder
++	out.Grow(len(b) + 8)
++	var cp rune
++	need, seen := 0, 0
++	lower, upper := byte(0x80), byte(0xBF)
++	for i := 0; i < len(b); i++ {
++		c := b[i]
++		if need == 0 {
++			switch {
++			case c < 0x80:
++				out.WriteByte(c)
++			case c >= 0xC2 && c <= 0xDF:
++				need, cp = 1, rune(c&0x1F)
++			case c >= 0xE0 && c <= 0xEF:
++				if c == 0xE0 {
++					lower = 0xA0
++				} else if c == 0xED {
++					upper = 0x9F
++				}
++				need, cp = 2, rune(c&0x0F)
++			case c >= 0xF0 && c <= 0xF4:
++				if c == 0xF0 {
++					lower = 0x90
++				} else if c == 0xF4 {
++					upper = 0x8F
++				}
++				need, cp = 3, rune(c&0x07)
++			default:
++				out.WriteRune(utf8.RuneError)
++			}
++			continue
++		}
++		if c < lower || c > upper {
++			// the sequence so far is one replacement; the byte starts afresh
++			need, seen, cp = 0, 0, 0
++			lower, upper = 0x80, 0xBF
++			out.WriteRune(utf8.RuneError)
++			i--
++			continue
++		}
++		lower, upper = 0x80, 0xBF
++		cp = cp<<6 | rune(c&0x3F)
++		if seen++; seen == need {
++			out.WriteRune(cp)
++			need, seen, cp = 0, 0, 0
++		}
++	}
++	if need != 0 {
++		out.WriteRune(utf8.RuneError)
++	}
++	return out.String()
++}
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8_test.go b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+new file mode 100644
+index 0000000..f3b203b
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+@@ -0,0 +1,43 @@
++package nodeutf8
++
++import (
++	"encoding/hex"
++	"testing"
++)
++
++// Both sides are hex: the bytes in, and the UTF-8 of
++// Buffer.from(in, "hex").toString() on Node 22 (efbfbd is U+FFFD).
++func TestDecode(t *testing.T) {
++	for _, tc := range []struct{ in, want string }{
++		{"", ""},
++		{"61626170", "61626170"},
++		{"efbbbf41", "efbbbf41"},
++		{"c3a4e282acf09f9880", "c3a4e282acf09f9880"},
++		{"e28241", "efbfbd41"},
++		{"f0908041", "efbfbd41"},
++		{"eda080", "efbfbdefbfbdefbfbd"},
++		{"c0af", "efbfbdefbfbd"},
++		{"e080af", "efbfbdefbfbdefbfbd"},
++		{"f4908080", "efbfbdefbfbdefbfbdefbfbd"},
++		{"f5", "efbfbd"},
++		{"80bf", "efbfbdefbfbd"},
++		{"e2", "efbfbd"},
++		{"f09f98", "efbfbd"},
++		{"41f09f98", "41efbfbd"},
++		{"ff41", "efbfbd41"},
++		{"c3c3a4", "efbfbdc3a4"},
++		{"61e282ac62ff63", "61e282ac62efbfbd63"},
++		{"f09f", "efbfbd"},
++		{"edbfbf", "efbfbdefbfbdefbfbd"},
++		{"ee8080", "ee8080"},
++		{"f48fbfbf", "f48fbfbf"},
++	} {
++		raw, err := hex.DecodeString(tc.in)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if got := hex.EncodeToString([]byte(Decode(string(raw)))); got != tc.want {
++			t.Errorf("Decode(%s) = %s, want %s", tc.in, got, tc.want)
++		}
++	}
++}

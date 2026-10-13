@@ -1,0 +1,95 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..6a073a5 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,29 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("every literal in the statement is trimmed, not just the first", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("INSERT INTO t VALUES ('a  ', 'b  ', 'c')")).to.equal("INSERT INTO t VALUES ('a', 'b', 'c')");
++  });
++
++  it("keeps leading and inner blanks, tabs and newlines, and empties a blank literal", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('  a\tb\n  ')")).to.equal("VALUES ('  a\tb\n')");
++    expect(trimLiterals("VALUES ('')")).to.equal("VALUES ('')");
++    expect(trimLiterals("VALUES ('   ')")).to.equal("VALUES ('')");
++  });
++
++  it("survives a literal the size of a full TEXT row", async () => {
++    // A WRITE of a ~15-million-character string used to die here with
++    // `RangeError: Maximum call stack size exceeded`: the trailing-blank
++    // rule was a regular expression, and the engine keeps a backtracking
++    // choice per character of the literal. The scan that replaced it has
++    // to answer, not crash -- and in both directions: blanks to trim, and
++    // an unterminated fragment of quotes that must keep its shape.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "x".repeat(15000000);
++    expect(trimLiterals("INSERT INTO t VALUES ('" + body + "   ')")).to.equal("INSERT INTO t VALUES ('" + body + "')");
++    expect(trimLiterals("'" + body + "  '")).to.equal("'" + body + "'");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..109057f 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,54 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  This is a hand-rolled `indexOf` scan, not the regular expression it used
++ *  to be (`/'((?:[^']|'')*)'/g`). The expression was exact but a regex
++ *  engine keeps a backtracking choice per repetition of that group, so a
++ *  single ~15-million-character literal -- which a WRITE of a full TEXT /
++ *  STRING row hands straight through -- exhausted the engine's stack and
++ *  the statement died with `RangeError: Maximum call stack size exceeded`
++ *  (measured 2026-10-11). The scan below keeps the expression's rule,
++ *  including its reading of a fragment that never closes (see `lastPair`),
++ *  and stays linear in the length of the statement. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  let out = "";   // statement rebuilt so far
++  let copied = 0; // sql[..copied) is already in `out`, unchanged
++  let i = 0;      // where the search for the next literal resumes
++  while (i < n) {
++    const q = sql.indexOf("'", i);
++    if (q === -1) break;
++    // The closing quote is a `'` that does not open a `''` pair; a `'` in
++    // the very last position closes too. `lastPair` remembers the first
++    // quote of the newest pair, which is the quote the old expression
++    // backtracked to when a fragment ran out of string before it ran out
++    // of quotes -- `'a''` trimmed as `'a'` and left the tail alone.
++    let c = q + 1;
++    let lastPair = -1;
++    while (c < n) {
++      c = sql.indexOf("'", c);
++      if (c === -1) break;
++      if (c + 1 < n && sql.charCodeAt(c + 1) === 39) {
++        lastPair = c;
++        c += 2;
++      } else {
++        break;
++      }
++    }
++    if (lastPair !== -1 && (c === -1 || c === n)) c = lastPair;
++    if (c === -1 || c === n) {
++      // Nothing that closes here: this quote is data after all.
++      i = q + 1;
++      continue;
++    }
++    let end = c; // blanks stop here: only the run right before the closer
++    while (end > q + 1 && sql.charCodeAt(end - 1) === 32) end--;
++    out += sql.slice(copied, q) + "'" + sql.slice(q + 1, end) + "'";
++    copied = i = c + 1;
++  }
++  return copied === 0 ? sql : out + sql.slice(copied);
+ }
+ 
+ /**

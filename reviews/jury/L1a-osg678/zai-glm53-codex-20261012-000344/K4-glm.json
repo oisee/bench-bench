@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 5,
+  "summary": "The regex is replaced by a single-pass, linear scanner that removes only ordinary spaces immediately before each closing quote, and it matches the old implementation on every acceptance case and on 200k randomized differential inputs with zero divergences on quote-balanced SQL. A 15M-character literal trims correctly in ~42ms (100M in ~276ms) with no stack overflow, and both the updated write-boundary suite and the other consumer suite (sqlite-heap-execute) pass. The only behavioral divergence is on unterminated literals, where the new code conservatively leaves the tail untouched instead of the old regex's premature-close trim, which is outside the task's quote-balanced scope.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/sql-literals.mjs",
+      "line": 53,
+      "claim": "Behavior change on malformed (unterminated) literals: for an input ending in an unclosed quote with a trailing escaped-quote sequence, the old regex backtracked to an earlier close and trimmed spaces inside the unterminated tail, while the new scanner leaves the tail untouched. All such inputs have an odd quote count and are invalid SQL, and the new behavior is strictly more conservative, so this is an informational note rather than a regression; quote-balanced inputs (the task's stated scope) are byte-for-byte identical in 200k randomized differential tests.",
+      "repro": "node --input-type=module -e \"const {trimLiterals} = await import('./tools/sql-literals.mjs'); const s = String.fromCharCode(10) + \\\"'  ''\\\"; const old = (x) => x.replace(/'((?:[^']|'')*)'/g, (m, i) => \\\"'\\\" + i.replace(/ +$/, '') + \\\"'\\\"); console.log(JSON.stringify(s), '-> old', JSON.stringify(old(s)), '| new', JSON.stringify(trimLiterals(s)));\"  # prints: \"\\n'  ''\" -> old \"\\n'''\" | new \"\\n'  ''\""
+    }
+  ],
+  "critic": "K4-glm",
+  "anon": "47a62e492d",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 169
+}

@@ -1,0 +1,104 @@
+diff --git a/test/sql-literals.mjs b/test/sql-literals.mjs
+new file mode 100644
+index 0000000..79e6961
+--- /dev/null
++++ b/test/sql-literals.mjs
+@@ -0,0 +1,48 @@
++import assert from "node:assert/strict";
++import {trimLiterals} from "../tools/sql-literals.mjs";
++
++describe("SQL literal trimming", function () {
++  it("trims every literal and preserves statement spacing", () => {
++    assert.equal(trimLiterals("  VALUES ('  a b  ', 'it''s  ', '', '   ')  "),
++      "  VALUES ('  a b', 'it''s', '', '')  ");
++  });
++
++  it("preserves tabs, newlines, doubled quotes and Unicode", () => {
++    assert.equal(trimLiterals("'  λ\t\n😀 '' x\t \n  '"), "'  λ\t\n😀 '' x\t \n'");
++    assert.equal(trimLiterals("'x \t' 'x \n' 'x  ''y  '"), "'x \t' 'x \n' 'x  ''y'");
++  });
++
++  it("recognizes single quotes inside double quotes and preserves unmatched text", () => {
++    assert.equal(trimLiterals('"a \'b  \' c " \'unfinished  '), '"a \'b\' c " \'unfinished  ');
++    assert.equal(trimLiterals("'a  ''"), "'a''");
++    assert.equal(trimLiterals("'a  '''"), "'a  '''");
++  });
++
++  it("matches the original transformation on exhaustive short fragments", () => {
++    const original = sql => sql.replace(/'((?:[^']|'')*)'/g,
++      (match, inner) => "'" + inner.replace(/ +$/, "") + "'");
++    const alphabet = ["'", " ", "a", '"', "\n"];
++    function check(sql, remaining) {
++      assert.equal(trimLiterals(sql), original(sql), JSON.stringify(sql));
++      if (remaining > 0) for (const char of alphabet) check(sql + char, remaining - 1);
++    }
++    check("", 7);
++  });
++
++  it("trims a 15-million-character literal alongside other literals", () => {
++    const content = "x".repeat(15_000_000);
++    assert.equal(trimLiterals(`VALUES ('first  ', '  ${content}   ', 'last  ')`),
++      `VALUES ('first', '  ${content}', 'last')`);
++  });
++
++  it("handles a 15-million-space literal and a large unchanged literal", () => {
++    assert.equal(trimLiterals(`'${" ".repeat(15_000_000)}'`), "''");
++    const sql = `'${"x".repeat(15_000_000)}'`;
++    assert.equal(trimLiterals(sql), sql);
++  });
++
++  it("preserves doubled quotes throughout a very large literal", () => {
++    const content = "a '' b\t\n".repeat(2_000_000);
++    assert.equal(trimLiterals(`'${content}   '`), `'${content}'`);
++  });
++});
+diff --git a/test/suites.d/gateway-odata.json b/test/suites.d/gateway-odata.json
+index f8bcfd3..2888ce9 100644
+--- a/test/suites.d/gateway-odata.json
++++ b/test/suites.d/gateway-odata.json
+@@ -18,6 +18,7 @@
+     "test/sapevent.mjs",
+     "test/se16.mjs",
+     "test/seed-batching.mjs",
++    "test/sql-literals.mjs",
+     "test/sql-trace-buffer.mjs",
+     "test/sql-trace.mjs",
+     "test/sqlite-file-client.mjs",
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..e0b244e 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,32 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const parts = [];
++  let copied = 0;
++  let open = sql.indexOf("'");
++  while (open !== -1) {
++    let close = sql.indexOf("'", open + 1);
++    let fallback = -1;
++    while (close !== -1 && sql[close + 1] === "'") {
++      fallback = close;
++      close = sql.indexOf("'", close + 2);
++    }
++    // The old greedy pattern backtracked to the last doubled quote when
++    // no later closing quote existed. Keep that behavior for fragments.
++    if (close === -1) close = fallback;
++    if (close === -1) break;
++
++    let end = close;
++    while (end > open + 1 && sql[end - 1] === " ") end--;
++    if (end < close) {
++      parts.push(sql.slice(copied, end));
++      copied = close;
++    }
++    open = sql.indexOf("'", close + 1);
++  }
++  if (parts.length === 0) return sql;
++  parts.push(sql.slice(copied));
++  return parts.join("");
+ }
+ 
+ /**

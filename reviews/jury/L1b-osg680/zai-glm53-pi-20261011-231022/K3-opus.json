@@ -1,0 +1,19 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change adds the public nodeutf8.Decode, which is a WHATWG UTF-8 decoder without BOM, and a DecodeBase64 host function built on the existing DecodeXBase64. It also adds a NATIVE frontend mapping, Go tests, a semantics fixture and ABAP Unit rows. A differential fuzz against Node 26.9 found no mismatches: 20k random base64 strings (both alphabets, padding, foreign characters) and 50k random malformed byte strings all matched. Tests and vet pass.",
+  "findings": [
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/apc/apc.go",
+      "line": 385,
+      "claim": "apc.utf8Decode is the same WHATWG decoder as the new public nodeutf8.Decode. The README even says go/apc 'holds the same algorithm inline'. That leaves two copies to keep in sync; apc could now call nodeutf8.Decode.",
+      "repro": "grep -n 'func utf8Decode' tools/gogen/go/apc/apc.go"
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "bf625cf4a1",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 33
+}

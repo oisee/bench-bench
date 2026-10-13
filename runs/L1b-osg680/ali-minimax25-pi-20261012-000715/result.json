@@ -1,0 +1,36 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./nodeutf8)",
+      "rc": 1
+    },
+    {
+      "cmd": "node tools/osgo-unit.mjs tools/gogen/testdata/osgo-cases --class ZCL_OSGT_DECODE_BASE64 2>&1 | tee /dev/stderr | grep -q \"SUCCESS: 4, FAILURE: 0, NOT_COMPILED: 0\"",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 210,
+  "task": "L1b-osg680",
+  "level": "L1",
+  "executor": "ali-minimax25-pi",
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "MiniMax-M2.5",
+  "effort": "high",
+  "agent_exit": 124,
+  "duration_s": 1801,
+  "stop": "TIMEOUT",
+  "leak_suspect": false,
+  "harness_version": "1.0.2"
+}

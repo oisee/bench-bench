@@ -1,0 +1,10 @@
+{
+  "harness": "codex",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "effort": "high",
+  "harness_version": "codex-cli 0.162.1",
+  "started_at": "2026-10-12T00:03:48+01:00",
+  "finished_at": "2026-10-12T00:06:42+01:00",
+  "exit_code": "0"
+}

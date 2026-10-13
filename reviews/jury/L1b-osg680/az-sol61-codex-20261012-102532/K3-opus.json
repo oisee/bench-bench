@@ -1,0 +1,33 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change maps cl_http_utility=>decode_base64 to a new abap.DecodeBase64 host function. That function chains the existing DecodeXBase64, which now narrows UTF-16 code units the way Node does, with a new nodeutf8.Decode that performs maximal-subpart U+FFFD replacement. Spot checks against Node 26 and the exhaustive parity test (all 1- and 2-byte inputs plus 3- and 4-byte boundaries) agree, and the Go, abap and node --test suites pass. The only defects are against the repo's own size-budget and package conventions, which CI enforces.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 1,
+      "claim": "The new Go package has no README.md and no entry in tools/osd-size-budget.json. The size-budget check (pre-push hook and size-budget.yml CI) requires both for every package under tools/gogen/go, so it fails as soon as the package is tracked.",
+      "repro": "git worktree add /tmp/b baseline && cd /tmp/b && git apply /work/.bench-review/patch.diff && git add -A tools && node tools/osd-size-budget.mjs  # -> 'go:nodeutf8: a package without a budget' and 'tools/gogen/go/nodeutf8: no README.md of at least three lines'"
+    },
+    {
+      "severity": "P2",
+      "file": "tools/gogen/go/abap/http_utility.go",
+      "line": 13,
+      "claim": "The patch grows files and packages under ratcheted budgets without raising the budgets or giving a reason. Three new breaches appear that are not present at baseline: http_utility.go goes to 17 lines against a budget of 9, go:abap to 11816 against 11807, and frontend.mjs to 6891 against 6890. The size-budget CI job goes red.",
+      "repro": "node tools/osd-size-budget.mjs  (compare with the same command in a baseline worktree: only o4dserve/runtimeclock/osdbind breach there)"
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/base64-text.test.mjs",
+      "line": 15,
+      "claim": "The test writes a temporary Go main package inside the tracked module tree (tools/gogen/go/cmd/base64-text-test-*). A killed run leaves a stray package behind. A concurrent `go build/vet ./...` in the same checkout can also pick it up. os.tmpdir() cannot hold it because it needs the module, but a go.work or overlay would avoid this. Other emit tests may already use this pattern.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "aad4ad6e3f",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 74
+}

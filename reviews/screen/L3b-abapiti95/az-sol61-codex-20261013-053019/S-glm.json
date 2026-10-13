@@ -1,0 +1,27 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change convincingly implements the task: anonymous object literals now synthesize canonical, content-addressed shape classes (order-insensitive identity, one shape per layout), empty literals pick a contextual/union shape, record literals stay maps, readonly/optional info is carried as a view, and evaluation order of property initializers is preserved via temp prelude statements that the expression wrapper correctly scopes inside branches. New tests fail on baseline and pass on the patch, and the full repository suite (including ABAP and Go backends) is green. One real regression remains: the empty object type {} now lowers to an empty synthesized shape that objectLiteral treats as authoritative, so valid programs that assign a populated literal to a {}-typed location (clean at baseline) are rejected.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "tsfront/lower_types.go",
+      "line": 554,
+      "claim": "Regression on valid TypeScript: mapCheckerType now maps the inline empty object type {} to a zero-field synthesized shape (shape.e3b0c442…), and objectLiteral prefers that hint shape over the literal's own members, emitting a blocking 'object literal property a is not in shape shape.e3b0c442…' diagnostic. Baseline lowered `const x: {} = {a: 1}` with no diagnostics (shape {a:number}); the checker reports no error for this input (no excess-property check against {}), so a previously-lowering valid program now fails. The sibling case `type Empty = {}` already behaved this way at baseline, so the failure mode is pre-existing for named aliases, but the patch newly extends it to inline {} annotations (locals; {}-typed params/returns also change from a downstream verify error to a hard lowering diagnostic). A fallback to the literal's own synthesized type when the hint shape lacks a property present in the literal would restore baseline behavior.",
+      "repro": "go test ./tsfront -run XXX with lowerStatementsProbe on: `export class Probe { static run(): number { const x: {} = {a: 1}; return 1; } }` — baseline: shapes=[{a:number}], no diagnostics, verify+ABAP emit clean; patched: DIAG unsupported-type 'object literal property a is not in shape shape.e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' followed by 'identifier x is not a lowered local or module value'."
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_types.go",
+      "line": 744,
+      "claim": "propertyReadonly's comment claims 'Mapped types carry it on the symbol itself', but properties obtained from a Readonly<T> instantiation carry neither CheckFlagsReadonly nor a readonly ModifierFlag, so fields sourced from Readonly<{...}> are not recorded readonly. Explicit `readonly` modifiers (and `as const`) are preserved, and the flag is informational only, so this is a minor acceptance gap ('Preserve optional and readonly property information'), not a behavior change.",
+      "repro": "lowerStatementsProbe on `export function view(v: Readonly<{a: number; b: string}>): number { return v.a; }` — the synthesized shape's fields print as {a:number,b:string} with Readonly=false, whereas `view(v: {readonly a: number})` marks the field."
+    }
+  ],
+  "critic": "S-glm",
+  "critic_model": "zai/glm-5.3[1m]",
+  "anon": "a613a81551",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 1239
+}

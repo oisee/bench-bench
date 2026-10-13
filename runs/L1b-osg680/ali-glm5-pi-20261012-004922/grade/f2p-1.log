@@ -1,0 +1,5 @@
+# osg/gogen/nodeutf8 [osg/gogen/nodeutf8.test]
+nodeutf8/nodeutf8_test.go:5:6: TestDecodeMatchesNode redeclared in this block
+	nodeutf8/decode_test.go:94:6: other declaration of TestDecodeMatchesNode
+FAIL	osg/gogen/nodeutf8 [build failed]
+FAIL

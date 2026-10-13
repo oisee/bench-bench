@@ -1,0 +1,57 @@
+# Benchmark participants. Model, provider and harness are separate fields.
+# Launch: bin/sandbox.sh --harness H --provider P --model M --effort E
+
+executors:
+  # --- Z.ai Coding Max: harness effect on one model ---
+  - {id: zai-glm53-pi,      provider: zai,     model: glm-5.3,        harness: pi,     effort: high}
+  - {id: zai-glm53-claude,  provider: zai,     model: "glm-5.3[1m]",  harness: claude, effort: high}
+  - {id: zai-glm53-codex,   provider: zai,     model: glm-5.3,        harness: codex,  effort: high}
+  # not available on the plan (model_access_denied):
+  # - {id: zai-glm53f-pi,     provider: zai,     model: glm-5.3-flash,  harness: pi,     effort: high}   # cheap tier
+
+  # --- Alibaba Coding Plan Pro: model effect with one harness ---
+  - {id: ali-qwen37-pi,     provider: alibaba, model: qwen3.7-plus,   harness: pi,     effort: high}
+  - {id: ali-kimi25-pi,     provider: alibaba, model: kimi-k2.5,      harness: pi,     effort: high}
+  - {id: ali-minimax25-pi,  provider: alibaba, model: MiniMax-M2.5,   harness: pi,     effort: high}
+  - {id: ali-glm5-pi,       provider: alibaba, model: glm-5,          harness: pi,     effort: high}   # GLM-5 vs GLM-5.3 (Z.ai)
+  # L2 extension: the same Alibaba models through Codex and the LiteLLM bridge.
+  - {id: ali-qwen37-codex,  provider: alibaba, model: qwen3.7-plus,   harness: codex,  effort: medium}
+  - {id: ali-kimi25-codex,  provider: alibaba, model: kimi-k2.5,      harness: codex,  effort: medium}
+  - {id: ali-minimax25-codex, provider: alibaba, model: MiniMax-M2.5, harness: codex,  effort: medium}
+  # a second harness for the best Alibaba model, to add after L1:
+  # - {id: ali-qwen37-claude, provider: alibaba, model: qwen3.7-plus, harness: claude, effort: high}
+
+  # --- Azure OpenAI ---
+  - {id: az-sol61-codex,    provider: azure,   model: gpt-6.1-sol,    harness: codex,  effort: medium}
+
+  # --- OpenAI (subscription) · gpt-6-luna in Codex, three effort levels ---
+  - {id: oai-luna-codex-m,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: medium}
+  - {id: oai-luna-codex-h,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: high}
+  - {id: oai-luna-codex-x,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: xhigh}
+
+  # --- Control (Anthropic subscription) ---
+  - {id: ant-opus-claude,   provider: anthropic, model: opus,         harness: claude, effort: high}
+
+# Codex astra (medium) drafts the briefs; jury critics all run at high.
+helpers:
+  case_assistant: {provider: openai, harness: codex, model: gpt-6-astra, effort: medium}
+
+critics:
+  - {id: K1-astra, provider: openai,    model: gpt-6-astra, harness: codex,  effort: high}
+  - {id: K2-sol,   provider: openai,    model: gpt-6-sol,   harness: codex,  effort: high}
+  - {id: K3-opus,  provider: anthropic, model: opus,        harness: claude, effort: high, self_family: [ant-]}
+  - {id: K4-glm,   provider: zai,       model: glm-5.3,     harness: pi,     effort: high, self_family: [zai-glm, ali-glm]}
+
+# Blind critic screening (bin/critic-screen.sh): no hidden-test results, separate runs/_screen.
+screen_critics:
+  - {id: S-opus,  provider: anthropic, model: opus,          harness: claude, effort: high,  self_family: [ant-]}
+  - {id: S-fable, provider: anthropic, model: fable,         harness: claude, effort: high,  self_family: [ant-]}
+  - {id: S-sol,   provider: openai,    model: gpt-6-sol,     harness: codex,  effort: xhigh, self_family: [az-sol]}
+  - {id: S-glm,   provider: zai,       model: "glm-5.3[1m]", harness: claude, effort: high,  self_family: [zai-glm, ali-glm]}
+  - {id: S-glm-pi,  provider: zai,     model: glm-5.3,       harness: pi,     effort: high,  self_family: [zai-glm, ali-glm]}
+  - {id: S-qwen-pi, provider: alibaba, model: qwen3.7-plus,  harness: pi,     effort: high,  self_family: [ali-qwen]}
+
+limits:
+  wall_clock_min: {L1: 30, L2: 45, L3: 60}
+  human_interventions: 0      # the agent works alone after receiving the brief
+  repeats: 1                  # pilot; repeats after L1

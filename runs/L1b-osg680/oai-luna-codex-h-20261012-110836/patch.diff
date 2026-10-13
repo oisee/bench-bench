@@ -1,0 +1,210 @@
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..3488537 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -704,6 +704,7 @@ const NATIVE = new Map([
+   // behavior on a system has not been measured.
+   ["CL_HTTP_UTILITY=>ENCODE_X_BASE64", "abap.EncodeXBase64"],
+   ["CL_HTTP_UTILITY=>DECODE_X_BASE64", "abap.DecodeXBase64"],
++  ["CL_HTTP_UTILITY=>DECODE_BASE64", "abap.DecodeBase64"],
+   ["ZCL_OAO_RFC_DESTINATION=>REGISTER_LOCAL", "abap.RegisterLocalDestination"],
+   // get_text( ) of an exception without a T100 message or a text id: the
+   // fallback text, which A4H gives too (2026-09-23); anything else dumps
+@@ -734,6 +735,7 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/abap/b64decode_test.go b/tools/gogen/go/abap/b64decode_test.go
+index c690cca..8131f6e 100644
+--- a/tools/gogen/go/abap/b64decode_test.go
++++ b/tools/gogen/go/abap/b64decode_test.go
+@@ -19,3 +19,20 @@ func TestDecodeXBase64(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestDecodeBase64Text(t *testing.T) {
++	for _, tc := range []struct{ encoded, want string }{
++		{"aMOp", "hé"},
++		{"aMOp==", "hé"},
++		{"8J-YgA", "😀"},
++		{"8J-YgA==", "😀"},
++		{"/w==", "�"},
++		{"YfCA", "a��"},
++		{"eOGAQXo=", "x�Az"},
++		{"Y WJhcA==", "abap"},
++	} {
++		if got := DecodeBase64(&Session{}, tc.encoded); got != tc.want {
++			t.Errorf("DecodeBase64(%q) = %q, want %q", tc.encoded, got, tc.want)
++		}
++	}
++}
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..5f36b8a 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,9 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: lenient Node-compatible
++// base64 decoding followed by Buffer.toString()'s lossy UTF-8 interpretation.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(DecodeXBase64(s, encoded))
++}
+diff --git a/tools/gogen/go/nodeutf8/decode.go b/tools/gogen/go/nodeutf8/decode.go
+new file mode 100644
+index 0000000..aadf7e1
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode.go
+@@ -0,0 +1,74 @@
++// Package nodeutf8 interprets arbitrary bytes the way Node's
++// Buffer.toString() does: malformed UTF-8 is replaced with U+FFFD.
++package nodeutf8
++
++import "unicode/utf8"
++
++// Decode returns the UTF-8 text interpretation of b using Node-compatible
++// replacement behavior for malformed and incomplete sequences.
++func Decode(b string) string {
++	out := make([]byte, 0, len(b))
++	for i := 0; i < len(b); {
++		c := b[i]
++		if c < 0x80 {
++			out = append(out, c)
++			i++
++			continue
++		}
++
++		// Each leading byte defines the continuation count and the allowed
++		// range of its first continuation (which excludes overlong forms,
++		// surrogate code points, and values above U+10FFFF).
++		need := 0
++		lo, hi := byte(0x80), byte(0xbf)
++		switch {
++		case c >= 0xc2 && c <= 0xdf:
++			need = 2
++		case c == 0xe0:
++			need, lo = 3, 0xa0
++		case c >= 0xe1 && c <= 0xec, c >= 0xee && c <= 0xef:
++			need = 3
++		case c == 0xed:
++			need, hi = 3, 0x9f
++		case c == 0xf0:
++			need, lo = 4, 0x90
++		case c >= 0xf1 && c <= 0xf3:
++			need = 4
++		case c == 0xf4:
++			need, hi = 4, 0x8f
++		default:
++			out = appendReplacement(out)
++			i++
++			continue
++		}
++
++		valid := 1 // The leading byte is part of the malformed subsequence.
++		for valid < need && i+valid < len(b) {
++			n := b[i+valid]
++			min, max := byte(0x80), byte(0xbf)
++			if valid == 1 {
++				min, max = lo, hi
++			}
++			if n < min || n > max {
++				break
++			}
++			valid++
++		}
++		if valid == need {
++			out = append(out, b[i:i+need]...)
++			i += need
++			continue
++		}
++
++		// Node consumes a valid prefix of a multibyte sequence as one bad
++		// subsequence, then retries the byte that broke it. An incomplete
++		// valid prefix at end of input is also one replacement.
++		out = appendReplacement(out)
++		i += valid
++	}
++	return string(out)
++}
++
++func appendReplacement(dst []byte) []byte {
++	return utf8.AppendRune(dst, utf8.RuneError)
++}
+diff --git a/tools/gogen/go/nodeutf8/decode_test.go b/tools/gogen/go/nodeutf8/decode_test.go
+new file mode 100644
+index 0000000..26ffdd5
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/decode_test.go
+@@ -0,0 +1,21 @@
++package nodeutf8
++
++import "testing"
++
++func TestDecodeNodeMalformedUTF8(t *testing.T) {
++	for _, tc := range []struct{ input, want string }{
++		{"hello", "hello"},
++		{"caf\xc3\xa9", "café"},
++		{"\xe1\x80A", "�A"},
++		{"\xf0\x9f", "�"},
++		{"\xed\xa0\x80", "���"},
++		{"\xf4\x90\x80\x80", "����"},
++		{"\xe0\x80\x80", "���"},
++		{"x\xe2\x82y", "x�y"},
++		{"\xf0\x80\x80A", "���A"},
++	} {
++		if got := Decode(tc.input); got != tc.want {
++			t.Errorf("Decode(% x) = %q, want %q", tc.input, got, tc.want)
++		}
++	}
++}
+diff --git a/tools/gogen/semantics.mjs b/tools/gogen/semantics.mjs
+index 2726ba6..e3074b3 100644
+--- a/tools/gogen/semantics.mjs
++++ b/tools/gogen/semantics.mjs
+@@ -15,6 +15,9 @@ import {home} from "./home.mjs";
+ 
+ const here = dirname(fileURLToPath(import.meta.url));
+ const EXPECT = {
++  // cl_http_utility=>decode_base64: Node's lenient base64 and lossy UTF-8;
++  // strlen sees decoded Unicode characters, not the original byte count.
++  ZCL_GOGEN_T_B64TEXT: {Go: "hé/2 😀/2 x�Az/4", JS: "ERROR NOT_COMPILED in abap.DecodeBase64: a host function of the Go runtime"},
+   // TASK5: initial NUMC(3) and character message fields.
+   ZCL_GOGEN_T_MSGINITIAL: "000//////",
+   // TASK5 supplied CS oracle; other operators follow SAP character comparison rules.
+diff --git a/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap b/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap
+new file mode 100644
+index 0000000..22da944
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_b64text.clas.abap
+@@ -0,0 +1,16 @@
++CLASS zcl_gogen_t_b64text DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++
++CLASS zcl_gogen_t_b64text IMPLEMENTATION.
++  METHOD run.
++    DATA lv TYPE string.
++    lv = cl_http_utility=>decode_base64( 'aMOp==' ).
++    rv = |{ lv }/{ strlen( lv ) }|.
++    lv = cl_http_utility=>decode_base64( '8J-YgA' ).
++    rv = |{ rv } { lv }/{ strlen( lv ) }|.
++    lv = cl_http_utility=>decode_base64( 'eOGAQXo=' ).
++    rv = |{ rv } { lv }/{ strlen( lv ) }|.
++  ENDMETHOD.
++ENDCLASS.

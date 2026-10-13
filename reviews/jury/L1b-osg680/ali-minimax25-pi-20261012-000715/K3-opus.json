@@ -1,0 +1,47 @@
+{
+  "verdict": "incorrect",
+  "quality": 1,
+  "summary": "The patch registers the native under the wrong key, so cl_http_utility=>decode_base64 still reports NOT_COMPILED. The new nodeutf8.Decode also diverges from Node on common malformed input: it drops valid ASCII after a truncated lead byte, and it emits extra U+FFFD for incomplete sequences that are followed by more text. Its own tests pass only because they cover the end-of-string cases its special-case hack handles.",
+  "findings": [
+    {
+      "severity": "P0",
+      "file": "tools/gogen/frontend.mjs",
+      "line": 737,
+      "claim": "In open-abap-core, DECODE_BASE64 is an ALIAS of IF_HTTP_UTILITY~DECODE_BASE64, so the frontend looks up 'CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64'. That is how the neighbouring ENCODE_BASE64 entry is keyed. The new entry 'CL_HTTP_UTILITY=>DECODE_BASE64' never matches, the @KERNEL body is still compiled, and every call reports NOT_COMPILED. The acceptance check fails for this reason.",
+      "repro": "Write a test class that calls cl_http_utility=>decode_base64( 'YWJhcA==' ). Run: node tools/osgo-unit.mjs <cases dir> --class ZCL_OSGT_DECODE_BASE64. Output: NOT_COMPILED in CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64 (cl_http_utility.clas.abap:159): @KERNEL"
+    },
+    {
+      "severity": "P0",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 50,
+      "claim": "The 'skip the remaining bytes' branch swallows valid bytes after a truncated lead byte near the end of input. If expected > remaining, it jumps over all remaining bytes without checking that they are continuation bytes, so text around the malformed byte is lost. It also hides a separate invalid continuation (e080 gives one U+FFFD where Node gives two).",
+      "repro": "Decode(\"\\xF0A\") returns \"\\uFFFD\"; Node Buffer.from('f041','hex').toString() returns \"\\uFFFDA\". F0 9F 41 gives \"\\uFFFD\" against Node's \"\\uFFFDA\". E0 80 gives one U+FFFD against Node's two."
+    },
+    {
+      "severity": "P1",
+      "file": "tools/gogen/go/nodeutf8/decode.go",
+      "line": 26,
+      "claim": "Go's DecodeRuneInString returns size 1 for each invalid byte. Node (WHATWG) replaces the maximal subpart of an incomplete sequence with a single U+FFFD. The hack covers only an incomplete sequence at the very end of the string, so any truncated sequence followed by more data gets one U+FFFD per byte.",
+      "repro": "E4 BD 41 gives \"\\uFFFD\\uFFFDA\" against Node's \"\\uFFFDA\". E0 A0 41 gives \"\\uFFFD\\uFFFDA\" against Node's \"\\uFFFDA\". E4 BD 41 E4 gives \"\\uFFFD\\uFFFDA\\uFFFD\" against Node's \"\\uFFFDA\\uFFFD\"."
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/abap/conv.go",
+      "line": 739,
+      "claim": "DecodeBase64 copies the whole Base64-cleaning body of DecodeXBase64 instead of calling it, e.g. nodeutf8.Decode(DecodeXBase64(s, encoded)). The two implementations can now drift apart.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "tools/gogen/go/abap/decode_base64_test.go",
+      "line": 29,
+      "claim": "The case labelled 'Chinese (unpadded)' uses the same input as the padded case, '5L2g5aW9', which has no padding to drop. The unpadded path for multibyte text is not tested. No test reaches the frontend mapping, which is why the wrong key went unnoticed.",
+      "repro": ""
+    }
+  ],
+  "critic": "K3-opus",
+  "anon": "88e5b5790c",
+  "self_review": false,
+  "exit": 0,
+  "duration_s": 85
+}

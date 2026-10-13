@@ -1,0 +1,5 @@
+--- FAIL: TestAnonymousObjectLiterals (0.04s)
+    object_literal_test.go:58: anonymous readonly field lost its metadata
+FAIL
+FAIL	github.com/oisee/abapiti/tsfront	0.405s
+FAIL

@@ -1,0 +1,65 @@
+--- FAIL: TestGlobalClassDefinitions (0.01s)
+    emit_test.go:216: global definitions differ from testdata/global_definitions_v750.txt
+--- FAIL: TestIndentBlocks (0.00s)
+    indent_test.go:64: unexpected indentation:
+        CLASS zcl_test DEFINITION.
+          PUBLIC SECTION.
+            METHODS run.
+          PROTECTED SECTION.
+          DATA: a TYPE i,
+          b TYPE i.
+          PRIVATE SECTION.
+        ENDCLASS.
+        CLASS zcl_test IMPLEMENTATION.
+          METHOD run.
+            IF a = 1.
+              LOOP AT tab INTO row.
+                TRY.
+                  CASE a.
+                  WHEN 1.
+                    WRITE a.
+                  WHEN OTHERS.
+                    WRITE b.
+                  ENDCASE.
+                CATCH cx_root.
+                  WRITE a.
+                CLEANUP.
+                WRITE b.
+              ENDTRY.
+            ENDLOOP.
+          ELSEIF a = 2.
+            WHILE a > 0.
+              a = a - 1.
+            ENDWHILE.
+          ELSE.
+            DO 2 TIMES.
+        * column-zero comment
+            WRITE 'ENDIF. ''TRY.'''. " IF ignored
+          ENDDO.
+        ENDIF.
+        ENDMETHOD.
+        ENDCLASS.
+        INTERFACE zif_test.
+        METHODS run.
+        ENDINTERFACE.
+        START-OF-SELECTION.
+          WRITE 'start'.
+        END-OF-SELECTION.
+          WRITE 'end'.
+        FORM run.
+            WRITE 'form'.
+          ENDFORM.
+--- FAIL: TestFormatWrappedNestedStatement (0.00s)
+    indent_test.go:88: continuation lost indentation: "value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument = value argument ="
+--- FAIL: TestIndentStatementBoundaries (0.00s)
+    indent_test.go:109: got:
+        CLASS zcl DEFINITION DEFERRED.
+        FORM run.
+          GET RUN TIME FIELD reading.
+          DATA: a TYPE i, b TYPE i.
+          IF a = 1. WRITE `a.b`. ENDIF.
+            WRITE |escaped \| period. template|.
+          ENDFORM.
+FAIL
+FAIL	github.com/oisee/abapiti/hir/abap	0.101s
+FAIL

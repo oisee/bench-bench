@@ -1,0 +1,23 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "npx mocha test/write-boundary.mjs",
+      "rc": 0
+    }
+  ],
+  "p2p": [],
+  "patch_lines": 60,
+  "task": "L1a-osg678",
+  "level": "L1",
+  "executor": "ali-qwen37-pi",
+  "harness": "pi",
+  "provider": "alibaba",
+  "model": "qwen3.7-plus",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 263,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "1.0.2"
+}

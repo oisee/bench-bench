@@ -1,0 +1,41 @@
+{
+  "verdict": "correct",
+  "quality": 4,
+  "summary": "The change adds a structural-shape path (lower_shape.go) for object literals that have no named target: one shared class per field set regardless of property order, readonly kept as a view, empty-literal and record contexts, and nested, argument and return uses. The full test suite passes, the new test matches Node (211), and ad-hoc probes of reordering, readonly views, optional contexts, records, nested arrays, class field initializers and closures returning literals all verify and give Node-identical Go output. The remaining issues are edge cases in the new spread/evaluation-order handling (copied from an existing pattern), one HIR flag inaccuracy and some duplicated code.",
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "tsfront/lower_shape.go",
+      "line": 395,
+      "claim": "anonymousLiteral only counts PropertyAssignments as 'impure'. A spread is always hoisted into a temp, but a single side-effecting member written before it is not. So the spread runs before that member, against JS left-to-right order. Also, if a later spread overwrites a member that has side effects (`{x: f(), ...a}`), the member's value expression is dropped and its side effect never runs. The baseline's named-shape spread path already has the same bug; the new code repeats it even though its comment promises source-order evaluation.",
+      "repro": "class Probe { static c = 0; static next(d: number): number { Probe.c = Probe.c*10+d; return Probe.c; } static mk(): {z: number} { return {z: Probe.next(2)}; } static run(): number { const o = {a: Probe.next(1), ...Probe.mk(), e: {}}; return o.z*1000 + o.a; } }  -> Go backend prints 2021, Node prints 12001. With `const a={x:5}; const o={x: Probe.next(1), ...a, e: {}}; return o.x + Probe.c*100;` Go prints 5, Node prints 105."
+    },
+    {
+      "severity": "P2",
+      "file": "tsfront/lower_shape.go",
+      "line": 410,
+      "claim": "Spread members copy the source field's Readonly flag, but TypeScript object spread drops readonly. A writable spread copy of a readonly-only layout therefore reuses the shape with fields still marked Readonly, and those fields are then written outside the constructor. This breaks the stated rule that 'a synthesized field stays readonly only while every view is readonly'. Number-range inference treats Readonly number fields specially, so this HIR flag matters.",
+      "repro": "const a: {readonly x: number, readonly q: string} = {x: 1, q: \"a\"}; const b = {...a}; b.x = 5;  -> the shape class still has x/q with Readonly=true while b.x is assigned"
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 337,
+      "claim": "literalMember duplicates the member-name and computed-key parsing in objectLiteral (lower_expr.go ~2220-2235), including identical diagnostics. objectLiteral also now has two empty-literal fallbacks in a row (synthFromProperties when the type has no symbol, then structuralShape(nil)). The two copies can drift apart.",
+      "repro": ""
+    },
+    {
+      "severity": "P3",
+      "file": "tsfront/lower_shape.go",
+      "line": 140,
+      "claim": "contextualHint and literalContextType call mapCheckerType speculatively and only roll back diagnostics. Any shape classes synthesized during a probe whose result is then discarded stay in l.out.Classes as unused constructors.",
+      "repro": ""
+    }
+  ],
+  "critic": "S-opus",
+  "critic_model": "anthropic/opus",
+  "anon": "b5fbc69523",
+  "self_review": true,
+  "exit": 0,
+  "duration_s": 452
+}
