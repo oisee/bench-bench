@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# One benchmark run. New runs default to two independent critic rounds before
-# grading; set BENCH_INTERNAL_REVIEW_ROUNDS=0 to reproduce the old single-session protocol.
+# One benchmark run: a single agent session, then grading (the baseline protocol).
+# Set BENCH_INTERNAL_REVIEW_ROUNDS=2 to opt in to the two-critic builder protocol
+# (docs/internal-review-protocol.md); its 3-run pilot showed no solve gain at 2-10x time.
 #   bin/run.sh tasks/<task-id> <executor-id>        (executor ids: matrix.yaml)
 set -uo pipefail
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
-case "${BENCH_INTERNAL_REVIEW_ROUNDS:-2}" in
+case "${BENCH_INTERNAL_REVIEW_ROUNDS:-0}" in
   2) exec "$BENCH/bin/run-reviewed.sh" "$@" ;;
   0) ;;
   *) echo 'BENCH_INTERNAL_REVIEW_ROUNDS must be 0 or 2' >&2; exit 2 ;;

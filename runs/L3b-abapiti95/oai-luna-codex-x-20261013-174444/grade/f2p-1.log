@@ -1,0 +1,6 @@
+--- FAIL: TestAnonymousObjectLiterals (0.05s)
+    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals409138282/001/probe.ts:13:4: checker type {} is not a lowered declaration
+    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals409138282/001/probe.ts:13:21: object literal needs a named lowered shape
+FAIL
+FAIL	github.com/oisee/abapiti/tsfront	0.448s
+FAIL

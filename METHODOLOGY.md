@@ -52,7 +52,8 @@ that passed all four L1 and L2 tasks, ranked by the geometric mean of their time
 The selection is frozen in `data/l3-finalists.json`.
 
 The L2a grader fix (§4) changed which executors qualified. The recomputed eligibility is in
-`data/l3-corrected-eligibility.json`, but L3 ran with the original cohort.
+`data/l3-corrected-eligibility.json`. L3 first ran with the original cohort. Luna xhigh, which qualifies under
+the corrected rule, was run on both L3 tasks afterwards (`bin/run-l3-luna-x.sh`); the original runs stay in the data.
 
 ## 3. Sandbox
 

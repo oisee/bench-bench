@@ -10,9 +10,10 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 
 ## TL;DR
 
-- **64 baseline runs + 3 pilot runs**, 6 tasks, 15 model + harness combinations, 8 models, 3 harnesses
+- **66 baseline runs + 3 pilot runs**, 6 tasks, 15 model + harness combinations, 8 models, 3 harnesses
   (Claude Code, Codex, Pi). One run per cell, so treat one-task differences as noise.
-- **Opus in Claude Code solved 6/6.** Sol 6.1 in Codex solved 5/6 in a quarter of the time, failing only the hardest task.
+- **Opus in Claude Code solved 6/6.** Sol 6.1 in Codex solved 5/6 in a quarter of the time, failing only the hardest task (L3b).
+  Luna xhigh in Codex also solved 5/6, failing the same task, for about $0.41 in total at list price versus about $2.30 for Sol.
 - **The harness matters as much as the model.** The same GLM-5.3 solved 6/6 in Claude Code (3 only at the time limit), 5/6 in Pi and 4/6 in Codex.
 - **Cheap per token is not cheap per task.** GLM-5.3 in Claude Code burned 112M input tokens on the six tasks, about $32 at list price; Opus used 39M, about $18. Sol solved 5 tasks for about $2.30, and Luna in Codex costs cents per task.
 - **Hidden tests are not the whole truth.** A blind critic (Sol) found real bugs in three patches that pass the
@@ -26,8 +27,8 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 | Opus | Claude Code | 6/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** **L3b** | 117 min | 39.3M | 233k | $18.24 |
 | GLM-5.3 | Claude Code | 6/6 | 3 | **L1a** **L1b** **L2a** **L2b** **L3a** **L3b** | 221 min | 112.3M | 428k | $32.21 |
 | Sol 6.1 (medium) | Codex | 5/6 | 0 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 30 min | 8.3M | 61k | $2.32 |
+| Luna (xhigh) | Codex | 5/6 | 0 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 41 min | 25.8M | 176k | $0.42 |
 | GLM-5.3 | Pi | 5/6 | 3 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 234 min | 76.6M | 340k | $22.35 |
-| Luna (xhigh) | Codex | 4/4 | 0 | **L1a** **L1b** **L2a** **L2b** | 25 min | 16.8M | 119k | $0.27 |
 | GLM-5.3 | Codex | 4/6 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ **L3a** ~~L3b~~ | 72 min | 36.7M | 157k | $10.93 |
 | Luna (medium) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 6 min | 2.0M | 17k | $0.04 |
 | Luna (high) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 17 min | 10.0M | 65k | $0.16 |

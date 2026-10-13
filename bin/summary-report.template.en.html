@@ -283,7 +283,7 @@ ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ←
       <li><b>The old composite leaderboard score is biased.</b> The jury only graded L1 and never saw the Luna runs; a run without a jury grade got a flat 60 points. This page therefore counts only solved tasks and time.</li>
       <li><b>Costs are list-price estimates.</b> For models other than Opus and GLM-5.3, prices come from third-party trackers that sometimes disagree by up to 2×. Token counts are reported by each harness and are comparable only roughly: harnesses differ in how they cache and what they count as input.</li>
       <li><b>Hidden tests are incomplete.</b> Critic screening found three test-passing patches (Opus on L2b and L3b, Luna xhigh on L2b) that diverge from the reference (section 06). Their "solved" status is overstated.</li>
-      <li><b>L2a grader fix.</b> A hidden test clashed by name with tests the agents wrote. After the fix, 4 failures became passes and L2 went to 18/30. Under the selection rule, Luna xhigh rather than GLM-5.3/Pi should then have reached L3, but it has not been run on L3 yet.</li>
+      <li><b>L2a grader fix.</b> A hidden test clashed by name with tests the agents wrote. After the fix, 4 failures became passes and L2 went to 18/30. Under the selection rule, Luna xhigh rather than GLM-5.3/Pi should then have reached L3. Luna xhigh was run on L3 afterwards (October 13): it solved L3a and failed L3b; the original GLM-5.3/Pi L3 runs stay in the data.</li>
       <li><b>All tasks come from one ecosystem</b> (Go/TS tooling around ABAP). Whether the findings transfer to other projects is untested.</li>
     </ol>
   </section>
@@ -293,8 +293,6 @@ ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ←
     <ol class="next">
       
       <li><b>Second wave:</b> the two best critics on the failed L2b and L3b patches, with a control group that gets the same extra attempt without a critic.</li>
-      <li><b>Luna xhigh on L3a and L3b</b> under the original protocol, to complete the corrected set of finalists.</li>
-      <li><b>Repeats on L2b and L3b</b> for Opus, Sol and Luna xhigh: these are the most discriminating tasks.</li>
       <li><b>Verify the estimated prices</b> against the providers' official price pages.</li>
     </ol>
   </section>
@@ -351,7 +349,7 @@ document.getElementById("facts").innerHTML = [
   document.getElementById("tldr").innerHTML = [
     `<b>What:</b> ${r1.length} agent runs on 6 tasks taken from real merged pull requests in three public repos (open-steamgate, abapiti, minz). Graded by the PR's own hidden tests. Levels go from plain JS/Go (L1) to ABAP code generation (L2) to compiler work (L3).`,
     `<b>Who:</b> ${execs.length} model + harness combinations, ${models.size} models, 3 harnesses: Claude Code, Codex and Pi. Same brief, same sandbox, time limit 30/45/60 min per level, no human help, one run per cell.`,
-    `<b>Best:</b> Opus in Claude Code solved all 6/6. Sol 6.1 in Codex solved 5/6 and used ${fast}× less total time; it failed the hardest task (L3b).`,
+    `<b>Best:</b> Opus in Claude Code solved all 6/6. Sol 6.1 in Codex solved 5/6 and used ${fast}× less total time; it failed the hardest task (L3b). Luna xhigh in Codex also solved 5/6 and also failed only L3b, for about $${cost(g("oai-luna-codex-x")).toFixed(2)} in total.`,
     `<b>The harness matters as much as the model:</b> GLM-5.3 solved ${gc.solved}/6 in Claude Code (${gc.solved - gc.strict} of them only at the time limit), ${gp.solved}/6 in Pi, ${gx.solved}/6 in Codex.`,
     `<b>Tokens and cost:</b> Opus used ${M(sum(opus.rs, "tin"))} input tokens (mostly cached) and ${Math.round(sum(opus.rs, "tout") / 1e3)}k output for all 6 tasks, about $${cost(opus).toFixed(0)} at list price. GLM-5.3 in Claude Code used ${M(sum(gc.rs, "tin"))} input and cost about $${cost(gc).toFixed(0)}, despite the cheaper per-token rate. Sol solved 5 tasks for about $${cost(sol).toFixed(2)}, and Luna in Codex costs cents per task. See <a href="#tokens" style="color:var(--accent)">03b</a>.`,
     `<b>Critics:</b> a blind critic is worth having only if it actively tries to break the patch. Sol found real bugs in 3 patches that passed the hidden tests (2 by Opus, 1 by Luna xhigh), each confirmed against the upstream solution. The two-critic builder loop did not raise the solve rate in a small pilot.`,
@@ -464,9 +462,9 @@ document.getElementById("bars").innerHTML = execs.map(e => {
     <div class="chart"><h3>Harness: one model, GLM-5.3</h3>
       <div class="mini">${harness.map(e => row(HN[e.harness], e.solved, 6, `${e.solved}/6`, `var(--${e.harness})`)).join("")}</div>
       <p class="small muted">Claude Code solved everything, but 3 of 6 at the time limit. In time: ${harness.map(e => `${HN[e.harness]} ${e.strict}`).join(", ")}.</p></div>
-    <div class="chart"><h3>Effort level: Luna in Codex</h3>
-      <div class="mini">${luna.map(e => row(e.model.replace("Luna ", ""), e.solved, 4, `${e.solved}/4`, "var(--codex)")).join("")}</div>
-      <p class="small muted">Only xhigh solved L2b; medium gave up on it after 32 seconds. Total time: ${luna.map(e => fmtS(e.time)).join(" → ")}.</p></div>
+    <div class="chart"><h3>Effort level: Luna in Codex, L1+L2</h3>
+      <div class="mini">${luna.map(e => { const s = e.rs.filter(r => !r.task.startsWith("L3") && r.effective).length; return row(e.model.replace("Luna ", ""), s, 4, `${s}/4`, "var(--codex)"); }).join("")}</div>
+      <p class="small muted">Only xhigh solved L2b; medium gave up on it after 32 seconds. Total time: ${luna.map(e => fmtS(e.rs.filter(r => !r.task.startsWith("L3")).reduce((a, r) => a + r.dur, 0))).join(" → ")}.</p></div>
     <div class="chart"><h3>The price of speed: total time on L1+L2</h3>
       <div class="mini">${fast.map(e => { const t = e.rs.filter(r => !r.task.startsWith("L3")).reduce((a, r) => a + r.dur, 0); return row(e.model, t, maxT, fmtS(t), `var(--${e.harness})`); }).join("")}</div>
       <p class="small muted">Sol spends minutes where others spend hours, but failed the hard L3b. Opus is slower but never failed.</p></div>`;

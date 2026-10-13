@@ -1,9 +1,10 @@
 # Two-critic builder protocol
 
-This protocol is the default for **new** `bin/run.sh` runs. It does not change
-the 64 already graded single-session runs or the locked L3 finalist selection.
-Use `BENCH_INTERNAL_REVIEW_ROUNDS=0 bin/run.sh ...` only to reproduce the old
-single-session procedure. The reviewed protocol defaults to `BENCH_ROUND=2`,
+This protocol is opt-in: `BENCH_INTERNAL_REVIEW_ROUNDS=2 bin/run.sh ...`.
+`bin/run.sh` defaults to the single-session baseline again, because the 3-run
+pilot showed no gain in solved tasks at 2–10× the time. It does not change the
+64 graded single-session runs or the locked L3 finalist selection.
+The reviewed protocol defaults to `BENCH_ROUND=2`,
 so its results remain separate from the L1/L2/L3 baseline in selection and
 report summaries.
 The historical L2/L3 queue and retry scripts explicitly pin the old protocol

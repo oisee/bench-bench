@@ -1,0 +1,290 @@
+diff --git a/minzc/pkg/hir/hir.go b/minzc/pkg/hir/hir.go
+index 4f79c53..01d8e35 100644
+--- a/minzc/pkg/hir/hir.go
++++ b/minzc/pkg/hir/hir.go
+@@ -365,7 +365,7 @@ func (*VarRefExpr) hirExpr()          {}
+ func (e *VarRefExpr) ExprTy() mir2.Ty { return e.Ty }
+ 
+ // BinExpr is a binary operation.
+-// Op is one of: + - * / % & | ^ << >> == != < <= > >=
++// Op is one of: + - * / % & | ^ << >> == != < <= > >= && ||
+ type BinExpr struct {
+ 	Op   string
+ 	L, R Expr
+diff --git a/minzc/pkg/hir/lower.go b/minzc/pkg/hir/lower.go
+index 6f9ca55..1ef6ce6 100644
+--- a/minzc/pkg/hir/lower.go
++++ b/minzc/pkg/hir/lower.go
+@@ -1928,6 +1928,13 @@ func (l *lowerer) lowerCondExpr(ex *CondExpr) mir2.Reg {
+ 
+ // lowerBinExpr lowers a binary expression.
+ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
++	// Logical operators are control flow rather than eager binary operations.
++	// The conditional expression lowers the RHS only along the path where its
++	// value is needed, and its branches produce canonical 0/1 bool values.
++	if ex.Op == "&&" || ex.Op == "||" {
++		return l.lowerLogicalExpr(ex)
++	}
++
+ 	// Comparison operators → produce a flag (ClassFlag).
+ 	switch ex.Op {
+ 	case "==", "!=", "<", "<=", ">", ">=":
+@@ -1977,6 +1984,41 @@ func (l *lowerer) lowerBinExpr(ex *BinExpr) mir2.Reg {
+ 	}
+ }
+ 
++// lowerLogicalExpr lowers && and || through conditional expressions so the
++// right side is evaluated only when required.  Wrapping the right side in a
++// bool-valued conditional also normalizes arbitrary integer operands to 0/1.
++func (l *lowerer) lowerLogicalExpr(ex *BinExpr) mir2.Reg {
++	boolValue := func(cond Expr) Expr {
++		return &CondExpr{
++			Cond: cond,
++			Then: &BoolLitExpr{Val: true},
++			Else: &BoolLitExpr{Val: false},
++			Ty:   mir2.TyBool,
++		}
++	}
++	trueValue := &BoolLitExpr{Val: true}
++	falseValue := &BoolLitExpr{Val: false}
++
++	switch ex.Op {
++	case "&&":
++		return l.lowerCondExpr(&CondExpr{
++			Cond: ex.L,
++			Then: boolValue(ex.R),
++			Else: falseValue,
++			Ty:   mir2.TyBool,
++		})
++	case "||":
++		return l.lowerCondExpr(&CondExpr{
++			Cond: ex.L,
++			Then: trueValue,
++			Else: boolValue(ex.R),
++			Ty:   mir2.TyBool,
++		})
++	default:
++		panic(fmt.Sprintf("hir/lower: unhandled logical op %q", ex.Op))
++	}
++}
++
+ // lowerUnaryExpr lowers a unary expression.
+ func (l *lowerer) lowerUnaryExpr(ex *UnaryExpr) mir2.Reg {
+ 	xReg := l.lowerExpr(ex.X)
+diff --git a/minzc/pkg/nanz/logical_ops_test.go b/minzc/pkg/nanz/logical_ops_test.go
+new file mode 100644
+index 0000000..66afd1e
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_ops_test.go
+@@ -0,0 +1,116 @@
++package nanz_test
++
++import (
++	"testing"
++
++	"github.com/minz/minzc/pkg/hir"
++	"github.com/minz/minzc/pkg/mir2"
++	"github.com/minz/minzc/pkg/nanz"
++)
++
++func TestLogicalOperatorsShortCircuitAndNormalize(t *testing.T) {
++	src := `
++global hits: u8
++
++fun touch() -> u8 {
++	hits = hits + 1
++	return 7
++}
++
++fun and_skip() -> bool { return 0 && touch() }
++fun or_skip() -> bool { return 1 || touch() }
++fun and_eval() -> bool { return 1 && touch() }
++fun or_eval() -> bool { return 0 || touch() }
++fun logical_precedence() -> bool { return true || false && false }
++fun comparison_precedence() -> bool { return 1 == 1 && 2 < 3 }
++fun bitwise_precedence() -> bool { return true || 1 & 0 }
++
++fun compiled_side_effects() -> u8 {
++	hits = 0
++	0 && touch()
++	1 || touch()
++	1 && touch()
++	0 || touch()
++	return hits
++}
++
++fun conditions() -> u8 {
++	var n: u8 = 0
++	if true || false && false { n = n + 1 }
++	var i: u8 = 0
++	while i < 2 && true {
++		n = n + 1
++		i = i + 1
++	}
++	return n
++}
++`
++	hm, err := nanz.Parse(src, "logical_ops")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++
++	// The HIR must distinguish the operators and preserve their precedence.
++	precedence := hm.FuncByName("logical_precedence").Body.Body[0].(*hir.ReturnStmt).Val
++	root, ok := precedence.(*hir.BinExpr)
++	if !ok || root.Op != "||" {
++		t.Fatalf("logical root = %#v, want ||", precedence)
++	}
++	right, ok := root.R.(*hir.BinExpr)
++	if !ok || right.Op != "&&" {
++		t.Fatalf("right operand of || = %#v, want &&", root.R)
++	}
++
++	// Keep the preexisting bitwise ordering: | < xor < &.
++	bitwiseModule, err := nanz.Parse(`fun bits() -> u8 { return 1 | 2 xor 3 & 4 }`, "bitwise_precedence")
++	if err != nil {
++		t.Fatalf("parse bitwise precedence: %v", err)
++	}
++	bits := bitwiseModule.FuncByName("bits").Body.Body[0].(*hir.ReturnStmt).Val.(*hir.BinExpr)
++	if bits.Op != "|" {
++		t.Fatalf("bitwise root = %q, want |", bits.Op)
++	}
++	xor, ok := bits.R.(*hir.BinExpr)
++	if !ok || xor.Op != "xor" && xor.Op != "^" {
++		t.Fatalf("right operand of | = %#v, want xor", bits.R)
++	}
++	and, ok := xor.R.(*hir.BinExpr)
++	if !ok || and.Op != "&" {
++		t.Fatalf("right operand of xor = %#v, want &", xor.R)
++	}
++
++	vm := mir2.NewVM(hir.LowerModule(hm))
++	hits := func() int64 { return int64(vm.ReadHeap(vm.GlobalAddr("hits"), 1)[0]) }
++	check := func(name string, want int64) {
++		t.Helper()
++		got, callErr := vm.Call(name, nil)
++		if callErr != nil {
++			t.Fatalf("%s: %v", name, callErr)
++		}
++		if len(got) != 1 || got[0].I != want {
++			t.Fatalf("%s = %v, want %d", name, got, want)
++		}
++	}
++
++	check("and_skip", 0)
++	check("or_skip", 1)
++	if got := hits(); got != 0 {
++		t.Fatalf("short-circuited calls ran %d times, want 0", got)
++	}
++	check("and_eval", 1)
++	check("or_eval", 1)
++	if got := hits(); got != 2 {
++		t.Fatalf("evaluated calls ran %d times, want 2", got)
++	}
++	check("logical_precedence", 1)
++	check("comparison_precedence", 1)
++	check("bitwise_precedence", 1)
++	check("conditions", 3)
++
++	// Run generated Z80 code as well as the MIR2 VM to cover the compiler path.
++	if got, err := compileAndRunEnum(t, src, "compiled_side_effects"); err != nil {
++		t.Fatalf("compile/run short-circuit side effects: %v", err)
++	} else if got != 2 {
++		t.Fatalf("compiled short-circuit side effects = %d, want 2", got)
++	}
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..e682a60 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -99,6 +99,8 @@ const (
+ 	tokDot        // .
+ 	tokEq         // =
+ 	tokEqEq       // ==
++	tokAndAnd     // &&
++	tokOrOr       // ||
+ 	tokBang       // !
+ 	tokBangEq     // !=
+ 	tokLt         // <
+@@ -194,6 +196,14 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokEqEq, "==", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAndAnd, "&&", line)
++			l.pos += 2
++			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokOrOr, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '!' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '=':
+ 			l.emit(tokBangEq, "!=", line)
+ 			l.pos += 2
+@@ -4397,23 +4407,28 @@ type binop struct {
+ }
+ 
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	// Logical operators bind below every existing binary operator.  The
++	// relative precedence of the bitwise, comparison, shift, and arithmetic
++	// operators below is intentionally unchanged.
++	tokOrOr:   {"||", 1},
++	tokAndAnd: {"&&", 2},
++	tokPipe:   {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4471,10 +4486,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -5469,7 +5484,7 @@ func matchOpOverload(ovs []opOverload, lTy, rTy mir2.Ty) (opOverload, bool) {
+ 
+ func resultTy(l, r mir2.Ty, op string) mir2.Ty {
+ 	switch op {
+-	case "==", "!=", "<", "<=", ">", ">=":
++	case "&&", "||", "==", "!=", "<", "<=", ">", ">=":
+ 		return mir2.TyBool
+ 	}
+ 	if l == mir2.TyU16 || r == mir2.TyU16 {
