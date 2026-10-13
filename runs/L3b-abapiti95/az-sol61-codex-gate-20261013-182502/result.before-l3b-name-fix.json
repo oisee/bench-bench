@@ -1,0 +1,30 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+      "rc": 1
+    }
+  ],
+  "patch_lines": 418,
+  "task": "L3b-abapiti95",
+  "level": "L3",
+  "executor": "az-sol61-codex-gate",
+  "harness": "codex",
+  "provider": "azure",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "agent_exit": 0,
+  "duration_s": 452,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "final-gate-v1",
+  "internal_review_rounds": 0
+}

@@ -1,0 +1,277 @@
+{
+  "fix": "l3b-hidden-test-name-v1",
+  "cases": [
+    {
+      "run": "L3b-abapiti95/ant-opus-claude-20261013-090112",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/az-sol61-codex-20261013-053019",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/az-sol61-codex-gate-20261013-182502",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 1
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/az-sol61-codex-hi-20261013-181126",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/oai-luna-codex-x-20261013-174444",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/zai-glm53-claude-20261013-060457",
+      "before": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "RESOLVED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 0
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/zai-glm53-codex-20261013-113243",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    },
+    {
+      "run": "L3b-abapiti95/zai-glm53-pi-20261013-070528",
+      "before": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "after": {
+        "status": "FAILED",
+        "f2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+            "rc": 1
+          }
+        ],
+        "p2p": [
+          {
+            "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+            "rc": 0
+          }
+        ]
+      },
+      "changed": true
+    }
+  ]
+}

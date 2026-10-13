@@ -1,0 +1,13 @@
+{
+  "harness": "codex",
+  "provider": "azure",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "round": "3",
+  "harness_version": "",
+  "started_at": "2026-10-13T18:25:03+01:00",
+  "finished_at": "2026-10-13T18:32:28+01:00",
+  "exit_code": "0",
+  "protocol": "final-gate-v1",
+  "gate": "pass"
+}

@@ -1,0 +1,28 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1010,
+  "task": "L3b-abapiti95",
+  "level": "L3",
+  "executor": "zai-glm53-claude",
+  "harness": "claude",
+  "provider": "zai",
+  "model": "glm-5.3[1m]",
+  "effort": "high",
+  "agent_exit": 124,
+  "duration_s": 3600,
+  "stop": "TIMEOUT",
+  "leak_suspect": false,
+  "harness_version": ""
+}

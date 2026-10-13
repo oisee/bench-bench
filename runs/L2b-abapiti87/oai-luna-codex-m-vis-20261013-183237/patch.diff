@@ -1,0 +1,182 @@
+diff --git a/hir/abap/emit.go b/hir/abap/emit.go
+index 3c515a3..18e4618 100644
+--- a/hir/abap/emit.go
++++ b/hir/abap/emit.go
+@@ -91,7 +91,7 @@ func EmitNamed(p *hir.Program) (map[string]string, *hir.Names, error) {
+ 		e.traceCasts()
+ 	}
+ 	for file, src := range e.files {
+-		out, err := wrap(src)
++		out, err := Format(src)
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("%s: %w", file, err)
+ 		}
+diff --git a/hir/abap/indent.go b/hir/abap/indent.go
+new file mode 100644
+index 0000000..4894635
+--- /dev/null
++++ b/hir/abap/indent.go
+@@ -0,0 +1,163 @@
++package abap
++
++import "strings"
++
++// indent formats ABAP blocks using abaplint's two space indentation.
++func indent(src string) string {
++	level := 0
++	classMode := ""
++	var out []string
++	for _, raw := range strings.Split(strings.TrimSuffix(src, "\n"), "\n") {
++		if strings.HasPrefix(raw, "*") {
++			out = append(out, raw)
++			continue
++		}
++		parts := statements(raw)
++		lineIndent := level
++		if len(parts) > 0 {
++			first := strings.ToUpper(strings.TrimSpace(parts[0]))
++			if closes(first) && first != "ENDTRY." && level > 0 {
++				lineIndent = level - 1
++			}
++			if first == "ENDTRY." {
++				lineIndent = level - 2
++			}
++			if strings.HasPrefix(first, "WHEN ") {
++				lineIndent = level
++			}
++			if strings.HasPrefix(first, "ELSE") || strings.HasPrefix(first, "CATCH ") || first == "CLEANUP." {
++				lineIndent = level - 1
++			}
++			if strings.HasPrefix(first, "ENDCLASS") || strings.HasPrefix(first, "ENDINTERFACE") || strings.HasPrefix(first, "ENDFORM") {
++				lineIndent = 0
++			}
++			if strings.HasPrefix(first, "CLASS ") && (strings.Contains(first, " DEFINITION") || strings.Contains(first, " IMPLEMENTATION")) || strings.HasPrefix(first, "INTERFACE ") || isEvent(first) || strings.HasPrefix(first, "FORM ") {
++				lineIndent = 0
++			}
++			if strings.HasPrefix(first, "METHOD ") {
++				lineIndent = 1
++			}
++			if classMode == "CLASS DEFINITION" && isSection(first) {
++				lineIndent = 1
++			}
++			if classMode == "CLASS DEFINITION" && !isSection(first) && !strings.HasPrefix(first, "ENDCLASS") {
++				lineIndent = 2
++			}
++			if classMode == "INTERFACE" && !strings.HasPrefix(first, "ENDINTERFACE") {
++				lineIndent = 1
++			}
++		}
++		for _, st := range parts {
++			st = strings.TrimSpace(st)
++			if st == "" {
++				continue
++			}
++			u := strings.ToUpper(st)
++			if closes(u) {
++				if u == "ENDTRY." {
++					level -= 2
++				} else if level > 0 {
++					level--
++				}
++				if level < 0 {
++					level = 0
++				}
++			}
++			if strings.HasPrefix(u, "CLASS ") && strings.Contains(u, " DEFINITION") && !strings.Contains(u, " DEFERRED") {
++				classMode = "CLASS DEFINITION"
++			}
++			if strings.HasPrefix(u, "CLASS ") && strings.Contains(u, " IMPLEMENTATION") {
++				classMode = "CLASS IMPLEMENTATION"
++			}
++			if strings.HasPrefix(u, "INTERFACE ") && !strings.HasPrefix(u, "INTERFACES ") {
++				classMode = "INTERFACE"
++			}
++			if u == "ENDCLASS." || u == "ENDINTERFACE." {
++				classMode = ""
++			}
++			if strings.HasPrefix(u, "METHOD ") {
++				level = 2
++			}
++			if u == "TRY." {
++				level += 2
++			} else if opens(u) && !strings.HasPrefix(u, "METHOD ") && !strings.HasPrefix(u, "WHEN ") && !strings.HasPrefix(u, "CATCH ") && !strings.HasPrefix(u, "ELSE") && u != "CLEANUP." {
++				level++
++			}
++			if isEvent(u) || strings.HasPrefix(u, "FORM ") {
++				level = 1
++			}
++		}
++		if strings.TrimSpace(raw) != "" {
++			out = append(out, strings.Repeat("  ", max(0, lineIndent))+strings.TrimSpace(raw))
++		}
++	}
++	return strings.Join(out, "\n") + "\n"
++}
++
++func statements(s string) []string {
++	var out []string
++	start := 0
++	q := byte(0)
++	for i := 0; i < len(s); i++ {
++		c := s[i]
++		if q != 0 {
++			if q == '|' && c == '\\' {
++				i++
++				continue
++			}
++			if c == q {
++				if q != '|' && i+1 < len(s) && s[i+1] == q {
++					i++
++					continue
++				}
++				q = 0
++			}
++			continue
++		}
++		if c == '\'' || c == '`' || c == '|' {
++			q = c
++			continue
++		}
++		if c == '"' {
++			break
++		}
++		if c == '.' {
++			if i+1 == len(s) || s[i+1] == ' ' {
++				out = append(out, s[start:i+1])
++				start = i + 1
++			}
++		}
++	}
++	if strings.TrimSpace(s[start:]) != "" {
++		out = append(out, s[start:])
++	}
++	return out
++}
++func opens(s string) bool {
++	for _, k := range []string{"IF ", "ELSEIF ", "CASE ", "WHEN ", "DO ", "WHILE ", "LOOP ", "TRY.", "CATCH ", "CLEANUP.", "METHOD ", "FORM ", "START-OF-SELECTION.", "END-OF-SELECTION."} {
++		if strings.HasPrefix(s, k) {
++			return true
++		}
++	}
++	return false
++}
++func closes(s string) bool {
++	for _, k := range []string{"ENDIF", "ENDCASE", "ENDDO", "ENDWHILE", "ENDLOOP", "ENDTRY", "ENDMETHOD", "ENDFORM"} {
++		if strings.HasPrefix(s, k) {
++			return true
++		}
++	}
++	return false
++}
++func isSection(s string) bool { return strings.HasSuffix(s, " SECTION.") }
++func isEvent(s string) bool {
++	for _, k := range []string{"START-OF-SELECTION.", "END-OF-SELECTION.", "INITIALIZATION.", "TOP-OF-PAGE.", "LOAD-OF-PROGRAM."} {
++		if s == k {
++			return true
++		}
++	}
++	return false
++}
++
++// Format indents ABAP and wraps source lines to the 255 byte limit.
++func Format(src string) (string, error) { return wrap(indent(src)) }

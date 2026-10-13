@@ -18,6 +18,8 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 - **Cheap per token is not cheap per task.** GLM-5.3 in Claude Code burned 112M input tokens on the six tasks, about $32 at list price; Opus used 39M, about $18. Sol solved 5 tasks for about $2.30, and Luna in Codex costs cents per task.
 - **Hidden tests are not the whole truth.** A blind critic (Sol) found real bugs in three patches that pass the
   tests (two by Opus, one by Luna xhigh); each was confirmed by running the critic's repro against the upstream solution.
+- **Round 3 (effort vs executable checks, one run each):** Sol 6.1 at high effort solved L3b, which it failed at medium.
+  Luna high solved L2b when half of the held-out cases were in the repo as runnable examples; Luna medium gave up even with them.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1)

@@ -1,0 +1,30 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1089,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "oai-luna-codex-h-vis",
+  "harness": "codex",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 523,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "visible-checks-v1",
+  "internal_review_rounds": 0
+}

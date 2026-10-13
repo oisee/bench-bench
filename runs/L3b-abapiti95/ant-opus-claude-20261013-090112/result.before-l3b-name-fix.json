@@ -1,0 +1,28 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 862,
+  "task": "L3b-abapiti95",
+  "level": "L3",
+  "executor": "ant-opus-claude",
+  "harness": "claude",
+  "provider": "anthropic",
+  "model": "opus",
+  "effort": "high",
+  "agent_exit": 0,
+  "duration_s": 1671,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": ""
+}

@@ -8,11 +8,12 @@
   ],
   "p2p": [
     {
-      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals$\"",
+      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
       "rc": 0
     }
   ],
   "patch_lines": 208,
+  "grade_fix": "l3b-hidden-test-name-v1",
   "task": "L3b-abapiti95",
   "level": "L3",
   "executor": "zai-glm53-codex",

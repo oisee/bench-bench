@@ -149,7 +149,23 @@ functions returning `{}` on L3b. One was a false alarm: the reference panics the
 Luna xhigh patch was confirmed as well. Two of its four findings reproduce only on the patch: a `* 3.` continuation is
 turned into a comment, and `GET BADI` is treated as a report event. The other two behave the same on the reference.
 
-### 6.3 Two-critic build loop (pilot)
+### 6.3 Round 3: effort and executable checks
+
+Four single runs (`bin/run-round3.sh`, `round=3`). `tasks/<id>/visible/` holds the odd-numbered cases of the
+held-out tests, renamed `TestVisible*`; on the base tree they fail, on the upstream solution they pass.
+
+- **Visible checks** (`bin/run-visible.sh visible`): the examples are committed into the baseline before the
+  session, and the brief says how to run them and that the final check is broader. Luna medium and high on L2b.
+- **Final gate** (`bin/run-visible.sh gate`): one normal session; then the examples run once offline, and only on
+  failure the agent gets one 20-minute repair session with the output and test source. Sol 6.1 medium on L3b.
+- **Effort**: Sol 6.1 at high on L3b with the baseline protocol.
+
+**L3b grader fix.** The gate run first failed only because the agent added its own `TestAnonymousObjectLiterals`,
+so the package did not compile. As with L2a, the held-out function is renamed during grading and the P2P `-skip`
+is widened to match. All 8 L3b runs were regraded; only that run changed status
+(`data/l3b-hidden-name-fix-audit.json`).
+
+### 6.4 Two-critic build loop (pilot)
 
 `bin/run-reviewed.sh` runs five sessions with the same model and harness: build → critic → fix → critic → fix.
 The critics are fresh sessions that do not see the tests. The loop was tried on three Luna runs, recorded as

@@ -20,6 +20,8 @@ NAMES = {
     "ali-glm5-pi": ("GLM-5", "pi"), "ali-kimi25-pi": ("Kimi K2.5", "pi"),
     "ali-kimi25-codex": ("Kimi K2.5", "codex"), "ali-minimax25-pi": ("MiniMax M2.5", "pi"),
     "ali-minimax25-codex": ("MiniMax M2.5", "codex"),
+    "az-sol61-codex-hi": ("Sol 6.1 high", "codex"), "az-sol61-codex-gate": ("Sol 6.1 + final gate", "codex"),
+    "oai-luna-codex-m-vis": ("Luna medium + visible checks", "codex"), "oai-luna-codex-h-vis": ("Luna high + visible checks", "codex"),
 }
 CRITICS = {"S-sol": "Sol · Codex", "S-opus": "Opus · Claude Code", "S-fable": "Fable · Claude Code",
            "S-glm": "GLM-5.3 · Claude Code", "S-glm-pi": "GLM-5.3 · Pi", "S-qwen-pi": "Qwen 3.7+ · Pi"}

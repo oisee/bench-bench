@@ -1,8 +1,8 @@
---- FAIL: TestAnonymousObjectLiterals (0.04s)
-    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals4207425045/001/probe.ts:13:4: checker type {} is not a lowered declaration
-    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals4207425045/001/probe.ts:13:21: object literal needs a named lowered shape
-    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals4207425045/001/probe.ts:21:29: object literal needs a named lowered shape
+--- FAIL: TestAnonymousObjectLiterals_BenchHeldOut95 (0.04s)
+    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals_BenchHeldOut953014075626/001/probe.ts:13:4: checker type {} is not a lowered declaration
+    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals_BenchHeldOut953014075626/001/probe.ts:13:21: object literal needs a named lowered shape
+    object_literal_test.go:13: lower: unsupported-type /tmp/TestAnonymousObjectLiterals_BenchHeldOut953014075626/001/probe.ts:21:29: object literal needs a named lowered shape
     object_literal_test.go:58: anonymous readonly field lost its metadata
 FAIL
-FAIL	github.com/oisee/abapiti/tsfront	0.400s
+FAIL	github.com/oisee/abapiti/tsfront	0.384s
 FAIL

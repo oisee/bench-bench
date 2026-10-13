@@ -29,6 +29,12 @@ executors:
   - {id: oai-luna-codex-h,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: high}
   - {id: oai-luna-codex-x,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: xhigh}
 
+  # --- Round 3: harness experiments (bin/run-visible.sh, bin/run.sh for the effort row) ---
+  - {id: az-sol61-codex-hi,     provider: azure,  model: gpt-6.1-sol, harness: codex, effort: high}
+  - {id: az-sol61-codex-gate,   provider: azure,  model: gpt-6.1-sol, harness: codex, effort: medium}
+  - {id: oai-luna-codex-m-vis,  provider: openai, model: gpt-6-luna,  harness: codex, effort: medium}
+  - {id: oai-luna-codex-h-vis,  provider: openai, model: gpt-6-luna,  harness: codex, effort: high}
+
   # --- Control (Anthropic subscription) ---
   - {id: ant-opus-claude,   provider: anthropic, model: opus,         harness: claude, effort: high}
 

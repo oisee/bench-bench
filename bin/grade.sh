@@ -35,6 +35,21 @@ p.write_text(s.replace(old, "func TestParseI8_BenchHeldOut693(t *testing.T) {"))
 PY
   GRADE_FIX="l2a-hidden-test-name-v1"
 fi
+# Same collision on L3b: an agent may add its own TestAnonymousObjectLiterals in
+# package tsfront. Rename the held-out function; F2P's -run selector still matches
+# it, and P2P's -skip is widened so the held-out test stays out of the regression set.
+if [[ "$(basename "$T")" == L3b-abapiti95 ]]; then
+  python3 -I - "$G/tsfront/object_literal_test.go" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+old = "func TestAnonymousObjectLiterals(t *testing.T) {"
+assert s.count(old) == 1, "unexpected held-out TestAnonymousObjectLiterals declaration"
+p.write_text(s.replace(old, "func TestAnonymousObjectLiterals_BenchHeldOut95(t *testing.T) {"))
+PY
+  P2P="${P2P//'^TestAnonymousObjectLiterals$'/'^TestAnonymousObjectLiterals(_BenchHeldOut95)?$'}"
+  GRADE_FIX="l3b-hidden-test-name-v1"
+fi
 
 NODE_PATH="$(command -v node || true)"
 if [ -z "$NODE_PATH" ]; then

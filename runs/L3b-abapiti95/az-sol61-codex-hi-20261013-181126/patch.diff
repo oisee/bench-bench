@@ -1,0 +1,581 @@
+diff --git a/tsfront/lower_class.go b/tsfront/lower_class.go
+index 291b90f..b98fc04 100644
+--- a/tsfront/lower_class.go
++++ b/tsfront/lower_class.go
+@@ -148,14 +148,15 @@ func (l *lowerer) dataInterfaceClass(node *ast.Node, i *hir.Interface) {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(m), Name: name, Type: ft})
++		field := hir.Field{Node: l.node(m), Name: name, Type: ft, Readonly: m.ModifierFlags()&ast.ModifierFlagsReadonly != 0}
++		c.Fields = append(c.Fields, field)
+ 		ctor.Params = append(ctor.Params, hir.Param{Name: name, Type: ft})
+ 		list = append(list, &hir.Stmt{Kind: hir.Assign, Node: l.node(m),
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(m), Name: name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(m), Type: hir.Ref(c.Name)}},
+ 			Y: hir.V(name, ft)})
+ 		if ms := m.Symbol(); ms != nil {
+-			l.fields[ms] = hir.Field{Node: l.node(m), Name: name, Type: ft}
++			l.fields[ms] = field
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+diff --git a/tsfront/lower_expr.go b/tsfront/lower_expr.go
+index c57868d..be15f01 100644
+--- a/tsfront/lower_expr.go
++++ b/tsfront/lower_expr.go
+@@ -2101,14 +2101,39 @@ func (l *lowerer) asExpression(n *ast.Node) *hir.Expr {
+ 	return x
+ }
+ 
+-// objectLiteral lowers { ... } whose contextual type is a named alias shape,
+-// by constructing the synthesized class; spread properties copy the fields of
+-// the spread value first.
++// objectLiteral constructs a named or structural shape, or a record map.
++// Context supplies missing fields and selects the member of a union; without
++// context, the checker's literal type supplies the structural layout.
+ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+-	hint := l.hint
++	savedHint := l.hint
++	defer func() { l.hint = savedHint }()
++	hint := savedHint
+ 	if hint.Kind == hir.Optional && len(hint.Args) == 1 {
+ 		hint = hint.Args[0]
+ 	}
++	// A root reference or union interface has no constructing layout. Use
++	// the checker to choose a contextual constituent, including for {}.
++	if hint.Kind == "" || hint.Kind == hir.Void || hint.Kind == hir.InterfaceRef || hint.Kind == hir.ClassRef && hint.Name == hir.RootObject {
++		if context := l.ck.GetContextualType(n, 0); context != nil {
++			literal := l.ck.GetTypeAtLocation(n)
++			parts := []*checker.Type{context}
++			if context.IsUnion() {
++				parts = context.AsUnionOrIntersectionType().Types()
++			}
++			for _, part := range parts {
++				if part.Flags()&checker.TypeFlagsObject == 0 || literal == nil || !l.ck.IsTypeAssignableTo(literal, part) {
++					continue
++				}
++				before := len(l.diags)
++				mapped := l.mapCheckerType(n, part)
++				if !hasBlocking(l.diags[before:]) && mapped.Kind != hir.Void {
++					hint = mapped
++					break
++				}
++				l.diags = l.diags[:before]
++			}
++		}
++	}
+ 	if hint.Kind == hir.InterfaceRef {
+ 		if part, ok := l.unionShapeFor(n, hint); ok {
+ 			hint = part
+@@ -2117,75 +2142,52 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 	if hint.Kind == hir.Dynamic {
+ 		return l.dynamicRecordLiteral(n)
+ 	}
+-	// A record hint builds a map: spreads copy entries, keys set.
+ 	if hint.Kind == hir.OrderedMap {
+ 		return l.recordLiteral(n, hint)
+ 	}
+-	var target *hir.Class
+-	if hint.Kind == hir.ClassRef {
+-		for _, c := range l.out.Classes {
+-			if c.Name == hint.Name {
+-				target = c
+-				break
++	target := shapeClassOf(l.out.Classes, hint)
++	if target == nil || target.Ctor == nil {
++		before := len(l.diags)
++		mapped := l.mapCheckerType(n, l.ck.GetTypeAtLocation(n))
++		if !hasBlocking(l.diags[before:]) && mapped.Kind != hir.Void {
++			if mapped.Kind == hir.OrderedMap {
++				return l.recordLiteral(n, mapped)
+ 			}
++			target = shapeClassOf(l.out.Classes, mapped)
++		} else {
++			l.diags = l.diags[:before]
+ 		}
+ 	}
+-	if target == nil {
+-		// Without a hint, derive the shape from the checker's type of the
+-		// literal (a synthesized shape class or a record map).
+-		if t := l.ck.GetTypeAtLocation(n); t != nil {
+-			before := len(l.diags)
+-			mapped := l.mapCheckerType(n, t)
+-			if len(l.diags) == before && mapped.Kind != hir.Void {
+-				l.hint = mapped
+-				target = shapeClassOf(l.out.Classes, mapped)
+-			} else {
+-				l.diags = l.diags[:before]
+-			}
+-		}
++	if target == nil || target.Ctor == nil {
++		l.diagf(n, "unsupported-type", "object literal has no lowered structural shape")
++		return nil
+ 	}
+-	if target == nil {
+-		// An empty literal with a shape hint constructs the shape with
+-		// absent optionals; a synthesized checker shape otherwise.
+-		props := n.AsObjectLiteralExpression().Properties.Nodes
+-		if len(props) == 0 {
+-			if hint.Kind == hir.ClassRef {
+-				for _, c := range l.out.Classes {
+-					if c.Name != hint.Name || c.Ctor == nil {
+-						continue
+-					}
+-					args := []*hir.Expr{}
+-					ok := true
+-					for _, p := range c.Ctor.Params {
+-						if p.Type.Kind != hir.Optional {
+-							ok = false
+-							break
+-						}
+-						args = append(args, &hir.Expr{Kind: hir.Lit, Type: p.Type})
+-					}
+-					if ok {
+-						return &hir.Expr{Kind: hir.New, Node: l.node(n), Type: hir.Ref(c.Name), Args: args}
+-					}
+-				}
+-			}
+-			if t := l.ck.GetTypeAtLocation(n); t != nil && t.Symbol() == nil {
+-				if c := l.synthFromProperties(n, l.ck.GetPropertiesOfType(t)); c != nil {
+-					args := []*hir.Expr{}
+-					for _, p := range c.Ctor.Params {
+-						if p.Type.Kind != hir.Optional {
+-							return nil
+-						}
+-						args = append(args, &hir.Expr{Kind: hir.Lit, Type: p.Type})
+-					}
+-					return &hir.Expr{Kind: hir.New, Node: l.node(n), Type: hir.Ref(c.Name), Args: args}
++	ctor := target.Ctor
++	props := n.AsObjectLiteralExpression().Properties.Nodes
++	// Constructor arguments follow layout order. Evaluate properties in
++	// source order before assembling arguments if that order differs, or a
++	// spread/duplicate can overwrite an earlier value.
++	ordered := true
++	previous := -1
++	for _, p := range props {
++		if p.Kind == ast.KindSpreadAssignment || p.Name() == nil {
++			ordered = false
++			break
++		}
++		field := p.Name().Text()
++		if p.Name().Kind == ast.KindComputedPropertyName {
++			field, _ = l.constantKeyName(p.Name())
++		}
++		for i, cp := range ctor.Params {
++			if cp.Name == field {
++				if i <= previous {
++					ordered = false
+ 				}
++				previous = i
++				break
+ 			}
+ 		}
+-		l.diagf(n, "unsupported-type", "object literal needs a named lowered shape")
+-		return nil
+ 	}
+-	ctor := target.Ctor
+-	props := n.AsObjectLiteralExpression().Properties.Nodes
+ 	args := make([]*hir.Expr, len(ctor.Params))
+ 	for i := range args {
+ 		if ctor.Params[i].Type.Kind == hir.Optional {
+@@ -2240,7 +2242,8 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 					}
+ 					for _, f := range c.Fields {
+ 						if f.Name == cp.Name {
+-							args[i] = l.coerce(&hir.Expr{Kind: hir.FieldGet, Node: l.node(p), Name: f.Name, Type: f.Type, X: sv}, cp.Type)
++							value := l.coerce(&hir.Expr{Kind: hir.FieldGet, Node: l.node(p), Name: f.Name, Type: f.Type, X: sv}, cp.Type)
++							args[i] = l.tempInit(p, value.Type, value)
+ 						}
+ 					}
+ 				}
+@@ -2269,7 +2272,11 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 		if a == nil {
+ 			return nil
+ 		}
+-		args[idx] = l.coerce(a, ctor.Params[idx].Type)
++		a = l.coerce(a, ctor.Params[idx].Type)
++		if !ordered {
++			a = l.tempInit(p, a.Type, a)
++		}
++		args[idx] = a
+ 	}
+ 	for i, a := range args {
+ 		if a == nil {
+diff --git a/tsfront/lower_present.go b/tsfront/lower_present.go
+index 61e5ac0..eccda27 100644
+--- a/tsfront/lower_present.go
++++ b/tsfront/lower_present.go
+@@ -362,8 +362,12 @@ func (l *lowerer) shapeAliasOf(declared, actual hir.Type) bool {
+ 	if a == nil || b == nil || b.Ctor == nil || len(a.Fields) != len(b.Fields) {
+ 		return false
+ 	}
+-	for i := range a.Fields {
+-		if a.Fields[i].Name != b.Fields[i].Name {
++	for _, af := range a.Fields {
++		found := false
++		for _, bf := range b.Fields {
++			found = found || af.Name == bf.Name
++		}
++		if !found {
+ 			return false
+ 		}
+ 	}
+diff --git a/tsfront/lower_syntax2.go b/tsfront/lower_syntax2.go
+index 2082183..e3a4800 100644
+--- a/tsfront/lower_syntax2.go
++++ b/tsfront/lower_syntax2.go
+@@ -434,7 +434,8 @@ func (l *lowerer) optionalSpreadArgs(p *ast.Node, sv *hir.Expr, ctor *hir.Method
+ 				return false
+ 			}
+ 			value := l.coerce(&hir.Expr{Kind: hir.FieldGet, Node: l.node(p), Name: f.Name, Type: f.Type, X: narrowed}, cp.Type)
+-			args[i] = &hir.Expr{Kind: hir.Conditional, Node: l.node(p), Type: cp.Type, X: absent, Y: &hir.Expr{Kind: hir.Lit, Type: cp.Type}, Z: value}
++			copied := &hir.Expr{Kind: hir.Conditional, Node: l.node(p), Type: cp.Type, X: absent, Y: &hir.Expr{Kind: hir.Lit, Type: cp.Type}, Z: value}
++			args[i] = l.tempInit(p, cp.Type, copied)
+ 		}
+ 	}
+ 	l.diagf(p, "note-object-spread", "optional object spread copies the fields of %s when present", inner.Name)
+diff --git a/tsfront/lower_types.go b/tsfront/lower_types.go
+index a697fe5..b422f54 100644
+--- a/tsfront/lower_types.go
++++ b/tsfront/lower_types.go
+@@ -3,6 +3,7 @@ package tsfront
+ import (
+ 	"crypto/sha256"
+ 	"fmt"
++	"sort"
+ 	"strings"
+ 
+ 	"github.com/oisee/abapiti/hir"
+@@ -153,8 +154,8 @@ func (l *lowerer) mapTypeReference(n *ast.Node) hir.Type {
+ 	case "Array", "ReadonlyArray":
+ 		return hir.T(hir.Array, arg(0))
+ 	case "Readonly":
+-		// readonlyness is not part of the HIR type
+-		return arg(0)
++		// Map the readonly property view while reusing its physical shape.
++		return l.mapTypeNodeViaChecker(n)
+ 	case "Record":
+ 		return hir.T(hir.OrderedMap, hir.T(hir.String), arg(1))
+ 	case "RegExp":
+@@ -549,7 +550,8 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 		}
+ 		// Anonymous object shapes (fresh literal types included): synthesize
+ 		// from the members.
+-		if props := l.ck.GetPropertiesOfType(t); len(props) > 0 {
++		if props := l.ck.GetPropertiesOfType(t); len(props) > 0 ||
++			(t.ObjectFlags()&checker.ObjectFlagsAnonymous != 0 && len(l.ck.GetSignaturesOfType(t, checker.SignatureKindCall)) == 0 && len(l.ck.GetIndexInfosOfType(t)) == 0) {
+ 			if c := l.synthFromProperties(n, props); c != nil {
+ 				return hir.Ref(c.Name)
+ 			}
+@@ -568,6 +570,10 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 
+ // synthFromProperties builds a shape class from a list of property symbols.
+ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Class {
++	// The checker retains declaration order. Physical layout and identity
++	// depend only on the field names and types, including for nested shapes.
++	props = append([]*ast.Symbol(nil), props...)
++	sort.Slice(props, func(i, j int) bool { return props[i].Name < props[j].Name })
+ 	var fields []hir.Field
+ 	var identity strings.Builder
+ 	for _, p := range props {
+@@ -592,7 +598,7 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 		if p.Flags&ast.SymbolFlagsOptional != 0 && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
++		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft, Readonly: propertyReadonly(p)})
+ 		fmt.Fprintf(&identity, "%q:%s;", p.Name, ft.String())
+ 	}
+ 	// Required and optional reference properties have one physical layout.
+@@ -630,7 +636,14 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			for _, p := range props {
+ 				for k := range c.Fields {
+ 					if c.Fields[k].Name == p.Name {
+-						l.fields[p] = c.Fields[k]
++						// A readonly view shares storage with a mutable view.
++						// Only fields readonly in every view are immutable.
++						if strings.HasPrefix(c.Name, "shape.") {
++							c.Fields[k].Readonly = c.Fields[k].Readonly && propertyReadonly(p)
++						}
++						f := c.Fields[k]
++						f.Readonly = propertyReadonly(p)
++						l.fields[p] = f
+ 					}
+ 				}
+ 			}
+@@ -702,7 +715,7 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 	var list []*hir.Stmt
+ 	for idx, p := range props {
+ 		ft := fields[idx].Type
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
++		c.Fields = append(c.Fields, fields[idx])
+ 		// Reference fields share one physical layout with their optional
+ 		// views, so the constructor accepts an absent reference and stores
+ 		// it as the initial reference.
+@@ -717,9 +730,9 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(n), Name: p.Name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
+ 			Y: value})
+-		l.fields[p] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++		l.fields[p] = fields[idx]
+ 		if p.Parent != nil {
+-			l.fieldsBy[p.Parent.Name+"."+p.Name] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++			l.fieldsBy[p.Parent.Name+"."+p.Name] = fields[idx]
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+@@ -728,6 +741,20 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 	return c
+ }
+ 
++// Transient properties (Readonly<T> and const assertions) carry checker
++// flags; declared properties carry their modifiers on the declaration.
++func propertyReadonly(p *ast.Symbol) bool {
++	if p.CheckFlags&ast.CheckFlagsReadonly != 0 {
++		return true
++	}
++	for _, d := range p.Declarations {
++		if d.ModifierFlags()&ast.ModifierFlagsReadonly != 0 {
++			return true
++		}
++	}
++	return false
++}
++
+ // checkNumberLiteral rejects values outside the finite binary64 domain.
+ func (l *lowerer) checkNumberLiteral(n *ast.Node, v any) {
+ 	f, ok := v.(float64)
+@@ -811,7 +838,7 @@ func (l *lowerer) synthFromAlias(n *ast.Node, sym *ast.Symbol) *hir.Class {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft}
++		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft, Readonly: m.ModifierFlags()&ast.ModifierFlagsReadonly != 0}
+ 		c.Fields = append(c.Fields, f)
+ 		if ms := m.Symbol(); ms != nil {
+ 			l.fields[ms] = f
+diff --git a/tsfront/object_literal_test.go b/tsfront/object_literal_test.go
+new file mode 100644
+index 0000000..d4b9ab0
+--- /dev/null
++++ b/tsfront/object_literal_test.go
+@@ -0,0 +1,218 @@
++package tsfront
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++)
++
++func TestAnonymousObjectLiterals(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++  static take(x: {a: number, b: string}): string { return x.b + x.a; }
++  static make() { return {b: "r", a: 3}; }
++  static spread() { return {...{b: "s", a: 8}, a: 9}; }
++  static run(): string {
++    let x = {a: 1, b: "x"};
++    x = {b: "y", a: 2};
++    const nested = {row: {b: "n", a: 4}, rows: [{a: 5, b: "v"}]};
++    return Probe.take({b: "z", a: 6}) + Probe.take(x) + Probe.take(Probe.make())
++      + Probe.take(nested.row) + Probe.take(nested.rows[0]) + Probe.take(Probe.spread());
++  }
++}`}, []string{"probe.ts"})
++	var rows int
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 2 && c.Fields[0].Name == "a" && c.Fields[1].Name == "b" {
++			rows++
++		}
++	}
++	if rows != 1 {
++		t.Fatalf("equivalent rows use %d shapes, want 1", rows)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "z6y2r3n4v5s9\n" {
++		t.Fatalf("anonymous literals: %q", got)
++	}
++}
++
++func TestAnonymousObjectPropertyEvaluationOrder(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++  static counter = 0;
++  static next(): number {Probe.counter++; return Probe.counter;}
++  static run(): number {
++    const x = {b: Probe.next(), a: Probe.next()};
++    const y = {b: Probe.next(), ...x, a: Probe.next()};
++    return x.a * 1000 + x.b * 100 + y.a * 10 + y.b + Probe.counter;
++  }
++}`}, []string{"probe.ts"})
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "2145\n" {
++		t.Fatalf("property evaluation order: %q", got)
++	}
++}
++
++func TestAnonymousObjectContext(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++type Named = {readonly label: string, count?: number};
++export class Probe {
++  static optional(x: {readonly value?: number} | undefined): number { return x?.value ?? 0; }
++  static empty(): {readonly value?: number} { return {}; }
++  static union(): {value?: number} | {text: string} { return {}; }
++  static unionValue(): {value?: number} | {text: string} { return {text: "u"}; }
++  static unionByType(): {value: number} | {value: string} { return {value: "u"}; }
++  static record(): Record<string, {value?: number}> { return {a: {}, b: {value: 2}}; }
++  static run(): string {
++    let x: {readonly value?: number} | undefined = {};
++    x = {value: 3};
++    const nested: {child: {value?: number}, children: {value?: number}[]} = {child: {}, children: [{}]};
++    const named: Named = {label: "n"};
++    const empty = {};
++    const again = {};
++    const record: {[key: string]: number} = {a: 4};
++    return named.label + Probe.optional(x) + Probe.optional({}) + Probe.optional(Probe.empty())
++      + Probe.optional(nested.child) + Probe.optional(nested.children[0]) + record.a
++      + (Probe.record().b.value ?? 0);
++  }
++}`}, []string{"probe.ts"})
++	var empty int
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 0 {
++			empty++
++		}
++		if c.Name == "probe.ts.Named" && (!c.Fields[0].Readonly || c.Fields[1].Type.Kind != hir.Optional) {
++			t.Fatal("named shape lost readonly or optional properties")
++		}
++	}
++	if empty != 1 {
++		t.Fatalf("empty literals use %d shapes, want 1", empty)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "n3000042\n" {
++		t.Fatalf("contextual literals: %q", got)
++	}
++}
++
++func TestAnonymousObjectReusesNamedShape(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++interface Named {readonly z: string, a: number, extra?: boolean}
++export class Probe {
++  static make(): Named {return {a: 2, z: "n"};}
++  static run(): string {
++    const inferred = Probe.make();
++    const named: Named = {z: "m", a: 3};
++    return inferred.z + inferred.a + named.z + named.a;
++  }
++}`}, []string{"probe.ts"})
++	for _, c := range prog.Classes {
++		if strings.HasPrefix(c.Name, "shape.") {
++			t.Fatalf("named layout acquired a duplicate anonymous shape: %s", c.Name)
++		}
++		if c.Name == "probe.ts.Named" && (!c.Fields[0].Readonly || c.Fields[2].Type.Kind != hir.Optional) {
++			t.Fatal("named interface lost readonly or optional properties")
++		}
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "n2m3\n" {
++		t.Fatalf("named shape reuse: %q", got)
++	}
++}
++
++func TestAnonymousShapeIdentityIgnoresPropertyOrder(t *testing.T) {
++	var names []string
++	for _, literal := range []string{`{b: {y: "s", x: 1}, a: true}`, `{a: true, b: {x: 1, y: "s"}}`} {
++		prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `export class Probe { static make() { return ` + literal + `; } }`}, []string{"probe.ts"})
++		for _, c := range prog.Classes {
++			if c.Name == "probe.ts.Probe" {
++				names = append(names, c.Methods[0].Result.Name)
++			}
++		}
++	}
++	if len(names) != 2 || names[0] != names[1] {
++		t.Fatalf("property order changed structural identity: %v", names)
++	}
++}
++
++func TestAnonymousReadonlyShapeViews(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++  static readonly(x: {readonly a: number, readonly b?: string}): number {return x.a;}
++  static mutable(x: {b?: string, a: number}): number {x.a = 7; return x.a;}
++  static onlyReadonly(x: {readonly flag?: boolean}): boolean {return x.flag ?? false;}
++  static run(): number {
++    const x: {a: number, b?: string} = {a: 2, b: "x"};
++    Probe.mutable(x);
++    const readonly: Readonly<{a: number, b?: string}> = {b: "y", a: 3};
++    return Probe.readonly(x) + Probe.readonly(readonly);
++  }
++}`}, []string{"probe.ts"})
++	var views int
++	for _, c := range prog.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") {
++			continue
++		}
++		if len(c.Fields) == 2 && c.Fields[0].Name == "a" && c.Fields[1].Type.Kind == hir.Optional {
++			views++
++		}
++		if len(c.Fields) == 1 && c.Fields[0].Name == "flag" && (!c.Fields[0].Readonly || c.Fields[0].Type.Kind != hir.Optional) {
++			t.Fatal("anonymous shape lost readonly or optional properties")
++		}
++	}
++	if views != 1 {
++		t.Fatalf("readonly and mutable views use %d shapes, want 1", views)
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "10\n" {
++		t.Fatalf("readonly views: %q", got)
++	}
++}
++
++func TestAnonymousObjectInferredRecord(t *testing.T) {
++	prog := lowerStatementsProbe(t, map[string]string{"probe.ts": `
++export class Probe {
++  static run(): number {
++    const key = "a";
++    const record = {[key as string]: 7};
++    const copy: Record<string, number> = {...record, b: 2};
++    return copy.a + copy.b + ({nested: {[key as string]: 3}}).nested.a;
++  }
++}`}, []string{"probe.ts"})
++	var maps int
++	for _, c := range prog.Classes {
++		for _, m := range c.Methods {
++			walkNumberStmt(m.Body, func(*hir.Stmt) {}, func(e *hir.Expr) {
++				if e.Kind == hir.RuntimeOp && e.Op == "map.set" {
++					maps++
++				}
++			})
++		}
++	}
++	if maps == 0 {
++		t.Fatal("record was forced into a class shape")
++	}
++	if _, err := abap.Emit(prog); err != nil {
++		t.Fatal(err)
++	}
++	got := runGoHIR(t, prog, fmt.Sprintf("fmt.Println(%s())", goEntry("probe.ts.Probe", "run")))
++	if got != "12\n" {
++		t.Fatalf("record literals: %q", got)
++	}
++}
