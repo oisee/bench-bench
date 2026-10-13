@@ -14,9 +14,9 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
   (Claude Code, Codex, Pi). One run per cell, so treat one-task differences as noise.
 - **Opus in Claude Code solved 6/6.** Sol 6.1 in Codex solved 5/6 in a quarter of the time, failing only the hardest task.
 - **The harness matters as much as the model.** The same GLM-5.3 solved 6/6 in Claude Code (3 only at the time limit), 5/6 in Pi and 4/6 in Codex.
-- **Cheap per token is not cheap per task.** GLM-5.3 in Claude Code burned 112M input tokens on the six tasks, which costs about $32 at list price. Opus used 39M and cost about $18.
-- **Hidden tests are not the whole truth.** A blind critic (Sol) found real bugs in two Opus patches that pass the
-  tests; both were confirmed by running the critic's repro against the upstream solution.
+- **Cheap per token is not cheap per task.** GLM-5.3 in Claude Code burned 112M input tokens on the six tasks, about $32 at list price; Opus used 39M, about $18. Sol solved 5 tasks for about $2.30, and Luna in Codex costs cents per task.
+- **Hidden tests are not the whole truth.** A blind critic (Sol) found real bugs in three patches that pass the
+  tests (two by Opus, one by Luna xhigh); each was confirmed by running the critic's repro against the upstream solution.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1)
@@ -25,23 +25,25 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 |---|---|---|---|---|---|---|---|---|
 | Opus | Claude Code | 6/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** **L3b** | 117 min | 39.3M | 233k | $18.24 |
 | GLM-5.3 | Claude Code | 6/6 | 3 | **L1a** **L1b** **L2a** **L2b** **L3a** **L3b** | 221 min | 112.3M | 428k | $32.21 |
-| Sol 6.1 (medium) | Codex | 5/6 | 0 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 30 min | 8.3M | 61k | — |
+| Sol 6.1 (medium) | Codex | 5/6 | 0 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 30 min | 8.3M | 61k | $2.32 |
 | GLM-5.3 | Pi | 5/6 | 3 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 234 min | 76.6M | 340k | $22.35 |
-| Luna (xhigh) | Codex | 4/4 | 0 | **L1a** **L1b** **L2a** **L2b** | 25 min | 16.8M | 119k | — |
+| Luna (xhigh) | Codex | 4/4 | 0 | **L1a** **L1b** **L2a** **L2b** | 25 min | 16.8M | 119k | $0.27 |
 | GLM-5.3 | Codex | 4/6 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ **L3a** ~~L3b~~ | 72 min | 36.7M | 157k | $10.93 |
-| Luna (medium) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 6 min | 2.0M | 17k | — |
-| Luna (high) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 17 min | 10.0M | 65k | — |
-| Qwen 3.7 Plus | Pi | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 109 min | 10.4M | 95k | — |
-| GLM-5 | Pi | 2/4 | 1 | **L1a** ~~L1b~~ **L2a** ~~L2b~~ | 131 min | 12.8M | 77k | — |
-| Qwen 3.7 Plus | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 22 min | 3.9M | 52k | — |
-| MiniMax M2.5 | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 44 min | 15.0M | 102k | — |
-| Kimi K2.5 | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 66 min | 29.2M | 129k | — |
-| Kimi K2.5 | Pi | 1/4 | 0 | **L1a** ~~L1b~~ ~~L2a~~ ~~L2b~~ | 116 min | 9.6M | 74k | — |
-| MiniMax M2.5 | Pi | 0/4 | 0 | ~~L1a~~ ~~L1b~~ ~~L2a~~ ~~L2b~~ | 118 min | 13.1M | 79k | — |
+| Luna (medium) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 6 min | 2.0M | 17k | $0.04 |
+| Luna (high) | Codex | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 17 min | 10.0M | 65k | $0.16 |
+| Qwen 3.7 Plus | Pi | 3/4 | 0 | **L1a** **L1b** **L2a** ~~L2b~~ | 109 min | 10.4M | 95k | $0.87 |
+| GLM-5 | Pi | 2/4 | 1 | **L1a** ~~L1b~~ **L2a** ~~L2b~~ | 131 min | 12.8M | 77k | $3.46 |
+| Qwen 3.7 Plus | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 22 min | 3.9M | 52k | $0.34 |
+| MiniMax M2.5 | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 44 min | 15.0M | 102k | $0.86 |
+| Kimi K2.5 | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 66 min | 29.2M | 129k | $3.64 |
+| Kimi K2.5 | Pi | 1/4 | 0 | **L1a** ~~L1b~~ ~~L2a~~ ~~L2b~~ | 116 min | 9.6M | 74k | $1.47 |
+| MiniMax M2.5 | Pi | 0/4 | 0 | ~~L1a~~ ~~L1b~~ ~~L2a~~ ~~L2b~~ | 118 min | 13.1M | 79k | $0.74 |
 
 *Solved* means all hidden acceptance tests (fail→pass) and regression tests (pass→pass) pass. A run stopped at
 the time limit is graded on whatever its working tree held at that moment; *at limit* counts those.
-Input tokens include cached input. API cost is shown only where a list price is recorded (see [prices.json](prices.json)).
+Input tokens include cached input. API cost is what the same tokens would cost at public list prices ([prices.json](prices.json)):
+Opus from Claude Code's own cost report, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers.
+It is an estimate for comparison, not what was paid; most runs used subscription plans.
 
 ## The tasks
 
@@ -90,3 +92,8 @@ python3 bin/export.py && python3 bin/summary-report.py                      # re
 transcript parsing to `bin/sandbox.sh` and `bin/export.py`. **To add a task,** pick a merged PR whose tests
 fail before it and pass after it, then write `task.env` and `brief.md`. The brief must describe behaviour
 without copying test fixtures; see `brief-review.md` for the QA step.
+
+## License
+
+[MIT](LICENSE) for the benchmark code, data and report. Task content (briefs aside) comes from the linked public
+repositories under their own licenses.

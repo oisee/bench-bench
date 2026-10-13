@@ -220,7 +220,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head" id="tokens"><span class="n">03b</span><h2>Tokens and cost</h2>
-      <p>Totals over each agent's round-1 runs, read from the harness's own transcripts (Claude Code session logs, Codex <code>turn.completed</code> events, Pi session files). Input includes cached input; agents re-send their context every turn, so 92–99% of input is cache reads. API cost is shown only where a list price is recorded: Opus (Claude Code's own <code>total_cost_usd</code>) and GLM-5.3 (Z.ai list price). The other models ran on subscription plans, and their per-token prices are not in the data yet.</p></div>
+      <p>Totals over each agent's round-1 runs, read from the harness's own transcripts (Claude Code session logs, Codex <code>turn.completed</code> events, Pi session files). Input includes cached input; agents re-send their context every turn, so 92–99% of input is cache reads. API cost is what the same tokens would cost at public list prices: Opus from Claude Code's own <code>total_cost_usd</code>, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers (<code>prices.json</code>, checked October 13). It is an estimate for comparison, not what was paid: most runs used subscription plans.</p></div>
     <div class="scroll"><table class="tok" id="tok"></table></div>
     <p class="small muted" id="tok-note"></p>
   </section>
@@ -255,7 +255,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 <pre>input   "IF a = 1. x = f(\n p = 2 ).\nENDIF.\n"
 Opus    "IF a = 1. x = f(\n<span class="bad">p = 2 ).</span>\nENDIF.\n"     ← continuation lost its indent
 ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ← two spaces</pre>
-      <p class="small">The brief explicitly requires continuation lines to keep their indent, so this is a real bug the hidden tests do not cover. All three of Sol's rejections among the six screening patches were checked this way. Two were confirmed: the second bug is that Opus's L3b patch fails on a function returning an empty object type, which the reference handles. The third was a false alarm: the reference panics on the same input as Sol's own L2b patch.</p>
+      <p class="small">The brief explicitly requires continuation lines to keep their indent, so this is a real bug the hidden tests do not cover. All three of Sol's rejections among the six screening patches were checked this way. Two were confirmed: the second bug is that Opus's L3b patch fails on a function returning an empty object type, which the reference handles. The third was a false alarm: the reference panics on the same input as Sol's own L2b patch. Sol also reviewed a seventh patch outside this table, Luna xhigh on L2b, which passes the tests. That rejection was confirmed too: 2 of its 4 findings reproduce only on the patch (a <code>* 3.</code> continuation turned into a comment, and <code>GET BADI</code> treated as a report event); the other 2 behave the same on the reference.</p>
     </div>
   </section>
 
@@ -264,8 +264,8 @@ ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ←
     <ol class="caveats">
       <li><b>One run per cell.</b> A one-task difference between agents may be noise. There are no repeats anywhere yet.</li>
       <li><b>The old composite leaderboard score is biased.</b> The jury only graded L1 and never saw the Luna runs; a run without a jury grade got a flat 60 points. This page therefore counts only solved tasks and time.</li>
-      <li><b>Costs are list-price estimates for two models only.</b> Opus and GLM-5.3 are priced; the other models ran on subscription plans whose per-token prices are not recorded. Token counts are reported by each harness and are comparable only roughly: harnesses differ in how they cache and what they count as input.</li>
-      <li><b>Hidden tests are incomplete.</b> Critic screening found two Opus patches (L2b and L3b) that pass the tests but diverge from the reference (section 06). Their "solved" status is overstated.</li>
+      <li><b>Costs are list-price estimates.</b> For models other than Opus and GLM-5.3, prices come from third-party trackers that sometimes disagree by up to 2×. Token counts are reported by each harness and are comparable only roughly: harnesses differ in how they cache and what they count as input.</li>
+      <li><b>Hidden tests are incomplete.</b> Critic screening found three test-passing patches (Opus on L2b and L3b, Luna xhigh on L2b) that diverge from the reference (section 06). Their "solved" status is overstated.</li>
       <li><b>L2a grader fix.</b> A hidden test clashed by name with tests the agents wrote. After the fix, 4 failures became passes and L2 went to 18/30. Under the selection rule, Luna xhigh rather than GLM-5.3/Pi should then have reached L3, but it has not been run on L3 yet.</li>
       <li><b>All tasks come from one ecosystem</b> (Go/TS tooling around ABAP). Whether the findings transfer to other projects is untested.</li>
     </ol>
@@ -274,11 +274,11 @@ ref     "IF a = 1. x = f(\n<span class="good">  p = 2 ).</span>\nENDIF.\n"   ←
   <section>
     <div class="sec-head"><span class="n">08</span><h2>Next steps</h2></div>
     <ol class="next">
-      <li><b>Check Sol's remaining rejection</b> (Luna xhigh on L2b, outside the six-patch set) against the reference.</li>
+      
       <li><b>Second wave:</b> the two best critics on the failed L2b and L3b patches, with a control group that gets the same extra attempt without a critic.</li>
       <li><b>Luna xhigh on L3a and L3b</b> under the original protocol, to complete the corrected set of finalists.</li>
       <li><b>Repeats on L2b and L3b</b> for Opus, Sol and Luna xhigh: these are the most discriminating tasks.</li>
-      <li><b>Add list prices for the remaining models</b> so cost per solved task can be compared across all agents.</li>
+      <li><b>Verify the estimated prices</b> against the providers' official price pages.</li>
     </ol>
   </section>
 
@@ -321,7 +321,7 @@ document.getElementById("facts").innerHTML = [
   ["Sol · Codex is 4–7× faster", "solved 5/6; gave up on the hard L3b after 8 minutes"],
   ["The harness matters", `same GLM-5.3 model: ${glm("zai-glm53-claude").solved}/6 in Claude Code, ${glm("zai-glm53-pi").solved}/6 in Pi, ${glm("zai-glm53-codex").solved}/6 in Codex`],
   ["Critics have not helped yet", "pilot: 1/3 solved with and without them, while time grew 2–10×"],
-  ["Best critic so far: Sol", "caught 3 of 3 failures and found 2 bugs the hidden tests missed"],
+  ["Best critic so far: Sol", "caught 3 of 3 failures and found real bugs in 3 patches that passed the hidden tests"],
 ].map(([b, s]) => `<div class="fact"><b>${b}</b><span>${s}</span></div>`).join("");
 
 /* TL;DR */
@@ -336,9 +336,9 @@ document.getElementById("facts").innerHTML = [
     `<b>Who:</b> ${execs.length} model + harness combinations, ${models.size} models, 3 harnesses: Claude Code, Codex and Pi. Same brief, same sandbox, time limit 30/45/60 min per level, no human help, one run per cell.`,
     `<b>Best:</b> Opus in Claude Code solved all 6/6. Sol 6.1 in Codex solved 5/6 and used ${fast}× less total time; it failed the hardest task (L3b).`,
     `<b>The harness matters as much as the model:</b> GLM-5.3 solved ${gc.solved}/6 in Claude Code (${gc.solved - gc.strict} of them only at the time limit), ${gp.solved}/6 in Pi, ${gx.solved}/6 in Codex.`,
-    `<b>Tokens and cost:</b> Opus used ${M(sum(opus.rs, "tin"))} input tokens (mostly cached) and ${Math.round(sum(opus.rs, "tout") / 1e3)}k output for all 6 tasks, about $${cost(opus).toFixed(0)} at list price. GLM-5.3 in Claude Code used ${M(sum(gc.rs, "tin"))} input and cost about $${cost(gc).toFixed(0)} at list price, despite the cheaper per-token rate. See <a href="#tokens" style="color:var(--accent)">03b</a>.`,
-    `<b>Critics:</b> a blind critic is worth having only if it actively tries to break the patch. Sol found 2 real bugs in Opus patches that passed the hidden tests. The two-critic builder loop did not raise the solve rate in a small pilot.`,
-    `<b>Caveats:</b> n = 1 per cell, all tasks from one author's ABAP-centred ecosystem, costs known for two models only.`,
+    `<b>Tokens and cost:</b> Opus used ${M(sum(opus.rs, "tin"))} input tokens (mostly cached) and ${Math.round(sum(opus.rs, "tout") / 1e3)}k output for all 6 tasks, about $${cost(opus).toFixed(0)} at list price. GLM-5.3 in Claude Code used ${M(sum(gc.rs, "tin"))} input and cost about $${cost(gc).toFixed(0)}, despite the cheaper per-token rate. Sol solved 5 tasks for about $${cost(sol).toFixed(2)}, and Luna in Codex costs cents per task. See <a href="#tokens" style="color:var(--accent)">03b</a>.`,
+    `<b>Critics:</b> a blind critic is worth having only if it actively tries to break the patch. Sol found real bugs in 3 patches that passed the hidden tests (2 by Opus, 1 by Luna xhigh), each confirmed against the upstream solution. The two-critic builder loop did not raise the solve rate in a small pilot.`,
+    `<b>Caveats:</b> n = 1 per cell, all tasks from one author's ABAP-centred ecosystem, costs are list-price estimates.`,
   ].map(x => `<li>${x}</li>`).join("");
 }
 

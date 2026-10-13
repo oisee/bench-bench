@@ -6,6 +6,11 @@
     {"critic": "S-sol", "run": "L3b-abapiti95/ant-opus-claude-20261013-090112", "confirmed": true,
      "check": "tslower on `function make(): {} { return {}; }` used by a caller", "patch": "checker type {} is not a lowered declaration", "reference": "lowers without diagnostics"},
     {"critic": "S-sol", "run": "L2b-abapiti87/az-sol61-codex-20261012-113203", "confirmed": false,
-     "check": "RegistryRunClass with a 250-character file name", "patch": "panic: unbreakable source line (292 bytes)", "reference": "same panic"}
+     "check": "RegistryRunClass with a 250-character file name", "patch": "panic: unbreakable source line (292 bytes)", "reference": "same panic"},
+    {"critic": "S-sol", "run": "L2b-abapiti87/oai-luna-codex-x-20261012-235415", "confirmed": true,
+     "check": "abap.Format(\"FORM f.\\nresult = 2\\n  * 3.\\nENDFORM.\\n\") and abap.Format(\"REPORT r.\\nGET BADI lo_badi.\\nWRITE lo_badi.\\n\")",
+     "patch": "'* 3.' moved to column 0 as a comment and ENDFORM indented; WRITE after GET BADI indented as an event body",
+     "reference": "multiplication continuation kept, ENDFORM at column 0; WRITE after GET BADI at column 0",
+     "note": "Sol reported 4 findings; 2 reproduce only on the patch (above), 2 (long-comment wrapping, SELECT COUNT block) behave the same on the reference."}
   ]
 }

@@ -1,19 +1,70 @@
 {
-  "_doc": "USD per 1M tokens (API list price) or per-plan unit cost. null = unknown: the cost stays empty, nothing is guessed. Edit and re-run bin/export.py.",
+  "_doc": "USD per 1M tokens. Opus uses Claude Code's own total_cost_usd and GLM-5.3 the Z.ai list price; the other rows are list-price estimates from third-party trackers (see source). They are what the same tokens would cost on the public API, not what was paid: Alibaba, Azure and OpenAI runs used plans or credits. Edit and re-run bin/export.py.",
   "api_per_mtok": {
-    "glm-5.3":      {"input": 1.4, "cache_read": 0.26, "output": 4.4, "source": "~/.pi/agent/models.json, zai provider cost"},
-    "glm-5.3[1m]":  {"same_as": "glm-5.3"},
-    "opus":         {"use_harness_cost": true, "source": "Claude Code total_cost_usd (Anthropic list price)"},
-    "gpt-6.1-sol":  null,
-    "gpt-6-astra":  null,
-    "gpt-6-sol":    null,
-    "qwen3.7-plus": null,
-    "kimi-k2.5":    null,
-    "MiniMax-M2.5": null,
-    "glm-5":        null
+    "glm-5.3": {
+      "input": 1.4,
+      "cache_read": 0.26,
+      "output": 4.4,
+      "source": "~/.pi/agent/models.json, zai provider cost"
+    },
+    "glm-5.3[1m]": {
+      "same_as": "glm-5.3"
+    },
+    "opus": {
+      "use_harness_cost": true,
+      "source": "Claude Code total_cost_usd (Anthropic list price)"
+    },
+    "gpt-6.1-sol": {
+      "input": 2.0,
+      "cache_read": 0.1,
+      "output": 10.0,
+      "source": "OpenAI standard rate as reported by price trackers (requesty.ai, anotherwrapper.com); third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "gpt-6-astra": null,
+    "gpt-6-sol": null,
+    "qwen3.7-plus": {
+      "input": 0.4,
+      "cache_read": 0.04,
+      "output": 1.6,
+      "source": "<=256K tier as listed by opencode.ai and Fireworks; Alibaba-attributed figures range 0.32-0.50 in, 1.28-3.00 out; third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "kimi-k2.5": {
+      "input": 0.6,
+      "cache_read": 0.1,
+      "output": 3.0,
+      "source": "Moonshot rate as reported by aggregators (output 2.50-3.00, cache read 0.07-0.20 by source); third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "MiniMax-M2.5": {
+      "input": 0.3,
+      "cache_read": 0.03,
+      "output": 1.2,
+      "source": "MiniMax rate as reported by aggregators; cache read from artificialanalysis.ai; third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "glm-5": {
+      "input": 1.0,
+      "cache_read": 0.2,
+      "output": 3.2,
+      "source": "Z.ai rate as reported by anotherwrapper.com; cache read not published, assumed at the GLM-5.x ratio (0.26/1.40); third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "gpt-6-luna": {
+      "input": 0.1,
+      "cache_read": 0.01,
+      "output": 0.5,
+      "source": "OpenAI standard rate as reported by price trackers (openrouter.ai, digitalapplied.com); third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    }
   },
   "plans": {
-    "alibaba": {"usd_per_month": 50, "units_per_month": 90000, "unit": "llm_call", "source": "Alibaba Coding Plan Pro: $50/mo, up to 90,000 requests/month"},
-    "zai":     {"usd_per_month": null, "units_per_month": null, "unit": null, "source": "Z.ai Coding Max: price/quota units not recorded yet"}
+    "alibaba": {
+      "usd_per_month": 50,
+      "units_per_month": 90000,
+      "unit": "llm_call",
+      "source": "Alibaba Coding Plan Pro: $50/mo, up to 90,000 requests/month"
+    },
+    "zai": {
+      "usd_per_month": null,
+      "units_per_month": null,
+      "unit": null,
+      "source": "Z.ai Coding Max: price/quota units not recorded yet"
+    }
   }
 }

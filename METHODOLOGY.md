@@ -98,8 +98,10 @@ nothing is estimated.
 - **Codex tokens:** summed over `turn.completed` events.
 - **Pi tokens:** summed over the assistant messages in its session files.
 - **Input tokens include cached input.** Agents resend their context every turn, so 92–99% of input is cache reads.
-- **API cost** is a list-price equivalent from `prices.json`. It is recorded for Opus (Claude Code's
-  `total_cost_usd`) and GLM-5.3 (Z.ai list price) only. The other models ran on subscription plans.
+- **API cost** is a list-price equivalent from `prices.json`: Claude Code's own `total_cost_usd` for Opus, the
+  Z.ai list price for GLM-5.3, and third-party price trackers (checked 2026-10-13) for the other models. Cached input
+  is priced at the cache-read rate. It is an estimate for comparison, not what was paid: most runs used
+  subscription plans or credits.
 
 ## 6. Critics
 
@@ -141,7 +143,9 @@ reproduction is run twice: on the patch and on the upstream `MERGE` tree.
 - If they behave the same, it is a **false alarm**.
 
 Among the six screening patches, two of Sol's three such rejections were real bugs in Opus patches: continuation-line indentation on L2b, and
-functions returning `{}` on L3b. One was a false alarm: the reference panics the same way.
+functions returning `{}` on L3b. One was a false alarm: the reference panics the same way. Sol's rejection of the extra
+Luna xhigh patch was confirmed as well. Two of its four findings reproduce only on the patch: a `* 3.` continuation is
+turned into a comment, and `GET BADI` is treated as a report event. The other two behave the same on the reference.
 
 ### 6.3 Two-critic build loop (pilot)
 
@@ -157,6 +161,6 @@ round 2 (`docs/internal-review-protocol.md`).
   The leakage audit covers lookups during a run, not training data.
 - **Effort levels differ** between executors (see `matrix.yaml`; for example Sol 6.1 ran at medium). This
   matches how each was configured, not a common setting.
-- **Costs** are known for two models only.
+- **Costs** for models other than Opus and GLM-5.3 are estimates from third-party price trackers, which disagree by up to 2×.
 - **Agent transcripts are not published.** They contain each harness's full tool I/O and are 37 GB in total.
   Patches, grading logs and all derived metrics are included.
