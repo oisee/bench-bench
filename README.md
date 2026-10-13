@@ -45,6 +45,20 @@ Input tokens include cached input. API cost is what the same tokens would cost a
 Opus from Claude Code's own cost report, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers.
 It is an estimate for comparison, not what was paid; most runs used subscription plans.
 
+**How the runs were actually paid.** Almost everything ran on flat-rate coding subscriptions, where a run costs
+nothing extra until the plan's rolling limit is reached:
+
+| Provider | Plan | Price | Used for |
+|---|---|---|---|
+| Anthropic | Claude Max 20x | $200 / month | Opus (agent, critic), Fable (critic) |
+| OpenAI | ChatGPT Pro, signed in to Codex | $200 / month | Luna, Sol 6 and Astra (critics, brief drafts) |
+| Z.ai | GLM Coding Max | ~$130 / month | GLM-5.3 in all harnesses |
+| Alibaba | Coding Plan Pro (~90,000 requests/month) | ~$50 / month | Qwen 3.7+, Kimi K2.5, MiniMax M2.5, GLM-5 |
+| Azure OpenAI | pay per token (cloud credits) | metered | Sol 6.1 as agent |
+
+The whole matrix used part of about $580/month of subscriptions plus a few dollars of Azure credits. The list-price
+column shows what the same work would cost through the API, which matters for CI or large-scale use.
+
 ## The tasks
 
 | Task | Upstream PR | What the agent must do | Limit |

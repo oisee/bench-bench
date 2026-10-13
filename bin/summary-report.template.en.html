@@ -226,6 +226,20 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
     <div class="chart"><h3>Cost per run vs share solved</h3><p class="small muted">Each dot is one agent: its average list-price cost per run (log scale) against the share of its tasks solved. Up and to the left is better.</p>
       <div class="legend"><span><i class="dot" style="background:var(--claude)"></i>Claude Code</span><span><i class="dot" style="background:var(--codex)"></i>Codex</span><span><i class="dot" style="background:var(--pi)"></i>Pi</span></div>
       <div class="scroll"><svg id="costsc" role="img" aria-label="Cost per run vs share solved"></svg></div></div>
+      <div class="callout" style="border-left-color:var(--accent)">
+      <h3>How the runs were actually paid</h3>
+      <p class="small">The cost columns above are <b>not</b> what this benchmark cost. They answer a different question: what the same tokens would cost if you paid the public API per token, which is what matters if you run agents in CI or at scale. In reality almost every run used a flat-rate coding subscription. A run on a subscription costs nothing extra until you hit the plan's rolling limit; then you wait for the reset (Opus hit Anthropic's weekly limit once and two launches had to be repeated).</p>
+      <div class="scroll"><table class="tasks">
+        <thead><tr><th>Provider</th><th>Plan</th><th>Price</th><th>Limit model</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><td>Anthropic</td><td>Claude Max 20x</td><td class="mono">$200 / month</td><td>usage windows (5-hour and weekly)</td><td>Opus (agent and critic), Fable (critic)</td></tr>
+          <tr><td>OpenAI</td><td>ChatGPT Pro, signed in to Codex</td><td class="mono">$200 / month</td><td>usage windows</td><td>Luna (all efforts), Sol 6 and Astra (critics, brief drafts)</td></tr>
+          <tr><td>Z.ai</td><td>GLM Coding Max</td><td class="mono">~$130 / month</td><td>prompts per 5-hour window and per week</td><td>GLM-5.3 in all three harnesses and as critic</td></tr>
+          <tr><td>Alibaba</td><td>Coding Plan Pro</td><td class="mono">~$50 / month</td><td>requests per month (~90,000)</td><td>Qwen 3.7+, Kimi K2.5, MiniMax M2.5, GLM-5 (Pi, and Codex via LiteLLM)</td></tr>
+          <tr><td>Azure OpenAI</td><td>pay per token (cloud credits)</td><td class="mono">metered</td><td>tokens</td><td>Sol 6.1 as agent: the only row where the cost column is close to real spend</td></tr>
+        </tbody></table></div>
+      <p class="small">So the whole matrix ran on about <b>$580 a month of subscriptions</b> plus a few dollars of Azure credits, and used only part of each plan over two days. For subscription users the useful comparison is not dollars per task but how fast an agent burns the plan: GLM-5.3 in Claude Code sent 871 model calls and 112M input tokens for six tasks, Opus 348 calls and 39M. On Alibaba's per-request plan, Qwen in Pi used 261 requests for four tasks, about $0.15 of the monthly fee.</p>
+    </div>
   </section>
 
   <section>
@@ -357,7 +371,7 @@ document.getElementById("facts").innerHTML = [
   const maxIn = Math.max(...rows.map(r => r.tin)), maxOut = Math.max(...rows.map(r => r.tout));
   const bar = (v, max) => `<span class="tb" style="width:${Math.max(2, Math.round(v / max * 70))}px"></span>`;
   const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
-  let h = `<thead><tr><th>Agent</th><th>runs</th><th>solved</th><th>input tokens</th><th>cached</th><th>output tokens</th><th>per run (in / out)</th><th>list price $/1M<br>in · cached · out</th><th>API cost</th><th>per solved</th></tr></thead><tbody>`;
+  let h = `<thead><tr><th>Agent</th><th>runs</th><th>solved</th><th>input tokens</th><th>cached</th><th>output tokens</th><th>per run (in / out)</th><th>list price $/1M<br>in · cached · out</th><th>list-price cost</th><th>per solved</th></tr></thead><tbody>`;
   for (const r of rows) {
     const e = r.e;
     h += `<tr><td>${esc(e.model)}<span class="h">${HN[e.harness]}</span></td><td>${e.n}</td><td>${e.solved}</td>

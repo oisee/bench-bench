@@ -54,17 +54,35 @@
     }
   },
   "plans": {
+    "anthropic": {
+      "usd_per_month": 200,
+      "units_per_month": null,
+      "unit": null,
+      "source": "Claude Max 20x (Claude Code login); 5-hour and weekly usage windows"
+    },
+    "openai": {
+      "usd_per_month": 200,
+      "units_per_month": null,
+      "unit": null,
+      "source": "ChatGPT Pro (Codex login); usage windows"
+    },
+    "zai": {
+      "usd_per_month": 130,
+      "units_per_month": null,
+      "unit": null,
+      "source": "GLM Coding Max (approx.); prompts per 5-hour window and per week"
+    },
     "alibaba": {
       "usd_per_month": 50,
       "units_per_month": 90000,
       "unit": "llm_call",
-      "source": "Alibaba Coding Plan Pro: $50/mo, up to 90,000 requests/month"
+      "source": "Alibaba Coding Plan Pro: ~$50/mo, up to 90,000 requests/month"
     },
-    "zai": {
+    "azure": {
       "usd_per_month": null,
       "units_per_month": null,
       "unit": null,
-      "source": "Z.ai Coding Max: price/quota units not recorded yet"
+      "source": "pay per token from cloud credits (Sol 6.1 agent runs)"
     }
   }
 }

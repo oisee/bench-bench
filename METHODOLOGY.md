@@ -101,7 +101,8 @@ nothing is estimated.
 - **API cost** is a list-price equivalent from `prices.json`: Claude Code's own `total_cost_usd` for Opus, the
   Z.ai list price for GLM-5.3, and third-party price trackers (checked 2026-10-13) for the other models. Cached input
   is priced at the cache-read rate. It is an estimate for comparison, not what was paid: most runs used
-  subscription plans or credits.
+  subscription plans or credits: Claude Max 20x ($200/month), ChatGPT Pro ($200/month), Z.ai GLM Coding Max
+  (~$130/month), Alibaba Coding Plan Pro (~$50/month); only Sol 6.1 as agent was billed per token (Azure credits).
 
 ## 6. Critics
 
