@@ -223,6 +223,9 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
       <p>Totals over each agent's round-1 runs, read from the harness's own transcripts (Claude Code session logs, Codex <code>turn.completed</code> events, Pi session files). Input includes cached input; agents re-send their context every turn, so 92–99% of input is cache reads. API cost is what the same tokens would cost at public list prices: Opus from Claude Code's own <code>total_cost_usd</code>, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers (<code>prices.json</code>, checked October 13). It is an estimate for comparison, not what was paid: most runs used subscription plans.</p></div>
     <div class="scroll"><table class="tok" id="tok"></table></div>
     <p class="small muted" id="tok-note"></p>
+    <div class="chart"><h3>Cost per run vs share solved</h3><p class="small muted">Each dot is one agent: its average list-price cost per run (log scale) against the share of its tasks solved. Up and to the left is better.</p>
+      <div class="legend"><span><i class="dot" style="background:var(--claude)"></i>Claude Code</span><span><i class="dot" style="background:var(--codex)"></i>Codex</span><span><i class="dot" style="background:var(--pi)"></i>Pi</span></div>
+      <div class="scroll"><svg id="costsc" role="img" aria-label="Cost per run vs share solved"></svg></div></div>
   </section>
 
   <section>
@@ -346,21 +349,45 @@ document.getElementById("facts").innerHTML = [
 {
   const sum = (rs, k) => rs.reduce((a, r) => a + (r[k] || 0), 0);
   const rows = execs.map(e => ({ e, tin: sum(e.rs, "tin"), tc: sum(e.rs, "tcache"), tout: sum(e.rs, "tout"),
-    cost: e.rs.every(r => r.cost != null) ? sum(e.rs, "cost") : null })).sort((a, b) => b.tin - a.tin);
+    cost: e.rs.every(r => r.cost != null) ? sum(e.rs, "cost") : null })).sort((a, b) => (a.e.solved ? a.cost / a.e.solved : 1e9) - (b.e.solved ? b.cost / b.e.solved : 1e9));
+  const pf = v => v == null ? "?" : v < 0.1 ? v.toFixed(2) : String(+v.toFixed(2));
+  const priceCell = e => { const pr = D.prices[e.rs[0].model_id]; if (!pr) return '<span class="muted">—</span>';
+    if (pr.harness) return '<span class="muted">Claude Code cost</span>';
+    return `${pf(pr.i)} · ${pf(pr.c)} · ${pf(pr.o)}${pr.est ? ' <span class="muted">est.</span>' : ""}`; };
   const maxIn = Math.max(...rows.map(r => r.tin)), maxOut = Math.max(...rows.map(r => r.tout));
   const bar = (v, max) => `<span class="tb" style="width:${Math.max(2, Math.round(v / max * 70))}px"></span>`;
   const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
-  let h = `<thead><tr><th>Agent</th><th>runs</th><th>solved</th><th>input tokens</th><th>cached</th><th>output tokens</th><th>per run (in / out)</th><th>API cost</th><th>per solved</th></tr></thead><tbody>`;
+  let h = `<thead><tr><th>Agent</th><th>runs</th><th>solved</th><th>input tokens</th><th>cached</th><th>output tokens</th><th>per run (in / out)</th><th>list price $/1M<br>in · cached · out</th><th>API cost</th><th>per solved</th></tr></thead><tbody>`;
   for (const r of rows) {
     const e = r.e;
     h += `<tr><td>${esc(e.model)}<span class="h">${HN[e.harness]}</span></td><td>${e.n}</td><td>${e.solved}</td>
       <td>${bar(r.tin, maxIn)}${fmt(r.tin)}</td><td>${r.tin ? Math.round(r.tc / r.tin * 100) + "%" : "—"}</td>
       <td>${bar(r.tout, maxOut)}${fmt(r.tout)}</td><td>${fmt(r.tin / e.n)} / ${fmt(r.tout / e.n)}</td>
+      <td>${priceCell(e)}</td>
       <td>${r.cost == null ? '<span class="muted">—</span>' : "$" + r.cost.toFixed(2)}</td>
       <td>${r.cost == null || !e.solved ? '<span class="muted">—</span>' : "$" + (r.cost / e.solved).toFixed(2)}</td></tr>`;
   }
   document.getElementById("tok").innerHTML = h + "</tbody>";
-  document.getElementById("tok-note").innerHTML = "Agents did not all run the same tasks: L3 only for finalists, and the Alibaba models in Codex only on L2. Compare the per-run columns, not the totals. Rows are sorted by total input tokens.";
+  {
+    const pts = rows.filter(r => r.cost != null && r.cost > 0).map(r => ({ r, x: r.cost / r.e.n, y: r.e.solved / r.e.n }));
+    const W = 760, Lm = 50, Rm = 130, T = 14, H = 330, B = 40;
+    const lo = Math.log10(0.005), hi = Math.log10(8);
+    const X = v => Lm + (Math.log10(Math.max(0.005, v)) - lo) / (hi - lo) * (W - Lm - Rm), Y = v => T + (1 - v) * (H - T - B);
+    let g = "";
+    for (const v of [0.01, 0.03, 0.1, 0.3, 1, 3]) g += `<line class="grid" x1="${X(v)}" x2="${X(v)}" y1="${T}" y2="${H - B}"/><text x="${X(v)}" y="${H - B + 16}" text-anchor="middle">$${v}</text>`;
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="grid" x1="${Lm}" x2="${W - Rm}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${Lm - 8}" y="${Y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+    g += `<text x="${(W - Rm + Lm) / 2}" y="${H - 6}" text-anchor="middle">cost per run →</text><text x="${Lm - 40}" y="${T - 2}">solved</text>`;
+    const placed = [];
+    for (const p of pts.sort((a, b) => a.x - b.x)) {
+      const cx = X(p.x), cy = Y(p.y), lab = `${p.r.e.model} · ${HN[p.r.e.harness]}`;
+      let ly = cy + 4; while (placed.some(q => Math.abs(q.y - ly) < 13 && Math.abs(q.x - cx) < 150)) ly += 13;
+      placed.push({ x: cx, y: ly });
+      const tt = `<b>${esc(lab)}</b><br>${p.r.e.solved}/${p.r.e.n} · $${p.x.toFixed(2)}/run · $${p.r.e.solved ? (p.r.cost / p.r.e.solved).toFixed(2) : "—"}/solved`;
+      g += `<circle cx="${cx}" cy="${cy}" r="6" fill="var(--${p.r.e.harness})" stroke="var(--panel)" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/><text x="${cx + 10}" y="${ly}" style="font-size:11px">${esc(lab)}</text>`;
+    }
+    const el = document.getElementById("costsc"); el.setAttribute("viewBox", `0 0 ${W} ${H}`); el.style.minWidth = "560px"; el.innerHTML = g;
+  }
+  document.getElementById("tok-note").innerHTML = "Agents did not all run the same tasks: L3 only for finalists, and the Alibaba models in Codex only on L2. Compare the per-run and per-solved columns, not the totals. Rows are sorted by cost per solved task. Prices marked est. come from third-party price trackers.";
 }
 
 /* matrix */

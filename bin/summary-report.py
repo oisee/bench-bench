@@ -40,7 +40,7 @@ for r in csv.DictReader(open(os.path.join(B, "data/runs.csv"))):
         lines=num(r["patch_lines"]), effective=r["effective_resolved"] == "True",
         override=r.get("jury_override") == "True",
         tin=num(r["input_tokens"]), tcache=num(r["cached_input_tokens"]), tout=num(r["output_tokens"]),
-        calls=num(r["llm_calls"]), tools=num(r["tool_calls"]), cost=num(r["cost_api_usd"])))
+        calls=num(r["llm_calls"]), tools=num(r["tool_calls"]), cost=num(r["cost_api_usd"]), model_id=r["model"]))
 
 screen = []
 p = os.path.join(B, "data/critic-screen.csv")
@@ -64,7 +64,15 @@ for r in screen:
     r["confirmed"] = None if a is None else a["confirmed"]
     r["check"] = a and dict(check=a["check"], patch=a["patch"], reference=a["reference"])
 
-data = dict(generated=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+prices = {}
+pj = json.load(open(os.path.join(B, "prices.json")))["api_per_mtok"]
+for k, v in pj.items():
+    while isinstance(v, dict) and v.get("same_as"): v = pj[v["same_as"]]
+    if isinstance(v, dict) and "input" in v:
+        prices[k] = dict(i=v["input"], c=v.get("cache_read"), o=v["output"], est="third-party" in v.get("source", ""))
+prices["opus"] = dict(i=None, c=None, o=None, est=False, harness=True)
+
+data = dict(prices=prices, generated=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             runs=runs, screen=screen, critics=CRITICS)
 for tpl, out in PAGES:
     out = os.path.join(B, "reports", out)
