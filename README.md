@@ -48,8 +48,8 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 | Kimi K2.5 | Pi | 1/4 | 0 | **L1a** ~~L1b~~ ~~L2a~~ ~~L2b~~ | 116 min | 9.6M | 74k | $1.47 |
 | MiniMax M2.5 | Pi | 0/4 | 0 | ~~L1a~~ ~~L1b~~ ~~L2a~~ ~~L2b~~ | 118 min | 13.1M | 79k | $0.74 |
 | *Local, round 4:* | | | | | | | | |
-| Qwen3.8-Flash-Next NVFP4, one 96 GB GPU | Claude Code | 5/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 153 min | 68.3M | 540k | $0 (local) |
-| Qwen3.8-Flash-Next IQ4_XS, i7 + 2× 16 GB GPUs, limits ×10 | Claude Code | 1/1 | 0 | **L1a** (L1b stopped, on track) | 26 min | 0.7M | 17k | $0 (local) |
+| Qwen3.8-Flash-Next NVFP4, one 96 GB GPU | Claude Code | 5/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 153 min | 68.3M | 540k | $0 local (hosted ≈ $11.19) |
+| Qwen3.8-Flash-Next IQ4_XS, i7 + 2× 16 GB GPUs, limits ×10 | Claude Code | 1/1 | 0 | **L1a** (L1b stopped, on track) | 26 min | 0.7M | 17k | $0 local (hosted ≈ $0.11) |
 
 *Solved* means all hidden acceptance tests (fail→pass) and regression tests (pass→pass) pass. A run stopped at
 the time limit is graded on whatever its working tree held at that moment; *at limit* counts those.
@@ -57,7 +57,7 @@ Input tokens include cached input. API cost is what the same tokens would cost a
 Opus from Claude Code's own cost report, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers.
 It is an estimate for comparison, not what was paid; most runs used subscription plans.
 The local rows ran on October 23 with the same briefs, sandbox and hidden tests, on the owners' own hardware, so they
-cost nothing per token; the same tokens on QwenCloud's hosted API would cost about $11.19 and $0.11 ([Round 4](#round-4-local-models)).
+cost nothing per token; *hosted* is what the same tokens would cost on QwenCloud's hosted API ([Round 4](#round-4-local-models)).
 
 **How the runs were actually paid.** Almost everything ran on flat-rate coding subscriptions, where a run costs
 nothing extra until the plan's rolling limit is reached:
