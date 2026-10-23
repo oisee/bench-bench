@@ -12,7 +12,10 @@ keep them), so the replayed model sees the original's actions and tool results b
 
 Writes one JSON line per step to --out (default: replay-<model>.jsonl next to TRAFFIC.jsonl) and prints
 a side-by-side summary. The output names both models; for blind judging pass only the `original` and `replay`
-moves, shuffled, never the model fields or file names. Steps run one at a time. The API key, if any, is read from CUSTOM_API_KEY.
+moves, shuffled, never the model fields or file names. Steps run one at a time.
+For repeatable A/B replays of model variants use --temperature 0 --seed 42 (recorded requests carry no
+temperature, so otherwise the server's default sampling applies and one step can differ between runs).
+The API key, if any, is read from CUSTOM_API_KEY.
 """
 import argparse, copy, json, os, sys, time, urllib.request
 
@@ -120,6 +123,9 @@ def main():
     ap.add_argument("--max-tokens", type=int, help="cap on the reply (default: the recorded request's max_tokens; "
                     "at least 4096, since lower caps cut long edits)")
     ap.add_argument("--effort", help="override output_config.effort")
+    ap.add_argument("--temperature", type=float, help="set top-level temperature in every request (default: as recorded, "
+                    "usually absent, so the server's default sampling applies); 0 with --seed for repeatable A/B")
+    ap.add_argument("--seed", type=int, help="set top-level seed (llama-server honours it; the Anthropic API does not)")
     ap.add_argument("--keep-thinking", action="store_true", help="keep the original model's earlier thinking in history")
     ap.add_argument("--timeout", type=int, default=3600)
     ap.add_argument("--out")
@@ -159,6 +165,10 @@ def main():
             req["max_tokens"] = a.max_tokens
         if a.effort:
             req.setdefault("output_config", {})["effort"] = a.effort
+        if a.temperature is not None:
+            req["temperature"] = a.temperature
+        if a.seed is not None:
+            req["seed"] = a.seed
         if not a.keep_thinking:
             strip_thinking(req)
         try:
@@ -175,7 +185,7 @@ def main():
             print(f"  replay   ({a.model}): ERROR {err}")
         out.write(json.dumps(dict(step=s, ts=time.strftime("%Y-%m-%dT%H:%M:%S%z"), source=os.path.abspath(a.traffic),
                                   original_model=rec["req"].get("model"), replay_model=a.model, context_tokens=ctx,
-                                  thinking_stripped=not a.keep_thinking, original=orig, original_stop=orig_stop,
+                                  thinking_stripped=not a.keep_thinking, temperature=a.temperature, seed=a.seed, original=orig, original_stop=orig_stop,
                                   replay=rep, replay_stop=stop, replay_usage=usage, dur_s=dur, ttfb_s=ttfb, error=err),
                              ensure_ascii=False) + "\n")
         out.flush()
