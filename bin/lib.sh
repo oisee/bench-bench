@@ -10,7 +10,7 @@ executor_fields() {
   python3 -I - "$BENCH/matrix.yaml" "$1" <<'EOF'
 import re,sys
 for line in open(sys.argv[1]):
-    m=re.search(r'\{id:\s*([^,]+),\s*provider:\s*([^,]+),\s*model:\s*("?[^,"]+"?),\s*harness:\s*([^,]+),\s*effort:\s*([^}]+)\}',line)
+    m=re.search(r'\{id:\s*([^,]+),\s*provider:\s*([^,]+),\s*model:\s*("?[^,"]+"?),\s*harness:\s*([^,]+),\s*effort:\s*([^,}]+)',line)
     if m and not line.lstrip().startswith('#') and m.group(1).strip()==sys.argv[2]:
         print(m.group(2).strip(), m.group(3).strip().strip('"'), m.group(4).strip(), m.group(5).strip()); break
 else: sys.exit(1)

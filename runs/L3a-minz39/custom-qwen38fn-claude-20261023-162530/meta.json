@@ -1,0 +1,9 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "Qwen3.8-Flash-Next",
+  "effort": "xhigh",
+  "round": "4",
+  "harness_version": "2.1.309 (Claude Code)",
+  "started_at": "2026-10-23T16:25:37+01:00"
+}

@@ -1,0 +1,6 @@
+--- FAIL: TestAnonymousObjectLiterals_BenchHeldOut95 (0.04s)
+    object_literal_test.go:13: lower: unsupported-shortcircuit /tmp/TestAnonymousObjectLiterals_BenchHeldOut953646331028/001/probe.ts:21:24: operands cannot preserve the result type map<string,number> (left map<string,number>, right classref<shapeQ.e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855>)
+    object_literal_test.go:61: got 0 copies of the a/b shape, want one
+FAIL
+FAIL	github.com/oisee/abapiti/tsfront	0.469s
+FAIL

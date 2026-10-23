@@ -20,9 +20,9 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
   tests (two by Opus, one by Luna xhigh); each was confirmed by running the critic's repro against the upstream solution.
 - **Round 3 (effort vs executable checks, one run each):** Sol 6.1 at high effort solved L3b, which it failed at medium.
   Luna high solved L2b when half of the held-out cases were in the repo as runnable examples; Luna medium gave up even with them.
-- **Round 4, the first local model (one run, one task so far):** Qwen3.8-Flash-Next, 4-bit, on a single 96 GB GPU
-  in a home machine, solved L2b in Claude Code in 30 minutes. Qwen 3.7 Plus, Kimi K2.5, MiniMax M2.5, GLM-5 and
-  Luna medium/high failed that task; Opus solved it in 20 minutes, GLM-5.3 at the time limit.
+- **Round 4, the first local model:** Qwen3.8-Flash-Next, 4-bit, on a single 96 GB GPU in a home machine, solved
+  5 of 6 tasks in Claude Code (L3a at the time limit), as many as Sol 6.1 and Luna xhigh. Like them it failed L3b,
+  also on a second attempt with Sol as critic. One run per task.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1)
@@ -67,9 +67,9 @@ column shows what the same work would cost through the API, which matters for CI
 
 ## Round 4: local models
 
-The first model in the bench that ran on someone's own hardware instead of a cloud API. **This is a limited result:
-one run of one task (L2b), one quantization, one harness.** It shows that this setup can do an L2 task, not where it
-ranks overall. Runs on the other five tasks are in progress.
+The first model in the bench that ran on someone's own hardware instead of a cloud API. It solved **5 of 6 tasks**,
+as many as Sol 6.1 and Luna xhigh in Codex, and like them it failed L3b. **This is a limited result:** one run per task,
+one quantization, one harness, one machine; a one-task difference may be noise.
 
 | | |
 |---|---|
@@ -79,21 +79,35 @@ ranks overall. Runs on the other five tasks are in progress.
 | Serving | vLLM, Anthropic-compatible `/v1/messages`, 262k context |
 | Harness | Claude Code 2.1.309, effort `xhigh` (the server accepts only `low`, `medium`, `xhigh`) |
 
-| Model | Harness | Task | Result | Time | Requests | Input / output tokens | Hosted price |
-|---|---|---|---|---|---|---|---|
-| Qwen3.8-Flash-Next (local) | Claude Code | L2b | **solved** | 30 min | 111 | 13.1M / 132k | $2.16 |
-| Opus (round 1) | Claude Code | L2b | solved | 20 min | 58 | 6.8M / 72k | — |
-| GLM-5.3 (round 1) | Claude Code | L2b | solved at the limit | 52 min | 128 | 14.2M / 76k | — |
+| Task | Qwen3.8-Flash-Next (local) | Requests | Input / output tokens | Hosted price | Opus, round 1 | GLM-5.3 in Claude Code, round 1 |
+|---|---|---|---|---|---|---|
+| L1a | **solved**, 4 min | 22 | 1.0M / 25k | $0.17 | solved, 1 min | solved, 6 min |
+| L1b | **solved**, 18 min | 86 | 8.5M / 65k | $1.40 | solved, 4 min | solved, 22 min |
+| L2a | **solved**, 17 min | 80 | 8.1M / 46k | $1.32 | solved, 4 min | solved, 21 min |
+| L2b | **solved**, 30 min | 111 | 13.1M / 132k | $2.16 | solved, 20 min | solved at the limit |
+| L3a | **solved at the limit**, 60 min | 240 | 28.6M / 192k | $4.67 | solved at the limit | solved at the limit |
+| L3b | failed, 24 min | 93 | 8.9M / 78k | $1.47 | solved, 28 min | solved at the limit |
+| L3b, 2nd attempt with Sol as critic | failed, 6 + 30 min (repair hit its limit) | 200 | 26.9M / 143k | $4.37 | | |
 
-- **Speed.** About 140 tokens/s on long answers, 82 tokens/s averaged over all requests including time to first
-  token. No request failed. The context reached 203k of the server's 262k tokens without compaction.
-- **How it worked.** It found the abaplint sources archived in the repository and implemented the indentation rules
-  from them, checked its formatter on 51 real ABAP files from the repo, and regenerated the golden output, which
-  matched upstream.
+- **L3a at the limit.** It was graded on the tree it left at 60 minutes. A snapshot taken at minute 47 already passed
+  every hidden test; the rest of the session went into fixing Z80 code-generator bugs that its own end-to-end tests
+  had found beyond the task, without breaking anything.
+- **L3b with a critic.** A second attempt started from the failed patch (`bin/run-repair.sh`, protocol
+  `critic-repair-v1`). Sol (Codex, xhigh) reviewed it without the hidden tests and reported five gaps, each with a
+  reproducing input it ran (not yet checked against the upstream solution; [review](runs/L3b-abapiti95/custom-qwen38fn-claude-critic-S-sol-20261023-172550/critic-review.md)),
+  but not the case the hidden test checks: a record `||` an anonymous object. Qwen then had 30 minutes to repair, was
+  still refactoring when the time ran out, and the tree it left failed both the held-out test and its own new tests.
+  There was no control run without the critic, so this says nothing general about critics.
+- **Speed.** No server errors in any run. With time to first byte recorded separately (the L3b repair run), generation
+  was 176 tokens/s median on answers of 1k+ tokens, and the first byte arrived after 3.6 s median with contexts up to
+  230k tokens. Earlier runs, measured without that split, show 92–125 tokens/s including the wait.
+- **How it worked.** On L2b it found the abaplint sources archived in the repository and implemented the indentation
+  rules from them, then checked its formatter on 51 real ABAP files; on L2a it ran the project's full semantics
+  harness and ABAP Unit fixtures, not only the tests the brief mentions.
 - **Hosted price** is what the same tokens would cost on QwenCloud's hosted `qwen3.8-flash` at list price
-  ([prices.json](prices.json)). The local run paid nothing per token.
-- The full request/response stream was recorded (`BENCH_RECORD=1`, see Quick start); like other transcripts, it is not
-  published.
+  ([prices.json](prices.json)); the local runs paid nothing per token. The repair row counts Qwen's tokens only.
+- The full request/response stream of every run was recorded (`BENCH_RECORD=1`, `bin/traffic-summary.py`); like other
+  transcripts, it is not published.
 
 ## The tasks
 
@@ -182,10 +196,12 @@ bin/bench.sh my-model-claude --status   # results so far
 `bin/bench.sh` is safe to interrupt and re-run: tasks that already have a result are skipped (`--again` repeats them).
 Each run is kept in `runs/<task>/<executor>-<time>/`: `patch.diff`, `result.json`, `grade/*.log`, and the agent
 transcript in `agent.out`. With `BENCH_RECORD=1` (in `.env` or the environment) every request to and response
-from your endpoint is also logged to `traffic.jsonl` in the run directory.
+from your endpoint is also logged to `traffic.jsonl` in the run directory; `bin/traffic-summary.py` turns it into
+requests, tokens, context growth, time to first byte, generation speed and tool calls (`--csv` for analysis).
 
-To compare with the published results, refresh the data and the report:
-`python3 bin/export.py && python3 bin/summary-report.py`.
+To compare with the published results, put your `result.json` next to `data/runs.csv`. A full re-export
+(`bin/export.py`) needs the jury reviews and agent transcripts, which are not in git, so on a fresh clone it would
+rebuild `data/` without them; run it only where those exist.
 
 ### Hosted providers and the published matrix
 

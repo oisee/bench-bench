@@ -1,0 +1,84 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..f81b2ed 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,27 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("trims every literal of a statement, and only at each closing quote", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("INSERT INTO t (a, b, c) VALUES ('x  ', '  a b\t\n  ', 'y''z  ')"))
++      .to.equal("INSERT INTO t (a, b, c) VALUES ('x', '  a b\t\n', 'y''z')");
++  });
++
++  it("handles the empty and the blank-only literal", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('', '   ', 'k')")).to.equal("VALUES ('', '', 'k')");
++  });
++
++  it("and a fifteen-million-character literal answers, it does not overflow the stack", async () => {
++    // The rule used to be a regex, /'((?:[^']|'')*)'/g, which pushes a
++    // backtracking frame per character: a media-sized literal died with
++    // "Maximum call stack size exceeded" long before the write ever reached
++    // an engine. The scan is one pass, so this case is also the guard that
++    // the quote handling of a long literal is still the quote handling.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "x".repeat(15_000_000) + "''   ";
++    const sql = "INSERT INTO t (a, b) VALUES ('" + body + "', 42)";
++    expect(trimLiterals(sql)).to.equal("INSERT INTO t (a, b) VALUES ('" + body.replace(/ +$/, "") + "', 42)");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..5f7bce5 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,45 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant. Double quotes do not change how the pairs are read.
++ *
++ *  Written as a scan, not as `/'((?:[^']|'')*)'/g` -- which it matches
++ *  statement for statement. The regex pushes a backtracking frame per
++ *  character it walks through the alternation, so a literal long enough to
++ *  carry a document (a media row goes through here too) died with
++ *  `RangeError: Maximum call stack size exceeded` at ~15 M characters.
++ *  The chain of tokens is deterministic -- at every position exactly one of
++ *  `[^']` and `''` can match -- so the same match, longest first, falls out
++ *  of one forward pass: a quote followed by a quote continues the literal
++ *  (remembering where the pair began), a quote followed by anything else,
++ *  or by the end of the string, ends it. A quote pair at the very end of
++ *  the string, with no closing quote after it, is where the regex would
++ *  have backtracked to: the pair's first character closes, and the scan
++ *  resumes at its second. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  let out = "";
++  let i = 0;
++  for (;;) {
++    const open = sql.indexOf("'", i);
++    if (open === -1) return out + sql.slice(i);
++    out += sql.slice(i, open);
++    let closing = -1;
++    let escapedAt = -1; // where the last `''` pair began, for the fallback
++    for (let j = open + 1;;) {
++      const k = sql.indexOf("'", j);
++      if (k === -1) break;
++      if (k + 1 < n && sql[k + 1] === "'") { escapedAt = k; j = k + 2; continue; }
++      closing = k;
++      break;
++    }
++    if (closing === -1) closing = escapedAt;
++    if (closing === -1) return out + sql.slice(open); // never closed: leave it
++    let end = closing;
++    while (end > open + 1 && sql[end - 1] === " ") end--;
++    out += sql.slice(open, end) + "'";
++    i = closing + 1;
++  }
+ }
+ 
+ /**

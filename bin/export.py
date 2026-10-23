@@ -9,7 +9,7 @@ Token / call metrics are parsed from each harness's own transcript:
   pi      home/.pi/agent/sessions/**.jsonl: per-assistant-message usage and toolCall blocks
 Unknown values stay empty; nothing is estimated.
 """
-import csv, glob, json, os, re, collections
+import csv, glob, json, os, re, sys, collections
 
 B = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(B, "data")
@@ -172,6 +172,12 @@ def matrix():
 
 
 def main():
+    # data/ was built with the jury reviews and transcripts, which are not in git; re-exporting
+    # without them would silently drop the reviews and token counts from the published files.
+    if (not os.path.isdir(os.path.join(B, "runs/_review")) and os.path.exists(os.path.join(OUT, "reviews.csv"))
+            and os.path.getsize(os.path.join(OUT, "reviews.csv")) > 1000 and "--force" not in sys.argv):
+        sys.exit("export: runs/_review (jury reviews) is missing here, so this would overwrite data/ without them.\n"
+                 "Run it where the reviews and transcripts exist, or pass --force.")
     os.makedirs(OUT, exist_ok=True)
     executors, critics = matrix()
     amap = {}

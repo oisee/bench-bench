@@ -64,6 +64,8 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 data = resp.read1(65536)
                 if not data:
                     break
+                if not chunks:
+                    rec["ttfb_s"] = round(time.time() - t0, 3)
                 chunks.append(data)
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
                 self.wfile.flush()

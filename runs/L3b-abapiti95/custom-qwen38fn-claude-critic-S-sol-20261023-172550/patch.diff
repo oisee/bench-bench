@@ -1,0 +1,1296 @@
+diff --git a/tsfront/anonliterals_test.go b/tsfront/anonliterals_test.go
+new file mode 100644
+index 0000000..22bd47b
+--- /dev/null
++++ b/tsfront/anonliterals_test.go
+@@ -0,0 +1,176 @@
++package tsfront
++
++import (
++	"context"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++	golang "github.com/oisee/abapiti/hir/golang"
++)
++
++// Anonymous object literals: every literal whose structural type has no
++// named class or alias gets a synthesized shape; equivalent layouts (even
++// with the properties in a different order) share one shape, readonly views
++// keep the physical layout of their mutable shape, empty literals take the
++// contextual shape or the empty shape, and record-like literals stay maps.
++func TestLowerAnonymousObjectLiterals(t *testing.T) {
++	dir := "testdata/anonliterals"
++	p, err := Load(filepath.Join(dir, "tsconfig.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range p.CheckerDiagnostics(context.Background()) {
++		if d.Category == "error" {
++			t.Fatalf("checker: %s %s: %s", d.Category, d.Loc, d.Message)
++		}
++	}
++	prog, diags, err := p.Lower([]string{"probe.ts"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range diags {
++		if !strings.HasPrefix(d.Category, "note-") {
++			t.Errorf("blocking diagnostic: %s", d)
++		}
++	}
++	if errs := hir.Verify(prog); len(errs) > 0 {
++		for _, e := range errs {
++			t.Errorf("verify: %s", e)
++		}
++	} else {
++		if _, _, err := abap.EmitNamed(prog); err != nil {
++			t.Errorf("abap emit: %v", err)
++		}
++		if _, err := golang.Emit(prog); err != nil {
++			t.Errorf("go emit: %v", err)
++		}
++	}
++
++	// One shape per field layout, regardless of property order.
++	layoutCount := map[string]int{}
++	readonlyLayout := ""
++	emptyShapes := 0
++	for _, c := range prog.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") {
++			continue
++		}
++		names := make([]string, 0, len(c.Fields))
++		for _, f := range c.Fields {
++			names = append(names, f.Name+":"+kindKey(f.Type))
++		}
++		sort.Strings(names)
++		key := strings.Join(names, ";")
++		layoutCount[key]++
++		if len(c.Fields) == 0 {
++			emptyShapes++
++		}
++		if len(c.Fields) == 2 && c.Fields[0].Readonly && c.Fields[1].Readonly {
++			readonlyLayout = key
++			// Readonly views merge into the shared layout and the flag
++			// survives there: {readonly jn, readonly qs} from the roFn
++			// parameter (both orders), and the Orig fields seen through
++			// Readonly<Orig>.
++			for _, f := range c.Fields {
++				switch f.Name {
++				case "jn", "qs", "oa", "os":
++				default:
++					t.Errorf("unexpected readonly shape %s: %v", c.Name, c.Fields)
++				}
++			}
++		}
++	}
++	for _, want := range []string{
++		`pa:num;pb:str`, // p1/p2: one shape for both orders
++		`jn:num;qs:str`, // the readonly view, both orders
++		`x:num;y:num`,   // top1/top2: one shape for both orders
++	} {
++		if layoutCount[want] != 1 {
++			t.Errorf("layout %q lowered to %d shapes, want 1", want, layoutCount[want])
++		}
++	}
++	if readonlyLayout == "" {
++		t.Errorf("the readonly view kept no readonly property information")
++	}
++	if emptyShapes != 1 {
++		t.Errorf("%d empty shapes, want 1", emptyShapes)
++	}
++	// Record-like literals never become a class shape.
++	for _, c := range prog.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") {
++			continue
++		}
++		names := make([]string, 0, len(c.Fields))
++		for _, f := range c.Fields {
++			names = append(names, f.Name+":"+kindKey(f.Type))
++		}
++		if strings.Join(names, ";") == "a:num;b:num;c:num" {
++			t.Errorf("record-like literal forced into class shape %s: %v", c.Name, c.Fields)
++		}
++	}
++
++	// Metadata and layout invariants of the merged views.
++	readonlyQ := 0
++	optionalZ := 0
++	dynItems := 0
++	for _, c := range prog.Classes {
++		if !strings.HasPrefix(c.Name, "shape.") {
++			continue
++		}
++		if len(c.Fields) == 1 && c.Fields[0].Name == "s" {
++			t.Errorf("record spread with an added key forced into class shape %s", c.Name)
++		}
++		if len(c.Fields) == 1 && c.Fields[0].Name == "1" {
++			t.Errorf("numeric record key forced into class shape %s", c.Name)
++		}
++		if len(c.Fields) != 1 {
++			continue
++		}
++		f := c.Fields[0]
++		switch {
++		case f.Name == "q" && kindKey(f.Type) == "num":
++			if !f.Readonly {
++				t.Errorf("the readonly view of {q} lost the readonly flag (%s)", c.Name)
++			}
++			readonlyQ++
++		case f.Name == "z":
++			if f.Type.Kind != hir.Optional {
++				t.Errorf("the optional view of {z} lost its optionality (%s: %s)", c.Name, f.Type.String())
++			}
++			optionalZ++
++		case f.Name == "items" && f.Type.Kind == hir.Array:
++			if f.Type.Args[0].Kind == hir.Void {
++				t.Errorf("empty array field kept a void element (%s)", c.Name)
++			}
++			dynItems++
++		}
++	}
++	if readonlyQ != 1 {
++		t.Errorf("%d shapes for {q}, want 1 shared layout", readonlyQ)
++	}
++	if optionalZ != 1 {
++		t.Errorf("%d shapes for {z}, want 1 shared reference storage", optionalZ)
++	}
++	if dynItems != 1 {
++		t.Errorf("%d shapes for {items: []}, want 1", dynItems)
++	}
++}
++
++// kindKey names a type layout slot, ignoring the integer-range
++// specialization of numeric storage.
++func kindKey(t hir.Type) string {
++	switch t.Kind {
++	case hir.Number, hir.I32, hir.I64:
++		return "num"
++	case hir.String:
++		return "str"
++	case hir.Bool:
++		return "bool"
++	case hir.Optional:
++		return "opt"
++	}
++	return string(t.Kind)
++}
+diff --git a/tsfront/critic_repro_test.go b/tsfront/critic_repro_test.go
+new file mode 100644
+index 0000000..7f93b97
+--- /dev/null
++++ b/tsfront/critic_repro_test.go
+@@ -0,0 +1,192 @@
++package tsfront
++
++import (
++	"context"
++	"os"
++	"fmt"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/oisee/abapiti/hir"
++	"github.com/oisee/abapiti/hir/abap"
++	golang "github.com/oisee/abapiti/hir/golang"
++)
++
++// Temporary critic reproduction harness.
++func runCritic(t *testing.T, name, src string) *hir.Program {
++	t.Helper()
++	dir := filepath.Join(t.TempDir(), name)
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "input.ts"), []byte(src), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	cfg := `{"compilerOptions":{"strict":true,"target":"es2020"},"files":["input.ts"]}`
++	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(cfg), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	p, err := Load(filepath.Join(dir, "tsconfig.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range p.CheckerDiagnostics(context.Background()) {
++		if d.Category == "error" {
++			t.Fatalf("checker: %s: %s", d.Loc, d.Message)
++		}
++	}
++	prog, diags, err := p.Lower([]string{"input.ts"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range diags {
++		if !strings.HasPrefix(d.Category, "note-") {
++			t.Errorf("blocking: %s", d)
++		} else {
++			t.Logf("note: %s", d)
++		}
++	}
++	if t.Failed() {
++		return nil
++	}
++	if errs := hir.Verify(prog); len(errs) > 0 {
++		for _, e := range errs {
++			t.Errorf("verify: %s", e)
++		}
++		return nil
++	}
++	if _, _, err := abap.EmitNamed(prog); err != nil {
++		t.Errorf("abap emit: %v", err)
++	}
++	if _, err := golang.Emit(prog); err != nil {
++		t.Errorf("go emit: %v", err)
++	}
++	return prog
++}
++
++func TestCritic1EmptyArrayField(t *testing.T) {
++	runCritic(t, "c1", `
++export const box = { items: [] };
++export const size = box.items.length;
++`)
++}
++
++func TestCritic2RecordSpread(t *testing.T) {
++	runCritic(t, "c2", `
++export const rec: Record<string, number> = { a: 1 };
++export const copy = { ...rec, s: 2 };
++`)
++}
++
++func TestCritic2Probe(t *testing.T) {
++	dir := t.TempDir()
++	os.WriteFile(filepath.Join(dir, "input.ts"), []byte(`
++export const rec: Record<string, number> = { a: 1 };
++export const plain = { ...rec };
++export const copy = { ...rec, s: 2 };
++`), 0o644)
++	os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(`{"compilerOptions":{"strict":true,"target":"es2020"},"files":["input.ts"]}`), 0o644)
++	p, err := Load(filepath.Join(dir, "tsconfig.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, diags, err := p.Lower([]string{"input.ts"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range diags {
++		t.Logf("diag: %s", d)
++	}
++}
++
++func TestCritic3NumericKey(t *testing.T) {
++	runCritic(t, "c3", `
++export const rec: Record<string, number> = { 1: 2 };
++export const value = rec["1"];
++`)
++}
++
++func TestCritic4ReadonlyReuse(t *testing.T) {
++	both := func(order int) {
++		src := `
++export const mutable: { x: number } = { x: 1 };
++export const readonlyv: { readonly x: number } = { x: 2 };
++export const value = readonlyv.x + mutable.x;
++`
++		if order == 1 {
++			src = `
++export const readonlyv: { readonly x: number } = { x: 2 };
++export const mutable: { x: number } = { x: 1 };
++export const value = readonlyv.x + mutable.x;
++`
++		}
++		prog := runCritic(t, fmt.Sprintf("c4-%d", order), src)
++		if prog == nil {
++			return
++		}
++		shapes := 0
++		for _, c := range prog.Classes {
++			if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 1 && c.Fields[0].Name == "x" {
++				shapes++
++				if !c.Fields[0].Readonly {
++					t.Errorf("order %d: readonly view lost: %s x readonly=%v", order, c.Name, c.Fields[0].Readonly)
++				}
++			}
++		}
++		if shapes != 1 {
++			t.Errorf("order %d: %d x-shapes, want 1 (shared layout)", order, shapes)
++		}
++	}
++	both(0)
++	both(1)
++}
++
++func TestCritic5OptionalReuse(t *testing.T) {
++	both := func(order int) {
++		src := `
++export const present = { x: { y: 1 } };
++export const missing: { x?: { y: number } } = {};
++export function read(): number { return missing.x?.y ?? 9; }
++`
++		if order == 1 {
++			src = `
++export const missing: { x?: { y: number } } = {};
++export const present = { x: { y: 1 } };
++export function read(): number { return missing.x?.y ?? 9; }
++`
++		}
++		prog := runCritic(t, fmt.Sprintf("c5-%d", order), src)
++		if prog == nil {
++			return
++		}
++		found := false
++		for _, c := range prog.Classes {
++			if strings.HasPrefix(c.Name, "shape.") && len(c.Fields) == 1 && c.Fields[0].Name == "x" {
++				found = true
++				if c.Fields[0].Type.Kind != hir.Optional {
++					t.Errorf("order %d: optional view lost: %s x kind=%v", order, c.Name, c.Fields[0].Type.Kind)
++				}
++			}
++		}
++		if !found {
++			t.Errorf("order %d: no x shape found", order)
++		}
++	}
++	both(0)
++	both(1)
++}
++
++func TestCriticProbeEmptyArray(t *testing.T) {
++	runCritic(t, "ea", `
++export const xs: string[] = [];
++export const n = xs.length;
++export const ys = [] as string[];
++export const m = ys.length;
++`)
++	runCritic(t, "eb", `
++export interface Bag { items: never[] }
++export const box: Bag = { items: [] };
++export const size = box.items.length;
++`)
++}
+diff --git a/tsfront/dump_probe_test.go b/tsfront/dump_probe_test.go
+new file mode 100644
+index 0000000..91b083b
+--- /dev/null
++++ b/tsfront/dump_probe_test.go
+@@ -0,0 +1,51 @@
++package tsfront
++
++import (
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestDumpProbe(t *testing.T) {
++	p, err := Load(filepath.Join("testdata/anonliterals", "tsconfig.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, diags, err := p.Lower([]string{"probe.ts"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, d := range diags {
++		t.Logf("diag: %s", d)
++	}
++	prog, diags2, err := p.Lower([]string{"probe.ts"})
++	for _, d := range diags2 {
++		if strings.Contains(d.Category, "append") || strings.Contains(d.Message, "e12bad") {
++			t.Logf("diag2: %s", d)
++		}
++	}
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, c := range prog.Classes {
++		if len(c.Fields) == 0 {
++			continue
++		}
++		if c.Name == "shapeQ.e12bad578c217ae42ff71635e16a980b0c272d93726cb0aae13cf2e5a9154806" {
++			t.Logf("FULL class %s node=%v ctor=%v fields=%d", c.Name, c.Node.Source, c.Ctor != nil, len(c.Fields))
++			if c.Ctor != nil {
++				for _, pa := range c.Ctor.Params {
++					t.Logf("  param %s %s", pa.Name, pa.Type.String())
++				}
++			}
++			for _, f := range c.Fields {
++				t.Logf("  field %s type=%s ro=%v src=%v", f.Name, f.Type.String(), f.Readonly, f.Node.Source)
++			}
++		}
++		for _, f := range c.Fields {
++			if f.Name == "q" || f.Name == "z" || f.Name == "s" || f.Name == "items" {
++				t.Logf("class %s field %s type=%s ro=%v src=%v", c.Name, f.Name, f.Type.String(), f.Readonly, f.Node.Source)
++			}
++		}
++	}
++}
+diff --git a/tsfront/lower.go b/tsfront/lower.go
+index 5ff1d17..42b90e2 100644
+--- a/tsfront/lower.go
++++ b/tsfront/lower.go
+@@ -667,6 +667,7 @@ func (l *lowerer) registerFile(f *ast.SourceFile) {
+ 				}
+ 				l.classes[stmt.Symbol()] = c
+ 				l.classesByName[key] = c
++				l.diagf(nil, "note-appendX", "APPEND@lower.go %s", c.Name)
+ 				l.out.Classes = append(l.out.Classes, c)
+ 			}
+ 		case ast.KindInterfaceDeclaration:
+@@ -679,6 +680,7 @@ func (l *lowerer) registerFile(f *ast.SourceFile) {
+ 				c := &hir.Class{Node: l.node(stmt), Name: l.qualifiedName(f, stmt.Name().Text())}
+ 				l.classes[stmt.Symbol()] = c
+ 				l.classesByName[f.FileName()+" "+stmt.Name().Text()] = c
++				l.diagf(nil, "note-appendX", "APPEND@lower.go %s", c.Name)
+ 				l.out.Classes = append(l.out.Classes, c)
+ 				continue
+ 			}
+@@ -734,6 +736,22 @@ func (l *lowerer) moduleVar(d *ast.Node, mod *hir.Class) []*hir.Stmt {
+ 		typ = expr.Type
+ 		stmts = append(stmts, l.assignStatic(mod, d, name, expr, typ))
+ 	default:
++		// A literal that spreads a record map is a map at run time: deriving
++		// the type from the checker's literal type first would synthesize a
++		// shape class the map representation never matches.
++		if init != nil && init.Kind == ast.KindObjectLiteralExpression {
++			if mt, ok := l.recordSpreadType(init); ok {
++				l.hint = mt
++				x := l.expr(init)
++				l.hint = hir.Type{}
++				if x == nil {
++					return nil
++				}
++				typ = x.Type
++				stmts = []*hir.Stmt{l.assignStatic(mod, d, name, x, typ)}
++				break
++			}
++		}
+ 		// Node-based type queries are valid across the checker pool;
+ 		// symbol-based ones are not (types do not mix between checkers).
+ 		mapped := l.mapCheckerType(d, l.ck.GetTypeAtLocation(d))
+diff --git a/tsfront/lower_class.go b/tsfront/lower_class.go
+index 291b90f..463715e 100644
+--- a/tsfront/lower_class.go
++++ b/tsfront/lower_class.go
+@@ -69,6 +69,7 @@ func (l *lowerer) dataInterfaceClass(node *ast.Node, i *hir.Interface) {
+ 	c := l.classOf(sym)
+ 	if c == nil {
+ 		c = &hir.Class{Node: i.Node, Name: i.Name}
++		l.diagf(nil, "note-appendX", "APPEND@lower_class.go %s", c.Name)
+ 		l.out.Classes = append(l.out.Classes, c)
+ 	}
+ 	if l.shapeLike == nil {
+@@ -148,14 +149,18 @@ func (l *lowerer) dataInterfaceClass(node *ast.Node, i *hir.Interface) {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(m), Name: name, Type: ft})
++		// Readonly survives as field metadata; it is not part of the
++		// physical layout, so an equivalent view reuses this class.
++		f := hir.Field{Node: l.node(m), Name: name, Type: ft,
++			Readonly: m.ModifierFlags()&ast.ModifierFlagsReadonly != 0}
++		c.Fields = append(c.Fields, f)
+ 		ctor.Params = append(ctor.Params, hir.Param{Name: name, Type: ft})
+ 		list = append(list, &hir.Stmt{Kind: hir.Assign, Node: l.node(m),
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(m), Name: name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(m), Type: hir.Ref(c.Name)}},
+ 			Y: hir.V(name, ft)})
+ 		if ms := m.Symbol(); ms != nil {
+-			l.fields[ms] = hir.Field{Node: l.node(m), Name: name, Type: ft}
++			l.fields[ms] = f
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+diff --git a/tsfront/lower_class2.go b/tsfront/lower_class2.go
+index 28dd507..4428d35 100644
+--- a/tsfront/lower_class2.go
++++ b/tsfront/lower_class2.go
+@@ -1,6 +1,8 @@
+ package tsfront
+ 
+ import (
++	"strings"
++
+ 	"github.com/oisee/abapiti/hir"
+ 	"github.com/oisee/abapiti/internal/tsgo/ast"
+ 	"github.com/oisee/abapiti/internal/tsgo/checker"
+@@ -439,10 +441,64 @@ func (l *lowerer) recordImplements(src hir.Type, dst hir.Type) {
+ 
+ // coerce adapts a value flowing into a target type: boxing into Dynamic,
+ // recording implicit interface implementations.
++// shapeView reports whether two synthesized shape classes are two views of
++// one physical layout: same field names, each field type equal once an
++// optional reference is unwrapped (a reference and its optional view share
++// one slot; readonly is metadata only, not a slot). Plain objects have no
++// identity of their own, so the views alias the same storage.
++func (l *lowerer) shapeView(a, b hir.Type) bool {
++	if a.Kind != hir.ClassRef || b.Kind != hir.ClassRef || a.Name == b.Name {
++		return false
++	}
++	synthesized := func(name string) bool {
++		return strings.HasPrefix(name, "shape.") || l.shapeLike[name]
++	}
++	if !synthesized(a.Name) || !synthesized(b.Name) {
++		return false
++	}
++	ca, cb := l.classesByQualifiedName(a.Name), l.classesByQualifiedName(b.Name)
++	if ca == nil || cb == nil || ca.Ctor == nil || cb.Ctor == nil || len(ca.Fields) != len(cb.Fields) {
++		return false
++	}
++	unwrap := func(t hir.Type) hir.Type {
++		if t.Kind == hir.Optional && t.Args[0].IsRef() {
++			return t.Args[0]
++		}
++		return t
++	}
++	for _, f := range ca.Fields {
++		var other *hir.Field
++		for k := range cb.Fields {
++			if cb.Fields[k].Name == f.Name {
++				other = &cb.Fields[k]
++			}
++		}
++		if other == nil || !unwrap(f.Type).Equal(unwrap(other.Type)) {
++			return false
++		}
++	}
++	return true
++}
++
+ func (l *lowerer) coerce(x *hir.Expr, dst hir.Type) *hir.Expr {
+ 	if x == nil {
+ 		return nil
+ 	}
++	// A value of one synthesized shape flowing into a layout-compatible
++	// view (a readonly or optional modifier differs): the view is unchecked
++	// aliasing of the same slots, not a conversion.
++	if x.Type.Kind == hir.ClassRef && dst.Kind == hir.ClassRef && l.shapeView(x.Type, dst) {
++		l.diagf(nil, "note-shape-view", "shape %s flows as layout-compatible shape %s", x.Type.Name, dst.Name)
++		return &hir.Expr{Kind: hir.Cast, Node: x.Node, Type: dst, X: x}
++	}
++	if x.Type.Kind == hir.ClassRef && dst.Kind == hir.Optional && dst.Args[0].Kind == hir.ClassRef &&
++		l.shapeView(x.Type, dst.Args[0]) {
++		l.diagf(nil, "note-shape-view", "shape %s flows as optional view of layout-compatible shape %s", x.Type.Name, dst.Args[0].Name)
++		return &hir.Expr{Kind: hir.Conditional, Type: dst,
++			X: hir.L(hir.T(hir.Bool), true),
++			Y: &hir.Expr{Kind: hir.Cast, Node: x.Node, Type: dst.Args[0], X: x},
++			Z: &hir.Expr{Kind: hir.Lit, Type: dst}}
++	}
+ 	if dst.Kind == hir.Optional && dst.Args[0].Kind == hir.Dynamic && !x.Type.Equal(dst) {
+ 		boxed := l.coerce(x, hir.T(hir.Dynamic))
+ 		return &hir.Expr{Kind: hir.Conditional, Type: dst, X: hir.L(hir.T(hir.Bool), true), Y: boxed, Z: &hir.Expr{Kind: hir.Lit, Type: dst}}
+diff --git a/tsfront/lower_closure.go b/tsfront/lower_closure.go
+index ed74284..81f3ecc 100644
+--- a/tsfront/lower_closure.go
++++ b/tsfront/lower_closure.go
+@@ -122,6 +122,7 @@ func (l *lowerer) closureValue(n *ast.Node) *hir.Expr {
+ 	call := &hir.Method{Node: l.node(n), Name: "call", Virtual: true, Result: hir.T(hir.Void)}
+ 	call.SiteOwner = c.SiteOwner + ".call"
+ 	c.Methods = append(c.Methods, call)
++	l.diagf(nil, "note-appendX", "APPEND@lower_closure.go %s", c.Name)
+ 	l.out.Classes = append(l.out.Classes, c)
+ 
+ 	// Lower the body in a scope that sees only the captures (reads of the
+diff --git a/tsfront/lower_expr.go b/tsfront/lower_expr.go
+index c57868d..ab1ed2b 100644
+--- a/tsfront/lower_expr.go
++++ b/tsfront/lower_expr.go
+@@ -2081,6 +2081,10 @@ func (l *lowerer) asExpression(n *ast.Node) *hir.Expr {
+ 	case x.Type.Kind == hir.Dynamic && (mapped.Kind == hir.ClassRef || mapped.Kind == hir.InterfaceRef):
+ 		return l.rtOp("dynamic.asRef", x, mapped)
+ 	case (mapped.Kind == hir.ClassRef || mapped.Kind == hir.InterfaceRef) && !mapped.Equal(x.Type):
++		if mapped.Kind == hir.ClassRef && x.Type.Kind == hir.ClassRef && l.shapeView(x.Type, mapped) {
++			l.diagf(n, "note-shape-view", "assertion of shape %s as layout-compatible shape %s recorded as an unchecked view", x.Type.Name, mapped.Name)
++			return &hir.Expr{Kind: hir.Cast, Node: l.node(n), Type: mapped, X: x}
++		}
+ 		if mapped.Kind == hir.ClassRef && x.Type.Kind == hir.ClassRef && l.classesByQualifiedName(mapped.Name) != nil {
+ 			// A source-proven nominal downcast is checked by ABAP's ?=. An
+ 			// unproven one stays refused: JavaScript would carry on with the
+@@ -2122,23 +2126,53 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 		return l.recordLiteral(n, hint)
+ 	}
+ 	var target *hir.Class
+-	if hint.Kind == hir.ClassRef {
++	if hint.Kind == hir.ClassRef && hint.Name != hir.RootObject {
+ 		for _, c := range l.out.Classes {
+-			if c.Name == hint.Name {
++			if c.Name == hint.Name && c.Ctor != nil {
+ 				target = c
+ 				break
+ 			}
+ 		}
+ 	}
++	if target != nil && strings.HasPrefix(target.Name, "shape.") {
++		// A synthesized shape view cannot hold the entries a spread copies
++		// at run time; a literal that spreads a record map keeps the map
++		// representation and sets its own keys on it.
++		if mt, ok := l.recordSpreadType(n); ok {
++			return l.recordLiteral(n, mt)
++		}
++	}
+ 	if target == nil {
++		// A literal that spreads a record map keeps the map representation:
++		// the spread entries exist at run time and a shape class would drop
++		// them; its own keys are set on the fresh map.
++		if mt, ok := l.recordSpreadType(n); ok {
++			return l.recordLiteral(n, mt)
++		}
+ 		// Without a hint, derive the shape from the checker's type of the
+-		// literal (a synthesized shape class or a record map).
++		// literal (a synthesized shape class or a record map). Notes the
++		// mapping legitimately reports do not veto the derivation; only
++		// blocking diagnostics do.
+ 		if t := l.ck.GetTypeAtLocation(n); t != nil {
+ 			before := len(l.diags)
+ 			mapped := l.mapCheckerType(n, t)
+-			if len(l.diags) == before && mapped.Kind != hir.Void {
++			if !hasBlocking(l.diags[before:]) && mapped.Kind != hir.Void {
++				switch mapped.Kind {
++				case hir.OrderedMap:
++					// A record-like literal keeps its map representation; a
++					// shape class would force an incompatible layout on it.
++					return l.recordLiteral(n, mapped)
++				case hir.Dynamic:
++					return l.dynamicRecordLiteral(n)
++				}
+ 				l.hint = mapped
+ 				target = shapeClassOf(l.out.Classes, mapped)
++				if target != nil && target.Ctor == nil {
++					// A contextual class without a constructor is not a
++					// construction target; the empty path or a synthesized
++					// shape takes it instead.
++					target = nil
++				}
+ 			} else {
+ 				l.diags = l.diags[:before]
+ 			}
+@@ -2168,11 +2202,12 @@ func (l *lowerer) objectLiteral(n *ast.Node) *hir.Expr {
+ 					}
+ 				}
+ 			}
+-			if t := l.ck.GetTypeAtLocation(n); t != nil && t.Symbol() == nil {
++			if t := l.ck.GetTypeAtLocation(n); t != nil && l.anonymousObjectType(t) {
+ 				if c := l.synthFromProperties(n, l.ck.GetPropertiesOfType(t)); c != nil {
+ 					args := []*hir.Expr{}
+ 					for _, p := range c.Ctor.Params {
+ 						if p.Type.Kind != hir.Optional {
++							l.diagf(n, "unsupported-type", "empty object literal has no shape with present fields")
+ 							return nil
+ 						}
+ 						args = append(args, &hir.Expr{Kind: hir.Lit, Type: p.Type})
+diff --git a/tsfront/lower_expr2.go b/tsfront/lower_expr2.go
+index b3312b8..aa92da3 100644
+--- a/tsfront/lower_expr2.go
++++ b/tsfront/lower_expr2.go
+@@ -516,6 +516,95 @@ func (l *lowerer) viewCast(n *ast.Node, member string) (*hir.Expr, bool) {
+ 	return &hir.Expr{Kind: hir.Cast, Node: l.node(n), Type: vt, X: x}, true
+ }
+ 
++// recordSpreadType computes the map type of an object literal that spreads
++// record maps: the literal keeps the map representation (the spread entries
++// are copied at run time) and its own keys join them. It reports false when
++// the literal has no spread, or any spread or own key does not lower to a
++// string-keyed map / a representable value, leaving those to the shape paths.
++func (l *lowerer) recordSpreadType(n *ast.Node) (hir.Type, bool) {
++	props := n.AsObjectLiteralExpression().Properties.Nodes
++	valueT := hir.Type{}
++	add := func(t hir.Type) bool {
++		if t.Kind == hir.Void {
++			return false
++		}
++		if valueT.Kind == hir.Void {
++			valueT = t
++			return true
++		}
++		if !valueT.Equal(t) {
++			valueT = hir.T(hir.Dynamic)
++		}
++		return true
++	}
++	mapped := func(where *ast.Node, t *checker.Type) (hir.Type, bool) {
++		if t == nil {
++			return hir.Type{}, false
++		}
++		before := len(l.diags)
++		m := l.mapCheckerType(where, t)
++		if hasBlocking(l.diags[before:]) || m.Kind == hir.Void {
++			l.diags = l.diags[:before]
++			return hir.Type{}, false
++		}
++		l.diags = l.diags[:before]
++		return m, true
++	}
++	haveSpread := false
++	for _, p := range props {
++		if p.Kind != ast.KindSpreadAssignment {
++			continue
++		}
++		mt, ok := mapped(p.Expression(), l.ck.GetTypeAtLocation(p.Expression()))
++		if !ok || mt.Kind != hir.OrderedMap || mt.Args[0].Kind != hir.String || !add(mt.Args[1]) {
++			return hir.Type{}, false
++		}
++		haveSpread = true
++	}
++	if !haveSpread {
++		return hir.Type{}, false
++	}
++	for _, p := range props {
++		switch p.Kind {
++		case ast.KindSpreadAssignment:
++			continue
++		case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
++			var name, init *ast.Node
++			if p.Kind == ast.KindPropertyAssignment {
++				name, init = propertyNameNode(p), p.Initializer()
++			} else {
++				name, init = p.Name(), p.Name()
++			}
++			if name == nil {
++				return hir.Type{}, false
++			}
++			switch name.Kind {
++			case ast.KindIdentifier, ast.KindStringLiteral, ast.KindNumericLiteral:
++			case ast.KindComputedPropertyName:
++				if _, ok := l.constantKeyName(name); !ok {
++					return hir.Type{}, false
++				}
++			default:
++				return hir.Type{}, false
++			}
++			vt, ok := mapped(init, l.ck.GetTypeAtLocation(init))
++			if !ok {
++				return hir.Type{}, false
++			}
++			if vt.Kind == hir.Optional {
++				// An absent entry is still an entry: the tagged value carries it.
++				vt = hir.T(hir.Dynamic)
++			}
++			if !add(vt) {
++				return hir.Type{}, false
++			}
++		default:
++			return hir.Type{}, false
++		}
++	}
++	return hir.T(hir.OrderedMap, hir.T(hir.String), valueT), true
++}
++
+ // recordLiteral lowers an object literal whose contextual type is an
+ // index-signature record: a fresh map, spread operands copy their entries,
+ // literal and computed (constant) keys are set.
+@@ -553,7 +642,9 @@ func (l *lowerer) recordLiteral(n *ast.Node, typ hir.Type) *hir.Expr {
+ 				return nil
+ 			}
+ 			switch name.Kind {
+-			case ast.KindIdentifier, ast.KindStringLiteral:
++			case ast.KindIdentifier, ast.KindStringLiteral, ast.KindNumericLiteral:
++				// A numeric property name is the string key JavaScript
++				// gives it (1 is "1").
+ 				keyExpr = hir.L(keyT, name.Text())
+ 			case ast.KindComputedPropertyName:
+ 				keyExpr = l.expr(name.Expression())
+diff --git a/tsfront/lower_lsp.go b/tsfront/lower_lsp.go
+index 6ffe723..0634441 100644
+--- a/tsfront/lower_lsp.go
++++ b/tsfront/lower_lsp.go
+@@ -44,6 +44,7 @@ func (l *lowerer) lspShape(sym *ast.Symbol) *hir.Class {
+ 		c := &hir.Class{Node: l.node(decl), Name: l.qualifiedName(file, sym.Name)}
+ 		l.classes[sym] = c
+ 		l.classesByName[file.FileName()+" "+sym.Name] = c
++		l.diagf(nil, "note-appendX", "APPEND@lower_lsp.go %s", c.Name)
+ 		l.out.Classes = append(l.out.Classes, c)
+ 		l.dataInterfaceClass(decl, &hir.Interface{Node: c.Node, Name: c.Name})
+ 		return c
+diff --git a/tsfront/lower_mod.go b/tsfront/lower_mod.go
+index 821447b..162c4f9 100644
+--- a/tsfront/lower_mod.go
++++ b/tsfront/lower_mod.go
+@@ -208,6 +208,7 @@ func (l *lowerer) moduleClassOf(f *ast.SourceFile) *hir.Class {
+ 	qname := l.qualifiedName(f, "module")
+ 	mod := &hir.Class{Node: hir.Node{ID: l.nextID(), Source: qname}, Name: qname}
+ 	l.modules[f] = mod
++	l.diagf(nil, "note-appendX", "APPEND@lower_mod.go %s", mod.Name)
+ 	l.out.Classes = append(l.out.Classes, mod)
+ 	return mod
+ }
+diff --git a/tsfront/lower_stmt.go b/tsfront/lower_stmt.go
+index 15e8d2a..cffb9a2 100644
+--- a/tsfront/lower_stmt.go
++++ b/tsfront/lower_stmt.go
+@@ -287,10 +287,21 @@ func (l *lowerer) varDecl(d *ast.Node) []*hir.Stmt {
+ 		}
+ 		typ = x.Type
+ 	default:
++		// A literal that spreads a record map is a map at run time: deriving
++		// the type from the checker's literal type first would synthesize a
++		// shape class the map representation never matches.
++		var spreadMap hir.Type
++		if d.Type() == nil && init != nil && init.Kind == ast.KindObjectLiteralExpression {
++			if mt, ok := l.recordSpreadType(init); ok {
++				spreadMap = mt
++			}
++		}
+ 		beforeType := len(l.diags)
+ 		switch {
+ 		case d.Type() != nil:
+ 			typ = l.mapTypeNode(d.Type())
++		case spreadMap.Kind == hir.OrderedMap:
++			typ = spreadMap
+ 		case init != nil:
+ 			typ = l.mapCheckerType(d, l.ck.GetTypeOfSymbol(sym))
+ 		case sym != nil:
+diff --git a/tsfront/lower_stmt2.go b/tsfront/lower_stmt2.go
+index a9627e7..3875661 100644
+--- a/tsfront/lower_stmt2.go
++++ b/tsfront/lower_stmt2.go
+@@ -96,6 +96,7 @@ func (l *lowerer) builtinError() string {
+ 				X: &hir.Expr{Kind: hir.FieldGet, Node: hir.Node{ID: l.nextID(), Source: name}, Name: "message", Type: msg,
+ 					X: &hir.Expr{Kind: hir.This, Node: hir.Node{ID: l.nextID(), Source: name}, Type: hir.Ref(name)}},
+ 				Y: &hir.Expr{Kind: hir.Conditional, Type: msg, X: &hir.Expr{Kind: hir.IsUndefined, Type: hir.T(hir.Bool), X: hir.V("message", hir.T(hir.Optional, msg))}, Y: hir.L(msg, ""), Z: &hir.Expr{Kind: hir.Narrow, Type: msg, X: hir.V("message", hir.T(hir.Optional, msg))}}})}}
++	l.diagf(nil, "note-appendX", "APPEND@lower_stmt2.go %s", c.Name)
+ 	l.out.Classes = append(l.out.Classes, c)
+ 	l.diagf(nil, "note-builtin-error", "TypeScript Error mapped to the synthesized class builtin.Error")
+ 	return name
+diff --git a/tsfront/lower_types.go b/tsfront/lower_types.go
+index a697fe5..75d018d 100644
+--- a/tsfront/lower_types.go
++++ b/tsfront/lower_types.go
+@@ -2,6 +2,8 @@ package tsfront
+ 
+ import (
+ 	"crypto/sha256"
++	"os"
++	"runtime"
+ 	"fmt"
+ 	"strings"
+ 
+@@ -81,6 +83,11 @@ func (l *lowerer) mapTypeNode(n *ast.Node) hir.Type {
+ 		return l.union(n, parts, optional)
+ 	case ast.KindNullKeyword:
+ 		return hir.T(hir.Dynamic)
++	case ast.KindNeverKeyword:
++		// never appears as the element type of the empty array literal
++		// (`never[]`): nothing is ever stored, so the tagged value is the
++		// storage slot (void has no runtime representation).
++		return hir.T(hir.Dynamic)
+ 	case ast.KindLiteralType:
+ 		return l.mapTypeNodeViaChecker(n)
+ 	case ast.KindTupleType:
+@@ -89,6 +96,11 @@ func (l *lowerer) mapTypeNode(n *ast.Node) hir.Type {
+ 		if t := l.recordType(n); t.Kind != hir.Void {
+ 			return t
+ 		}
++		// `{}` admits every object: the object root is its HIR type, so
++		// values of any synthesized shape flow into it.
++		if lit := n.AsTypeLiteralNode(); lit != nil && (lit.Members == nil || len(lit.Members.Nodes) == 0) {
++			return hir.Ref(hir.RootObject)
++		}
+ 		return l.mapTypeNodeViaChecker(n)
+ 	case ast.KindFunctionType, ast.KindConstructorType, ast.KindTypeQuery, ast.KindIndexedAccessType,
+ 		ast.KindIntersectionType, ast.KindMappedType,
+@@ -475,6 +487,13 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 			var args []hir.Type
+ 			ok := true
+ 			for _, a := range checkArgs {
++				// The empty literal's never[] element: nothing is ever
++				// stored, so the tagged value is the storage slot (void has
++				// no runtime representation).
++				if a != nil && a.Flags()&checker.TypeFlagsNever != 0 {
++					args = append(args, hir.T(hir.Dynamic))
++					continue
++				}
+ 				before := len(l.diags)
+ 				at := l.mapCheckerType(n, a)
+ 				if hasBlocking(l.diags[before:]) || at.Kind == hir.Void {
+@@ -548,8 +567,11 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 			l.diags = l.diags[:before]
+ 		}
+ 		// Anonymous object shapes (fresh literal types included): synthesize
+-		// from the members.
+-		if props := l.ck.GetPropertiesOfType(t); len(props) > 0 {
++		// from the members. An object type with no members and no call
++		// signature (`{}`, the type of an empty literal) is the empty shape:
++		// every structurally-empty value flows through the one class.
++		props := l.ck.GetPropertiesOfType(t)
++		if len(props) > 0 || l.anonymousObjectType(t) {
+ 			if c := l.synthFromProperties(n, props); c != nil {
+ 				return hir.Ref(c.Name)
+ 			}
+@@ -566,10 +588,39 @@ func (l *lowerer) mapCheckerType(n *ast.Node, t *checker.Type) hir.Type {
+ 	return hir.T(hir.Void)
+ }
+ 
++// anonymousObjectType reports whether a checker object type is structural
++// rather than a declaration-backed nominal type: its symbol is absent or it
++// belongs to object literals and `{}`-style type literals only (a widened
++// literal type keeps that symbol). Types with call signatures are functions,
++// not shapes, and named declarations never synthesize a shape here.
++func (l *lowerer) anonymousObjectType(t *checker.Type) bool {
++	if t == nil || t.Flags()&checker.TypeFlagsObject == 0 {
++		return false
++	}
++	if len(l.ck.GetSignaturesOfType(t, checker.SignatureKindCall)) != 0 {
++		return false
++	}
++	sym := t.Symbol()
++	if sym == nil || len(sym.Declarations) == 0 {
++		// No declaring syntax: a checker-synthesized (anonymous) type.
++		return true
++	}
++	for _, d := range sym.Declarations {
++		if d.Kind != ast.KindObjectLiteralExpression && d.Kind != ast.KindTypeLiteral {
++			return false
++		}
++	}
++	return true
++}
++
+ // synthFromProperties builds a shape class from a list of property symbols.
+ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Class {
++	if len(props) == 1 && props[0].Name == "s" && strings.Contains(l.locOf(n), "116:14") {
++		buf := make([]byte, 3072)
++		nb := runtime.Stack(buf, false)
++		fmt.Fprintf(os.Stderr, "SYNTH-S stack:\n%s\n", buf[:nb])
++	}
+ 	var fields []hir.Field
+-	var identity strings.Builder
+ 	for _, p := range props {
+ 		before := len(l.diags)
+ 		pt := l.ck.GetTypeOfSymbol(p)
+@@ -578,7 +629,8 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			ft = hir.T(hir.Optional, hir.Ref(hir.RootObject))
+ 		} else if l.isNeverArray(pt) {
+ 			// An empty literal's never[]: matches any array field of a
+-			// reused shape; it never defines a shape of its own.
++			// reused shape; as its own shape its element type becomes the
++			// tagged dynamic value (void is not an emittable array slot).
+ 			ft = hir.T(hir.Array, hir.T(hir.Void))
+ 		} else if annotated, ok := l.propertyAnnotationOverride(p); ok {
+ 			ft = annotated
+@@ -592,11 +644,19 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 		if p.Flags&ast.SymbolFlagsOptional != 0 && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
+-		fmt.Fprintf(&identity, "%q:%s;", p.Name, ft.String())
+-	}
+-	// Required and optional reference properties have one physical layout.
+-	// Reuse the existing shape; the checker narrows required reads at use sites.
++		// Readonly and optionality survive as view metadata: each distinct
++		// view gets its own shape, but views of one layout keep the same
++		// physical storage (optional references and readonly flags do not
++		// change field slots), so cross-view flows stay plain casts.
++		ro := p.CheckFlags&ast.CheckFlagsReadonly != 0 ||
++			(p.ValueDeclaration != nil && p.ValueDeclaration.ModifierFlags()&ast.ModifierFlagsReadonly != 0)
++		fields = append(fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft, Readonly: ro})
++	}
++	// Required and optional reference properties have one physical layout
++	// (an optional reference is the same pointer slot), so their views share
++	// one shape: a merged view contributes its readonly flag, the layout is
++	// never re-decided. An empty array field (void element) matches any
++	// array: the empty literal is assignable to every array view.
+ 	for _, c := range l.out.Classes {
+ 		if (!strings.HasPrefix(c.Name, "shape.") && !l.shapeLike[c.Name]) || len(c.Fields) != len(fields) || c.Ctor == nil {
+ 			continue
+@@ -628,16 +688,49 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 		}
+ 		if same {
+ 			for _, p := range props {
++				var f *hir.Field
++				for k := range fields {
++					if fields[k].Name == p.Name {
++						f = &fields[k]
++					}
++				}
+ 				for k := range c.Fields {
+-					if c.Fields[k].Name == p.Name {
+-						l.fields[p] = c.Fields[k]
++					if c.Fields[k].Name != p.Name {
++						continue
++					}
++					// Readonly survives every view: the flag ors into the
++					// shared field, leaving the physical layout untouched.
++					if f != nil && f.Readonly {
++						c.Fields[k].Readonly = true
+ 					}
++					l.fields[p] = c.Fields[k]
+ 				}
+ 			}
+ 			return c
+ 		}
+ 	}
+-	key := fmt.Sprintf("shape.%x", sha256.Sum256([]byte(identity.String())))
++	// The class's own field types: an empty-array field (the empty literal's
++	// never[]) materializes as a tagged dynamic array; void has no runtime
++	// slot. A reference is stored in its optional slot (the same pointer),
++	// so the field keeps the optional declaration of any view, required or
++	// not; the checker narrows required reads at their use sites.
++	stored := make([]hir.Field, len(fields))
++	copy(stored, fields)
++	for i := range stored {
++		if stored[i].Type.Kind == hir.Array && stored[i].Type.Args[0].Kind == hir.Void {
++			stored[i].Type = hir.T(hir.Array, hir.T(hir.Dynamic))
++			l.diagf(n, "note-empty-array-field", "empty array field %s lowered as an array of tagged values", stored[i].Name)
++		}
++		if stored[i].Type.Kind == hir.ClassRef || stored[i].Type.Kind == hir.InterfaceRef {
++			stored[i].Type = hir.T(hir.Optional, stored[i].Type)
++		}
++	}
++	var identity strings.Builder
++	for _, f := range stored {
++		fmt.Fprintf(&identity, "%q:%s;", f.Name, f.Type.String())
++	}
++	key := fmt.Sprintf("shapeQ.%x", sha256.Sum256([]byte(identity.String())))
++	l.diagf(n, "note-keygen", "keygen %s", key)
+ 	for _, c := range l.out.Classes {
+ 		if c.Name == key {
+ 			return c
+@@ -645,9 +738,10 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 	}
+ 	// A data object with a subset of a data interface's fields (the rest
+ 	// optional) is that data interface with the others absent: plain
+-	// objects have no identity of their own.
++	// objects have no identity of their own. The empty shape is its own
++	// layout: it never borrows an all-optional class's fields.
+ 	for _, c := range l.out.Classes {
+-		if !l.shapeLike[c.Name] || c.Ctor == nil || len(c.Fields) <= len(fields) {
++		if len(fields) == 0 || !l.shapeLike[c.Name] || c.Ctor == nil || len(c.Fields) <= len(fields) {
+ 			continue
+ 		}
+ 		matched := 0
+@@ -691,18 +785,18 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			return c
+ 		}
+ 	}
+-	for _, f := range fields {
+-		if f.Type.Kind == hir.Array && f.Type.Args[0].Kind == hir.Void {
+-			l.diagf(n, "unsupported-type", "object literal with an empty array field %s matches no declared shape (%s)", f.Name, identity.String())
+-			return nil
+-		}
+-	}
+ 	c := &hir.Class{Node: l.node(n), Name: key}
++	if len(stored) == 1 && stored[0].Name == "s" {
++		buf := make([]byte, 4096)
++		nb := runtime.Stack(buf, false)
++		l.diagf(n, "note-newshape", "created %s props=%d stack: %s", key, len(props), buf[:nb])
++	}
+ 	ctor := &hir.Method{Node: l.node(n), Name: "constructor", Result: hir.T(hir.Void)}
+ 	var list []*hir.Stmt
+ 	for idx, p := range props {
+-		ft := fields[idx].Type
+-		c.Fields = append(c.Fields, hir.Field{Node: l.node(n), Name: p.Name, Type: ft})
++		f := stored[idx]
++		ft := f.Type
++		c.Fields = append(c.Fields, f)
+ 		// Reference fields share one physical layout with their optional
+ 		// views, so the constructor accepts an absent reference and stores
+ 		// it as the initial reference.
+@@ -717,13 +811,14 @@ func (l *lowerer) synthFromProperties(n *ast.Node, props []*ast.Symbol) *hir.Cla
+ 			X: &hir.Expr{Kind: hir.FieldGet, Node: l.node(n), Name: p.Name, Type: ft,
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
+ 			Y: value})
+-		l.fields[p] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++		l.fields[p] = f
+ 		if p.Parent != nil {
+-			l.fieldsBy[p.Parent.Name+"."+p.Name] = hir.Field{Node: l.node(n), Name: p.Name, Type: ft}
++			l.fieldsBy[p.Parent.Name+"."+p.Name] = f
+ 		}
+ 	}
+ 	ctor.Body = hir.B(list...)
+ 	c.Ctor = ctor
++	l.diagf(nil, "note-append-synth", "append %s", c.Name)
+ 	l.out.Classes = append(l.out.Classes, c)
+ 	return c
+ }
+@@ -811,7 +906,8 @@ func (l *lowerer) synthFromAlias(n *ast.Node, sym *ast.Symbol) *hir.Class {
+ 		if m.QuestionToken() != nil && ft.Kind != hir.Optional {
+ 			ft = hir.T(hir.Optional, ft)
+ 		}
+-		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft}
++		f := hir.Field{Node: l.node(m), Name: m.Name().Text(), Type: ft,
++			Readonly: m.ModifierFlags()&ast.ModifierFlagsReadonly != 0}
+ 		c.Fields = append(c.Fields, f)
+ 		if ms := m.Symbol(); ms != nil {
+ 			l.fields[ms] = f
+@@ -827,6 +923,7 @@ func (l *lowerer) synthFromAlias(n *ast.Node, sym *ast.Symbol) *hir.Class {
+ 			Y: hir.V(f.Name, f.Type)})
+ 	}
+ 	ctor.Body = hir.B(list...)
++	l.diagf(nil, "note-append-alias", "append %s", c.Name)
+ 	c.Ctor = ctor
+ 	l.out.Classes = append(l.out.Classes, c)
+ 	return c
+@@ -977,6 +1074,7 @@ func (l *lowerer) tupleShape(n *ast.Node, elems []hir.Type) hir.Type {
+ 				X: &hir.Expr{Kind: hir.This, Node: l.node(n), Type: hir.Ref(key)}},
+ 			Y: hir.V(fn, e)})
+ 	}
++	l.diagf(nil, "note-append-tuple", "append %s", c.Name)
+ 	ctor.Body = hir.B(list...)
+ 	c.Ctor = ctor
+ 	l.out.Classes = append(l.out.Classes, c)
+diff --git a/tsfront/opaque_async.go b/tsfront/opaque_async.go
+index e9441da..43c8b97 100644
+--- a/tsfront/opaque_async.go
++++ b/tsfront/opaque_async.go
+@@ -37,6 +37,7 @@ func (l *lowerer) opaquePromise() string {
+ 	}
+ 	// Abstract with no API or constructor: a trapped body may mention this
+ 	// result type but cannot produce a successfully callable Promise.
++	l.diagf(nil, "note-appendX", "APPEND@opaque_async.go %s", name)
+ 	l.out.Classes = append(l.out.Classes, &hir.Class{Name: name, Abstract: true})
+ 	return name
+ }
+diff --git a/tsfront/testdata/anonliterals/probe.ts b/tsfront/testdata/anonliterals/probe.ts
+new file mode 100644
+index 0000000..7048c24
+--- /dev/null
++++ b/tsfront/testdata/anonliterals/probe.ts
+@@ -0,0 +1,131 @@
++// Anonymous object literals: shapes without a named class or alias.
++// Every case must lower without blocking diagnostics, verify, and emit.
++
++// Plain literals and order-invariant layout reuse.
++export const p1 = { pa: 1, pb: "two" };
++export const p2 = { pb: "three", pa: 4 };
++export function readP(): number { return p1.pa + p1.pb.length + p2.pa + p2.pb.length; }
++
++// Empty literals without context.
++export const p3 = {};
++export function useAny(o: {}): number { return 1; }
++export const rAny = useAny(p3);
++export function emptyLocal(): number {
++  const v = {};
++  const w = {};
++  return useAny(v) + useAny(w);
++}
++
++// Literals as arguments, results, and in nested/array positions.
++export function f(x: { a: number }): number { return x.a; }
++export const rArg = f({ a: 7 });
++export function g(): { s: string; n: number } { return { n: 1, s: "x" }; }
++export const rRet = g().s.length + g().n;
++export const nested = { outer: { inner: 5 } };
++export const rNested = nested.outer.inner;
++export const arr = [{ a: 1 }, { a: 2 }];
++export const rArr = arr[0].a + arr[1].a;
++export const deep = { list: [{ k: 1 }, { k: 2 }], tail: { t: true } };
++export const rDeep = deep.list[0].k + deep.list[1].k + (deep.tail.t ? 1 : 0);
++
++// Contextual union (unrelated members) and optional types.
++export function h(x: { a: number } | { b: string }): number { return 0; }
++export const rUnionA = h({ a: 1 });
++export const rUnionB = h({ b: "z" });
++export const opt: { a: number } | undefined = { a: 3 };
++export const rOpt = opt ? opt.a : 0;
++export function optret(flag: boolean): { q: boolean } | undefined {
++  return flag ? { q: true } : undefined;
++}
++export const rOptRet = optret(true) ? 1 : 0;
++
++// Conditional branches.
++export function cond(flag: boolean): { a: number } {
++  return flag ? { a: 1 } : { a: 2 };
++}
++export const rCond = cond(true).a;
++
++// Readonly views reuse the layout; optionals and readonlyness survive.
++export function roFn(x: { readonly jn: number; readonly qs: string }): number {
++  return x.jn;
++}
++export const rRo1 = roFn({ jn: 1, qs: "r" });
++export const rRo2 = roFn({ qs: "t", jn: 2 });
++export interface Ro { readonly ra: number; readonly rb: string; }
++export function roIface(x: Ro): number { return x.ra; }
++export const rRoIface = roIface({ ra: 1, rb: "r" });
++export interface Orig { oa: number; os: string; }
++export function roMapped(x: Readonly<Orig>): number { return x.oa; }
++export const rRoMapped = roMapped({ oa: 1, os: "z" });
++
++// Optional properties: omitted or given in any order.
++export function maybe(m: { a: number; b?: string }): number {
++  return m.b === undefined ? m.a : m.a + 1;
++}
++export const rMaybe1 = maybe({ a: 5 });
++export const rMaybe2 = maybe({ b: "s", a: 6 });
++export function alloptions(o: { a?: number; b?: string }): number { return 0; }
++export const rAllOptional = alloptions({});
++
++// Assignment to annotated locals and re-assignment.
++export function assign(): number {
++  let v: { a: number; b?: string } = { a: 1 };
++  v = { b: "s", a: 2 };
++  return v.a + (v.b ? v.b.length : 0);
++}
++export const rAssign = assign();
++
++// Record-like literals stay maps.
++export const rec: Record<string, number> = { a: 1, b: 2 };
++export const rRec = rec["a"] + rec["b"];
++export const rec2: Record<string, number> = { ...rec, c: 5 };
++export const rRec2 = rec2["c"];
++
++// Spread and class fields.
++export const sp = { ...p1, c: 3 };
++export const rSp = sp.pa + sp.pb.length + sp.c;
++export class Holder {
++  f = { a: 1 };
++  public get19(): number { return this.f.a; }
++}
++export const rField = new Holder().get19();
++
++// Literals through a class method and a variable hop.
++export class Maker {
++  public make(): { ok: boolean; count: number } { return { count: 3, ok: true }; }
++}
++export const rMake = new Maker().make().count;
++export function viaVar(): number {
++  const lit = { n: 9, tag: "t" };
++  return f({ a: lit.n }) + lit.tag.length;
++}
++export const rVia = viaVar();
++
++// Order-invariant reuse across standalone literals.
++export const top1 = { x: 5, y: 6 };
++export const top2 = { y: 7, x: 8 };
++export const rTop = top1.x + top1.y + top2.x + top2.y;
++
++// Inferred literals with an empty array field (no annotated element type).
++export const box = { items: [] };
++export const size = box.items.length;
++
++// Spreading a record and adding a key stays a map (the entries live at run
++// time); numeric keys are string keys.
++export const spreader: Record<string, number> = { a: 1 };
++export const spreadCopy = { ...spreader, s: 2 };
++export const rSpreadCopy = spreadCopy.s + spreader["a"];
++export const numKey: Record<string, number> = { 1: 2 };
++export const rNumKey = numKey["1"];
++
++// A readonly view of a layout its mutable view already created keeps the
++// readonly information and the shared physical layout.
++export const mutablePair: { q: number } = { q: 1 };
++export const readonlyPair: { readonly q: number } = { q: 2 };
++export const rPair = readonlyPair.q + mutablePair.q;
++
++// The optional view of a reference layout shares the reference storage.
++export const present = { z: { w: 1 } };
++export const missing: { z?: { w: number } } = {};
++export function readMissing(): number { return missing.z?.w ?? 9; }
++export const rPresent = present.z.w + readMissing();
+diff --git a/tsfront/testdata/anonliterals/tsconfig.json b/tsfront/testdata/anonliterals/tsconfig.json
+new file mode 100644
+index 0000000..4f45002
+--- /dev/null
++++ b/tsfront/testdata/anonliterals/tsconfig.json
+@@ -0,0 +1 @@
++{"compilerOptions":{"strict":true,"target":"es2020"},"files":["probe.ts"]}

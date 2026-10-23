@@ -43,7 +43,8 @@ for r in csv.DictReader(open(os.path.join(B, "data/runs.csv"))):
         lines=num(r["patch_lines"]), effective=r["effective_resolved"] == "True",
         override=r.get("jury_override") == "True",
         tin=num(r["input_tokens"]), tcache=num(r["cached_input_tokens"]), tout=num(r["output_tokens"]),
-        calls=num(r["llm_calls"]), tools=num(r["tool_calls"]), cost=num(r["cost_api_usd"]), model_id=r["model"]))
+        calls=num(r["llm_calls"]), tools=num(r["tool_calls"]), cost=num(r["cost_api_usd"]), model_id=r["model"],
+        protocol=r.get("protocol") or None))
 
 screen = []
 p = os.path.join(B, "data/critic-screen.csv")

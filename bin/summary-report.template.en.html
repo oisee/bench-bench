@@ -267,12 +267,14 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head"><span class="n">05c</span><h2>Round 4: the first local model</h2>
-      <p>Qwen3.8-Flash-Next (open weights, 125B parameters with 6B active per token, released August 2026) served from a home machine instead of a cloud API: a Minisforum MS-S1 Max (AMD Ryzen AI Max+ 395, 128 GB unified memory) with an NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB) in an external GPU dock, running vLLM with the 4-bit community checkpoint <code>local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD</code> (NVFP4 experts, MXFP8 attention). Same brief, sandbox, time limit and hidden tests as round 1; harness Claude Code at effort xhigh. Every request and response was recorded through a local proxy.</p></div>
+      <p>Qwen3.8-Flash-Next (open weights, 125B parameters with 6B active per token, released August 2026) served from a home machine instead of a cloud API: a Minisforum MS-S1 Max (AMD Ryzen AI Max+ 395, 128 GB unified memory) with an NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB) in an external GPU dock, running vLLM with the 4-bit community checkpoint <code>local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD</code> (NVFP4 experts, MXFP8 attention). Same brief, sandbox, time limit and hidden tests as round 1; harness Claude Code at effort xhigh. Every request and response was recorded through a local proxy. It solved <b>5 of 6</b> tasks, the same count as Sol 6.1 and Luna xhigh in Codex, and like them it failed L3b.</p></div>
     <div class="scroll"><table class="tok" id="r4"></table></div>
     <ul class="small" style="margin:0;padding-left:20px;display:grid;gap:6px;max-width:72ch">
-      <li><b>A limited result.</b> One run of one task (L2b, chosen as the task that best separates models), one quantization, one harness. It shows that this setup can solve an L2 task, not where it ranks overall. Runs on the other five tasks are in progress.</li>
-      <li><b>Speed.</b> The server generated about 140 tokens/s on long answers (82 tokens/s averaged over all requests, including time to first token). 111 requests, no errors; the context grew to 203k of the server's 262k tokens without compaction.</li>
-      <li><b>How it worked.</b> Before writing code it found the abaplint sources archived in the repository and implemented the indentation rules from them, then checked its formatter against 51 real ABAP files from the repository. It regenerated the golden output file, and its output matched the upstream one.</li>
+      <li><b>A limited result.</b> One run per task, one quantization, one harness, one machine. Like every other row in this bench, a one-task difference may be noise.</li>
+      <li><b>L3a at the limit.</b> It was graded on the tree it left at 60 minutes. A snapshot taken at minute 47 already passed every hidden test; the rest of the session went into fixing Z80 code-generator bugs that its own end-to-end tests had found beyond the task, without breaking anything.</li>
+      <li><b>L3b with a critic.</b> A second attempt started from the failed patch: Sol (Codex, xhigh) reviewed it without the hidden tests and reported five gaps, each with a reproducing input it ran (not yet checked against the upstream solution), but not the one the hidden test checks (a record <code>||</code> an anonymous object). Qwen then had 30 minutes to repair, was still refactoring when the time ran out, and the tree it left failed both the held-out test and its own new tests. There was no control run without the critic.</li>
+      <li><b>Speed.</b> No server errors in any run. With time to first byte recorded separately (L3b repair run), generation was 176 tokens/s median on answers of 1k+ tokens, and the first byte arrived after 3.6 s median with contexts up to 230k tokens. Earlier runs, measured without that split, show 92–125 tokens/s including the wait.</li>
+      <li><b>How it worked.</b> On L2b it found the abaplint sources archived in the repository and implemented the indentation rules from them, then checked its formatter against 51 real ABAP files; on L2a it ran the project's full semantics harness and ABAP Unit fixtures, not only the tests the brief mentions.</li>
       <li><b>Price column.</b> Nothing was paid per token. The figure is what the same tokens would cost on QwenCloud's hosted <code>qwen3.8-flash</code> at its list price, for comparison only.</li>
     </ul>
   </section>
@@ -377,7 +379,7 @@ document.getElementById("facts").innerHTML = [
     `<b>Tokens and cost:</b> Opus used ${M(sum(opus.rs, "tin"))} input tokens (mostly cached) and ${Math.round(sum(opus.rs, "tout") / 1e3)}k output for all 6 tasks, about $${cost(opus).toFixed(0)} at list price. GLM-5.3 in Claude Code used ${M(sum(gc.rs, "tin"))} input and cost about $${cost(gc).toFixed(0)}, despite the cheaper per-token rate. Sol solved 5 tasks for about $${cost(sol).toFixed(2)}, and Luna in Codex costs cents per task. See <a href="#tokens" style="color:var(--accent)">03b</a>.`,
     `<b>Critics:</b> a blind critic is worth having only if it actively tries to break the patch. Sol found real bugs in 3 patches that passed the hidden tests (2 by Opus, 1 by Luna xhigh), each confirmed against the upstream solution. The two-critic builder loop did not raise the solve rate in a small pilot.`,
     `<b>Round 3:</b> Sol at high effort solved L3b, which it failed at medium. Luna high solved L2b once half of the held-out cases were given as runnable examples; Luna medium gave up even with them. See <a href="#r3" style="color:var(--accent)">05b</a>.`,
-    `<b>Round 4, first local model:</b> Qwen3.8-Flash-Next, 4-bit, on one 96 GB GPU in a home machine, solved L2b in Claude Code in 30 minutes, a task that Qwen 3.7 Plus, Kimi K2.5, MiniMax M2.5, GLM-5 and Luna medium/high failed. One run of one task so far. See <a href="#r4" style="color:var(--accent)">05c</a>.`,
+    `<b>Round 4, first local model:</b> Qwen3.8-Flash-Next, 4-bit, on one 96 GB GPU in a home machine, solved 5 of 6 tasks in Claude Code (L3a only at the time limit), as many as Sol 6.1 and Luna xhigh; like them it failed L3b, also on a second attempt with Sol as critic. See <a href="#r4" style="color:var(--accent)">05c</a>.`,
     `<b>Caveats:</b> n = 1 per cell, all tasks from one author's ABAP-centred ecosystem, costs are list-price estimates.`,
   ].map(x => `<li>${x}</li>`).join("");
 }
@@ -528,12 +530,13 @@ document.getElementById("bars").innerHTML = execs.map(e => {
 
 /* round 4: local models */
 {
-  const r4 = D.runs.filter(r => r.round === 4);
-  const st = r => r ? `${r.effective ? "✓" : "✗"} ${fmtS(r.dur)}` : "—";
+  const r4 = D.runs.filter(r => r.round === 4).sort((a, b) => a.task.localeCompare(b.task) || (a.protocol ? 1 : 0) - (b.protocol ? 1 : 0));
+  const st = r => r ? `${r.effective ? "✓" : "✗"} ${fmtS(r.dur)}${r.stop === "TIMEOUT" ? " (limit)" : ""}` : "—";
   let h = `<thead><tr><th>Model</th><th>task</th><th>result</th><th>requests</th><th>tokens in / out</th><th>hosted price</th><th>same task, round 1 in Claude Code</th></tr></thead><tbody>`;
   for (const r of r4) {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
-    h += `<tr><td>${esc(r.model)}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
+    const lab = r.protocol === "critic-repair-v1" ? `${esc(r.model)} + Sol critic, 2nd attempt` : esc(r.model);
+    h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";
 }

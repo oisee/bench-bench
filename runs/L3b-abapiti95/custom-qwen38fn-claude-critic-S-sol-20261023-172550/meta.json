@@ -1,0 +1,16 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "Qwen3.8-Flash-Next",
+  "effort": "xhigh",
+  "round": "4",
+  "harness_version": "2.1.309 (Claude Code)",
+  "started_at": "2026-10-23T17:25:52+01:00",
+  "finished_at": "2026-10-23T18:01:25+01:00",
+  "protocol": "critic-repair-v1",
+  "internal_review_rounds": 1,
+  "parent_run": "custom-qwen38fn-claude-20261023-152044",
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol/codex/xhigh",
+  "stage_count": 2
+}

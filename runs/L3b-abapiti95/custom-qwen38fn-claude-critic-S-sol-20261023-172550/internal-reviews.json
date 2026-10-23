@@ -1,0 +1,20 @@
+{
+  "protocol": "critic-repair-v1",
+  "parent_run": "custom-qwen38fn-claude-20261023-152044",
+  "critic": "S-sol",
+  "critic_model": "openai/gpt-6-sol/codex/xhigh",
+  "stages": [
+    {
+      "stage": "critic",
+      "exit": 0,
+      "duration_s": 333,
+      "limit_min": 15
+    },
+    {
+      "stage": "repair",
+      "exit": 124,
+      "duration_s": 1800,
+      "limit_min": 30
+    }
+  ]
+}
