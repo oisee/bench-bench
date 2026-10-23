@@ -1,0 +1,70 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..6db87d6 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,63 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant. Double quotes do not open a literal of their own; only
++ *  single-quote pairs are recognized.
++ *
++ *  A scanner and not a regex: `/'((?:[^']|'')*)'/g` overflowed the stack on
++ *  a 15 million character literal, because the alternation under the star
++ *  makes every character a backtrack state. This walk keeps no state the
++ *  input length does not fit in a register, and copies the statement in
++ *  whole slices between the literals it rewrites. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  if (typeof sql !== "string" || sql.indexOf("'") === -1) return sql;
++  const parts = [];
++  let copied = 0; // everything below this index is already in `parts`
++  let i = 0;
++  const n = sql.length;
++  while (i < n) {
++    if (sql[i] !== "'") {
++      i++;
++      continue;
++    }
++    const open = i;
++    let closed = -1;
++    for (let j = open + 1; j < n; ) {
++      if (sql[j] !== "'") {
++        j++;
++      } else if (j + 1 < n && sql[j + 1] === "'") {
++        j += 2; // an escaped quote, the literal goes on
++      } else {
++        closed = j;
++        break;
++      }
++    }
++    if (closed === -1) {
++      // No lone quote left. The old regex still matched, by backtracking
++      // the star off the tail: every quote run left was even, so it closed
++      // on the second-to-last quote of the last one and the final quote
++      // was re-scanned as the next opening. Same result, found in O(1).
++      let q = -1;
++      for (let j = n - 1; j > open; j--) {
++        if (sql[j] === "'") {
++          q = j;
++          break;
++        }
++      }
++      if (q === -1) {
++        i++; // an opening quote with nothing to close on: ordinary character
++        continue;
++      }
++      closed = q - 1;
++    }
++    let end = closed;
++    while (end > open + 1 && sql[end - 1] === " ") end--;
++    parts.push(sql.slice(copied, open), "'", sql.slice(open + 1, end), "'");
++    copied = closed + 1;
++    i = closed + 1;
++  }
++  parts.push(sql.slice(copied));
++  return parts.join("");
+ }
+ 
+ /**

@@ -3,6 +3,8 @@
 # Set BENCH_INTERNAL_REVIEW_ROUNDS=2 to opt in to the two-critic builder protocol
 # (docs/internal-review-protocol.md); its 3-run pilot showed no solve gain at 2-10x time.
 # Set BENCH_RECORD=1 (provider custom) to log every model request/response to RUN/traffic.jsonl.
+# Set BENCH_TIME_SCALE=N to multiply the task's time limit (slow local hardware); such runs are
+# recorded with protocol time-scaled-v1 and time_scale=N so they never mix with standard-limit runs.
 #   bin/run.sh tasks/<task-id> <executor-id>        (executor ids: matrix.yaml)
 set -uo pipefail
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +17,9 @@ case "${BENCH_INTERNAL_REVIEW_ROUNDS:-0}" in
 esac
 T="$(realpath "$1")"; TID="$(basename "$T")"; EX="$2"
 source "$T/task.env"
+SCALE="${BENCH_TIME_SCALE:-1}"
+[[ "$SCALE" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "BENCH_TIME_SCALE must be a number" >&2; exit 2; }
+LIMIT_S=$(awk -v m="$TIME_MIN" -v s="$SCALE" 'BEGIN { printf "%d", m * 60 * s }')
 
 read -r PROVIDER MODEL HARNESS EFFORT < <(executor_fields "$EX") || { echo "unknown executor $EX (see matrix.yaml)" >&2; exit 2; }
 [ -d "$BENCH/.cache/templates/$TID" ] || { echo "no template for $TID: run bin/setup.sh first" >&2; exit 2; }
@@ -24,7 +29,7 @@ mkdir -p "$RUN"
 cp -a --reflink=auto "$BENCH/.cache/templates/$TID" "$RUN/work"
 BRIEF="$(cat "$T/brief.md")"
 cp "$T/brief.md" "$RUN/brief.md"
-echo "[run] $TID / $EX ($HARNESS · $PROVIDER · $MODEL · $EFFORT) -> $RUN"
+echo "[run] $TID / $EX ($HARNESS · $PROVIDER · $MODEL · $EFFORT, limit $((LIMIT_S / 60)) min) -> $RUN"
 
 harness_args "$HARNESS" "$BRIEF" || exit 2
 
@@ -42,7 +47,7 @@ if [ "${BENCH_RECORD:-0}" = 1 ]; then
 fi
 
 T0=$(date +%s)
-timeout --kill-after=30 "$((TIME_MIN*60))" "$BENCH/bin/sandbox.sh" --run "$RUN" --harness "$HARNESS" \
+timeout --kill-after=30 "$LIMIT_S" "$BENCH/bin/sandbox.sh" --run "$RUN" --harness "$HARNESS" \
   --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" -- "${ARGS[@]}" \
   < /dev/null > "$RUN/agent.out" 2> "$RUN/agent.err"
 RC=$?
@@ -55,4 +60,8 @@ if [[ ( "$RC" == 126 || "$RC" == 127 ) && "$DUR" -lt 10 && ! -s "$RUN/agent.out"
   exit 2
 fi
 
+if [ "$SCALE" != 1 ]; then
+  python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="time-scaled-v1",time_scale=sys.argv[2],time_limit_s=int(sys.argv[3]));json.dump(d,open(p,"w"),indent=2)' \
+    "$RUN/meta.json" "$SCALE" "$LIMIT_S"
+fi
 "$BENCH/bin/finalize.sh" "$RUN" "$T" "$EX" "$RC" "$DUR"

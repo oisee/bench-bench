@@ -104,6 +104,16 @@ one quantization, one harness, one machine; a one-task difference may be noise.
 - **How it worked.** On L2b it found the abaplint sources archived in the repository and implemented the indentation
   rules from them, then checked its formatter on 51 real ABAP files; on L2a it ran the project's full semantics
   harness and ABAP Unit fixtures, not only the tests the brief mentions.
+- **The same model on a small home machine.** On i7 (Core i7-10700K, 128 GB DDR4, 2× RTX 4060 Ti 16 GB),
+  llama.cpp (`--fit`) keeps the most used experts in VRAM and the rest in RAM; the 4-bit
+  [UD-IQ4_XS](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF) build (94 GB) runs at 361 tokens/s prefill and
+  16 tokens/s decode, about a tenth of the machine above. Time limits were scaled ×10 to match
+  (`BENCH_TIME_SCALE=10`, protocol `time-scaled-v1`). It solved **L1a in 26 minutes**, inside even the standard
+  30, with 18 requests against 22 on the fast machine. In an open-loop replay (`bin/replay.py`) of 23 steps from
+  the fast machine's solved L2b session, with the same context at every step, it made the same move on 9 steps,
+  mostly while implementing, and different moves mostly while exploring; blind judging of those steps is pending.
+  L1b is running. A dense Qwen3.8-27B (Q4) run on the same machine was stopped after 31 minutes when the work moved
+  to this model, so it has no result.
 - **Hosted price** is what the same tokens would cost on QwenCloud's hosted `qwen3.8-flash` at list price
   ([prices.json](prices.json)); the local runs paid nothing per token. The repair row counts Qwen's tokens only.
 - The full request/response stream of every run was recorded (`BENCH_RECORD=1`, `bin/traffic-summary.py`); like other

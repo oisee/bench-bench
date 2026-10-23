@@ -53,7 +53,7 @@ CHECK="$("$BENCH/bin/doctor.sh" "$EX" 2>&1)" || { echo "$CHECK"; exit 1; }
 TODO=(); MIN=0
 for id in "${TASKS[@]}"; do
   if [ $AGAIN = 0 ] && [ -n "$(last_result "$id")" ]; then echo "[bench] $id: already done (--again to repeat)"; continue; fi
-  TODO+=("$id"); MIN=$(( MIN + $(. "$BENCH/tasks/$id/task.env"; echo "$TIME_MIN") ))
+  TODO+=("$id"); MIN=$(awk -v a="$MIN" -v m="$(. "$BENCH/tasks/$id/task.env"; echo "$TIME_MIN")" -v s="${BENCH_TIME_SCALE:-1}" 'BEGIN { printf "%d", a + m * s }')
 done
 [ ${#TODO[@]} -gt 0 ] && echo "[bench] $EX: ${#TODO[@]} task(s), at most ~${MIN} min of agent time plus grading"
 for id in "${TODO[@]}"; do

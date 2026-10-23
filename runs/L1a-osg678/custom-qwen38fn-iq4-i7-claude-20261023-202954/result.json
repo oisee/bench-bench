@@ -1,0 +1,25 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "npx mocha test/write-boundary.mjs",
+      "rc": 0
+    }
+  ],
+  "p2p": [],
+  "patch_lines": 70,
+  "task": "L1a-osg678",
+  "level": "L1",
+  "executor": "custom-qwen38fn-iq4-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-iq4xs",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 1553,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "2.1.309 (Claude Code)",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

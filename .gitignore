@@ -12,3 +12,4 @@ runs/*/*/internal-reviews/
 .env
 runs/*/*/traffic.jsonl
 runs/*/*/proxy.err
+runs/*/*/live.txt

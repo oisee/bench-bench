@@ -277,6 +277,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
       <li><b>L3b with a critic.</b> A second attempt started from the failed patch: Sol (Codex, xhigh) reviewed it without the hidden tests and reported five gaps, each with a reproducing input it ran (not yet checked against the upstream solution), but not the one the hidden test checks (a record <code>||</code> an anonymous object). Qwen then had 30 minutes to repair, was still refactoring when the time ran out, and the tree it left failed both the held-out test and its own new tests. There was no control run without the critic.</li>
       <li><b>Speed.</b> No server errors in any run. With time to first byte recorded separately (L3b repair run), generation was 176 tokens/s median on answers of 1k+ tokens, and the first byte arrived after 3.6 s median with contexts up to 230k tokens. Earlier runs, measured without that split, show 92–125 tokens/s including the wait.</li>
       <li><b>How it worked.</b> On L2b it found the abaplint sources archived in the repository and implemented the indentation rules from them, then checked its formatter against 51 real ABAP files; on L2a it ran the project's full semantics harness and ABAP Unit fixtures, not only the tests the brief mentions.</li>
+      <li><b>The same model on a small home machine.</b> On i7 (Core i7-10700K, 128 GB RAM, 2× RTX 4060 Ti 16 GB), llama.cpp keeps the most used experts in VRAM and the rest in RAM. The 4-bit UD-IQ4_XS build runs there at about 16 tokens/s, a tenth of the speed above, so its time limits were scaled ×10. It solved L1a in 26 minutes, inside even the standard 30, with 18 requests against 22 on the fast machine. In an open-loop replay of 23 steps from the fast machine's solved L2b session (same context at every step) it made the same move on 9 steps, mostly while implementing, and different ones mostly while exploring; blind judging of those steps is pending. L1b is running. A dense Qwen3.8-27B (Q4) run on the same machine was stopped after 31 minutes when the work moved to this model; it has no result.</li>
       <li><b>Price column.</b> Nothing was paid per token. The figure is what the same tokens would cost on QwenCloud's hosted <code>qwen3.8-flash</code> at its list price, for comparison only.</li>
     </ul>
   </section>
@@ -547,7 +548,8 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
   let h = `<thead><tr><th>Model</th><th>task</th><th>result</th><th>requests</th><th>tokens in / out</th><th>hosted price</th><th>same task, round 1 in Claude Code</th></tr></thead><tbody>`;
   for (const r of r4) {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
-    const lab = r.protocol === "critic-repair-v1" ? `${esc(r.model)} + Sol critic, 2nd attempt` : esc(r.model);
+    const lab = r.protocol === "critic-repair-v1" ? `${esc(r.model)} + Sol critic, 2nd attempt`
+      : r.protocol === "time-scaled-v1" ? `${esc(r.model)}, time limit ×10` : esc(r.model);
     h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";

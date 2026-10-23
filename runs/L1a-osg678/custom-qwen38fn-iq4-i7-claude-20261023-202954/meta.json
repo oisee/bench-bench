@@ -1,0 +1,15 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-iq4xs",
+  "effort": "xhigh",
+  "round": "4",
+  "harness_version": "2.1.309 (Claude Code)",
+  "started_at": "2026-10-23T20:30:05+01:00",
+  "finished_at": "2026-10-23T20:55:56+01:00",
+  "exit_code": "0",
+  "protocol": "time-scaled-v1",
+  "time_scale": "10",
+  "time_limit_s": 18000,
+  "server": "i7: i7-10700K, 128 GB DDR4, 2x RTX 4060 Ti 16 GB; llama.cpp da2ee1e7a --fit; unsloth Qwen3.8-Flash-Next UD-IQ4_XS; ctx 262144; chat template patched for mid-conversation system messages"
+}

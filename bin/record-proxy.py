@@ -5,14 +5,61 @@ appends the full exchange (request body, response body or raw SSE stream, timing
     bin/record-proxy.py UPSTREAM_ORIGIN OUT.jsonl     e.g. https://llm.example.com runs/.../traffic.jsonl
 
 Listens on a free 127.0.0.1 port and prints it on stdout. API keys are redacted from the log.
-Started by bin/run.sh when BENCH_RECORD=1.
+While a streamed answer is still being generated, its thinking, text and tool calls are also appended as plain
+text to live.txt next to OUT.jsonl (`tail -f runs/.../live.txt` to watch). Started by bin/run.sh when BENCH_RECORD=1.
 """
-import http.client, http.server, json, sys, threading, time, urllib.parse
+import http.client, http.server, json, os, sys, threading, time, urllib.parse
 
 UP = urllib.parse.urlsplit(sys.argv[1])
 OUT = open(sys.argv[2], "a")
+LIVE = open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[2])), "live.txt"), "a")
 LOCK = threading.Lock()
 SEQ = [0]
+LIVE_LAST = [None]  # seq of the request live.txt is currently showing
+
+
+def live_write(seq, text):
+    """Append text of request `seq` to live.txt, with a header whenever the request changes."""
+    if not text:
+        return
+    with LOCK:
+        if LIVE_LAST[0] != seq:
+            LIVE.write(f"\n\n=== #{seq} {time.strftime('%H:%M:%S')} ===\n")
+            LIVE_LAST[0] = seq
+        LIVE.write(text)
+        LIVE.flush()
+
+
+class SSEText:
+    """Turns Anthropic SSE bytes into readable text as they arrive: thinking, answer text, tool calls."""
+
+    def __init__(self, seq):
+        self.seq, self.buf = seq, b""
+
+    def feed(self, data):
+        self.buf += data
+        while b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            line = line.strip()
+            if not line.startswith(b"data:"):
+                continue
+            try:
+                ev = json.loads(line[5:])
+            except ValueError:
+                continue
+            t, out = ev.get("type"), ""
+            if t == "content_block_start":
+                b = ev.get("content_block") or {}
+                out = {"thinking": "\n[thinking] ", "text": "\n[answer] "}.get(b.get("type"), "")
+                if b.get("type") == "tool_use":
+                    out = f"\n[tool] {b.get('name')} "
+            elif t == "content_block_delta":
+                d = ev.get("delta") or {}
+                out = d.get("thinking") or d.get("text") or d.get("partial_json") or ""
+            elif t == "message_delta":
+                u = ev.get("usage") or {}
+                out = f"\n[end: {(ev.get('delta') or {}).get('stop_reason')}, {u.get('output_tokens')} tokens out]"
+            live_write(self.seq, out)
 HOP = {"host", "connection", "keep-alive", "transfer-encoding", "content-length", "accept-encoding",
        "proxy-connection", "te", "upgrade"}
 SECRET = {"authorization", "x-api-key", "api-key", "proxy-authorization"}
@@ -60,6 +107,9 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                     self.send_header(k, v)
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
+            live = SSEText(seq) if "event-stream" in (resp.getheader("content-type") or "") else None
+            if live and isinstance(rec["req"], dict):
+                live_write(seq, f"[request: {len(rec['req'].get('messages') or [])} messages]")
             while True:
                 data = resp.read1(65536)
                 if not data:
@@ -67,6 +117,8 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 if not chunks:
                     rec["ttfb_s"] = round(time.time() - t0, 3)
                 chunks.append(data)
+                if live:
+                    live.feed(data)
                 self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
                 self.wfile.flush()
             self.wfile.write(b"0\r\n\r\n")

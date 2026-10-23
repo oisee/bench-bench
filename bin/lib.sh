@@ -1,8 +1,13 @@
 # Shared helpers, sourced by the bin/*.sh scripts (expects $BENCH to be set).
 
 # Load $BENCH/.env (KEY=value lines, see .env.example) into the environment.
+# Variables already set in the environment win, so one run can point elsewhere:
+#   CUSTOM_BASE_URL=http://host:8081/v1 bin/bench.sh <executor>
 bench_load_env() {
-  if [ -f "$BENCH/.env" ]; then set -a; . "$BENCH/.env"; set +a; fi
+  [ -f "$BENCH/.env" ] || return 0
+  local preset; preset="$(export -p | sed 's/^declare -x /declare -gx /')"
+  set -a; . "$BENCH/.env"; set +a
+  eval "$preset"
 }
 
 # executor id -> "provider model harness effort" (from matrix.yaml); exit 1 if unknown
