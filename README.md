@@ -23,9 +23,12 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 - **Round 4, the first local model:** Qwen3.8-Flash-Next, 4-bit, on a single 96 GB GPU in a home machine, solved
   5 of 6 tasks in Claude Code (L3a at the time limit), as many as Sol 6.1 and Luna xhigh. Like them it failed L3b,
   also on a second attempt with Sol as critic. One run per task.
+- **Reproduced on a simpler, slower home setup:** the same model as a 4-bit GGUF in llama.cpp on a PC with one
+  consumer CPU and two 16 GB gaming GPUs (about 16 tokens/s, a tenth of the speed, so limits ×10) solved L1a in
+  26 minutes; its L1b session was rated on track by two blind judges when it was stopped at 47 minutes.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
-## Results (baseline, round 1)
+## Results (baseline, round 1, plus local models from round 4)
 
 | Model | Harness | Solved | at limit | Tasks (**solved**, ~~failed~~) | Total time | Input tok | Output tok | API cost |
 |---|---|---|---|---|---|---|---|---|
@@ -44,12 +47,17 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 | Kimi K2.5 | Codex | 1/2 | 0 | **L2a** ~~L2b~~ | 66 min | 29.2M | 129k | $3.64 |
 | Kimi K2.5 | Pi | 1/4 | 0 | **L1a** ~~L1b~~ ~~L2a~~ ~~L2b~~ | 116 min | 9.6M | 74k | $1.47 |
 | MiniMax M2.5 | Pi | 0/4 | 0 | ~~L1a~~ ~~L1b~~ ~~L2a~~ ~~L2b~~ | 118 min | 13.1M | 79k | $0.74 |
+| *Local, round 4:* | | | | | | | | |
+| Qwen3.8-Flash-Next NVFP4, one 96 GB GPU | Claude Code | 5/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 153 min | 68.3M | 540k | $11.19 |
+| Qwen3.8-Flash-Next IQ4_XS, i7 + 2× 16 GB GPUs, limits ×10 | Claude Code | 1/1 | 0 | **L1a** (L1b stopped, on track) | 26 min | 0.7M | 17k | $0.11 |
 
 *Solved* means all hidden acceptance tests (fail→pass) and regression tests (pass→pass) pass. A run stopped at
 the time limit is graded on whatever its working tree held at that moment; *at limit* counts those.
 Input tokens include cached input. API cost is what the same tokens would cost at public list prices ([prices.json](prices.json)):
 Opus from Claude Code's own cost report, GLM-5.3 from the Z.ai price list, the other models from third-party price trackers.
 It is an estimate for comparison, not what was paid; most runs used subscription plans.
+The local rows ran on October 23 with the same briefs, sandbox and hidden tests; their cost column is the hosted
+list price of the same tokens, while the runs themselves paid nothing per token ([Round 4](#round-4-local-models)).
 
 **How the runs were actually paid.** Almost everything ran on flat-rate coding subscriptions, where a run costs
 nothing extra until the plan's rolling limit is reached:
@@ -112,7 +120,9 @@ one quantization, one harness, one machine; a one-task difference may be noise.
   30, with 18 requests against 22 on the fast machine. In an open-loop replay (`bin/replay.py`) of 23 steps from
   the fast machine's solved L2b session, with the same context at every step, it made the same move on 9 steps,
   mostly while implementing, and different moves mostly while exploring; blind judging of those steps is pending.
-  L1b is running. A dense Qwen3.8-27B (Q4) run on the same machine was stopped after 31 minutes when the work moved
+  L1b was stopped at 47 minutes (35 requests) to free the machine for pruning experiments; two blind judges
+  rated the session on track (the same plan as the fast machine's solved run, 1–4 steps behind), and the session
+  is kept so it can be resumed. A dense Qwen3.8-27B (Q4) run on the same machine was stopped after 31 minutes when the work moved
   to this model, so it has no result.
 - **Hosted price** is what the same tokens would cost on QwenCloud's hosted `qwen3.8-flash` at list price
   ([prices.json](prices.json)); the local runs paid nothing per token. The repair row counts Qwen's tokens only.

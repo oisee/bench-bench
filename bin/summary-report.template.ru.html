@@ -184,7 +184,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head"><span class="n">01</span><h2>Полная сетка прогонов</h2>
-      <p>Каждая клетка — один прогон одной задачи. Число — время в секундах. Наведите на клетку, чтобы увидеть результаты тестов и детали. L3 запускали только для финалистов. Строка с пометкой <i>локально · раунд 4</i> — Qwen3.8-Flash-Next на домашней видеокарте, прогон 23 октября с теми же брифами, лимитами и скрытыми тестами (раздел 05c).</p></div>
+      <p>Каждая клетка — один прогон одной задачи. Число — время в секундах. Наведите на клетку, чтобы увидеть результаты тестов и детали. L3 запускали только для финалистов. Строка с пометкой <i>локально · раунд 4</i> — Qwen3.8-Flash-Next на домашней видеокарте, прогон 23 октября с теми же брифами, лимитами и скрытыми тестами (раздел 05c). Строка с пометкой <i>локально i7 · лимиты ×10</i> — та же модель (4-битный GGUF в llama.cpp) на гораздо более простой домашней машине: обычный процессор и две игровые видеокарты по 16 GB. Она примерно в десять раз медленнее, поэтому лимиты увеличены ×10.</p></div>
     <div class="legend">
       <span><i class="sw-pass"></i>решено</span>
       <span><i class="sw-to"></i>решено, но на пределе времени</span>
@@ -277,7 +277,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
       <li><b>L3b с критиком.</b> Вторая попытка началась с провального патча: Sol (Codex, xhigh) отревьюил его без скрытых тестов и нашёл пять пробелов, каждый с воспроизводящим примером, который сам запустил (с эталонным решением они пока не сверены), но не тот, что проверяет скрытый тест (record <code>||</code> анонимный объект). Затем у Qwen было 30 минут на исправление; к концу времени она ещё переделывала код, и оставленная рабочая копия провалила и скрытый тест, и её собственные новые тесты. Контрольного прогона без критика не было.</li>
       <li><b>Скорость.</b> Ни одной ошибки сервера за все прогоны. Когда время до первого байта записывалось отдельно (прогон с исправлением L3b), генерация шла со скоростью 176 токенов/с (медиана на ответах от 1k токенов), а первый байт приходил через 3.6 с (медиана) при контексте до 230k токенов. Более ранние прогоны, измеренные без такого разделения, показывают 92–125 токенов/с с учётом ожидания.</li>
       <li><b>Как она работала.</b> На L2b нашла исходники abaplint, лежащие в репозитории архивом, и реализовала правила отступов по ним, затем проверила свой форматтер на 51 реальном ABAP-файле; на L2a прогнала весь semantics-харнесс проекта и ABAP Unit фикстуры, а не только тесты, упомянутые в брифе.</li>
-      <li><b>Та же модель на небольшой домашней машине.</b> На i7 (Core i7-10700K, 128 GB RAM, 2× RTX 4060 Ti 16 GB) llama.cpp держит самых используемых экспертов в VRAM, остальных в RAM. 4-битная сборка UD-IQ4_XS работает там примерно на 16 токенах/с, в десять раз медленнее, чем выше, поэтому лимиты времени увеличены ×10. L1a она решила за 26 минут, уложившись даже в стандартные 30, за 18 запросов против 22 на быстрой машине. В реплее 23 шагов из решённой сессии L2b с быстрой машины (на каждом шаге тот же контекст) на 9 шагах она сделала тот же ход, в основном при реализации, а расходилась в основном при изучении кода; слепые судьи ещё оценивают эти шаги. L1b идёт. Прогон плотной Qwen3.8-27B (Q4) на той же машине остановлен через 31 минуту, когда работа переключилась на эту модель; результата у него нет.</li>
+      <li><b>Та же модель на небольшой домашней машине.</b> На i7 (Core i7-10700K, 128 GB RAM, 2× RTX 4060 Ti 16 GB) llama.cpp держит самых используемых экспертов в VRAM, остальных в RAM. 4-битная сборка UD-IQ4_XS работает там примерно на 16 токенах/с, в десять раз медленнее, чем выше, поэтому лимиты времени увеличены ×10. L1a она решила за 26 минут, уложившись даже в стандартные 30, за 18 запросов против 22 на быстрой машине. В реплее 23 шагов из решённой сессии L2b с быстрой машины (на каждом шаге тот же контекст) на 9 шагах она сделала тот же ход, в основном при реализации, а расходилась в основном при изучении кода; слепые судьи ещё оценивают эти шаги. L1b остановлен на 47-й минуте (35 запросов), чтобы освободить машину под эксперименты с прунингом; два слепых судьи оценили сессию как идущую к решению (тот же план, что у решившего прогона на быстрой машине, отставание 1–4 шага), сессия сохранена и её можно продолжить. Прогон плотной Qwen3.8-27B (Q4) на той же машине остановлен через 31 минуту, когда работа переключилась на эту модель; результата у него нет.</li>
       <li><b>Колонка цены.</b> За токены ничего не платили. Цифра — сколько те же токены стоили бы на хостинговом <code>qwen3.8-flash</code> в QwenCloud по прайсу, только для сравнения.</li>
     </ul>
   </section>
@@ -346,7 +346,8 @@ const execs = [...new Set(r1.map(r => r.executor))].map(id => {
 }).sort((a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time);
 const cell = (ex, t) => r1.find(r => r.executor === ex && r.task === t);
 // Round 4 (local models): same tasks and grading, shown beside round 1 in the grid, bars and speed chart only.
-const r4base = D.runs.filter(r => r.round === 4 && !r.protocol);
+// time-scaled-v1 runs (slower machine, limits ×N) are included; the critic-repair attempt is not.
+const r4base = D.runs.filter(r => r.round === 4 && r.protocol !== "critic-repair-v1");
 const local = [...new Set(r4base.map(r => r.executor))].map(id => {
   const rs = r4base.filter(r => r.executor === id), ok = rs.filter(r => r.effective);
   return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, n: rs.length, solved: ok.length, local: true,
@@ -355,6 +356,9 @@ const local = [...new Set(r4base.map(r => r.executor))].map(id => {
 const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
 const gridExecs = [...execs, ...local].sort(byRank);
 const LOCAL_TAG = "локально · раунд 4";
+const LOCAL_TAGS = {"custom-qwen38fn-iq4-i7-claude": "локально i7 · лимиты ×10"};
+const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10};
+const tagOf = id => LOCAL_TAGS[id] || LOCAL_TAG;
 
 /* tooltip */
 const tip = document.getElementById("tip");
@@ -392,7 +396,7 @@ document.getElementById("facts").innerHTML = [
     `<b>Токены и стоимость:</b> Opus потратил ${M(sum(opus.rs, "tin"))} входных токенов (в основном из кэша) и ${Math.round(sum(opus.rs, "tout") / 1e3)}k выходных на все 6 задач, около $${cost(opus).toFixed(0)} по прайсу. GLM-5.3 в Claude Code потратила ${M(sum(gc.rs, "tin"))} входа и обошлась примерно в $${cost(gc).toFixed(0)}, несмотря на более дешёвый токен. Sol решил 5 задач примерно за $${cost(sol).toFixed(2)}, а Luna в Codex стоит центы за задачу. См. <a href="#tokens" style="color:var(--accent)">03b</a>.`,
     `<b>Критики:</b> слепой критик полезен, только если активно пытается сломать патч. Sol нашёл настоящие баги в 3 патчах, прошедших скрытые тесты (2 от Opus, 1 от Luna xhigh), каждый подтверждён на эталонном решении. Цикл «сборщик + два критика» в небольшом пилоте не поднял долю решённых.`,
     `<b>Раунд 3:</b> Sol с effort high решил L3b, которую провалил на medium. Luna high решила L2b, когда половину скрытых случаев дали как запускаемые примеры; Luna medium сдалась даже с ними. См. <a href="#r3" style="color:var(--accent)">05b</a>.`,
-    `<b>Раунд 4, первая локальная модель:</b> Qwen3.8-Flash-Next в 4 битах на одной видеокарте 96 GB в домашней машине решила 5 из 6 задач в Claude Code (L3a — только на пределе времени), столько же, сколько Sol 6.1 и Luna xhigh; как и они, провалила L3b, в том числе во второй попытке с Sol в роли критика. См. <a href="#r4" style="color:var(--accent)">05c</a>.`,
+    `<b>Раунд 4, первая локальная модель:</b> Qwen3.8-Flash-Next в 4 битах на одной видеокарте 96 GB в домашней машине решила 5 из 6 задач в Claude Code (L3a — только на пределе времени), столько же, сколько Sol 6.1 и Luna xhigh; как и они, провалила L3b, в том числе во второй попытке с Sol в роли критика. <b>Результат повторён на более простом, но медленном сетапе:</b> та же модель на домашнем ПК с двумя игровыми видеокартами по 16 GB (~16 токенов/с, лимиты ×10) решила L1a за 26 минут, а сессию L1b на момент остановки слепые судьи оценили как идущую к решению. См. <a href="#r4" style="color:var(--accent)">05c</a>.`,
     `<b>Оговорки:</b> n = 1 на клетку, все задачи из ABAP-экосистемы одного автора, стоимость — оценки по прайсу.`,
   ].map(x => `<li>${x}</li>`).join("");
 }
@@ -446,14 +450,14 @@ document.getElementById("facts").innerHTML = [
 {
   let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="lvl">${t}</th>`).join("")}<th style="text-align:right">решено</th></tr></thead><tbody>`;
   for (const e of gridExecs) {
-    h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${LOCAL_TAG}</span>` : ""}</td>`;
+    h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</td>`;
     for (const t of TASKS) {
       const r = e.rs.find(q => q.task === t);
       if (!r) { h += `<td class="cell none">—</td>`; continue; }
       const cls = !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
       const word = {pass:"решено", to:"решено на пределе", fail:"не решено", veto:"тесты прошли, жюри отклонило"}[cls];
       const glyph = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!"}[cls];
-      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${LOCAL_TAG}` : ""}<br>${word}<br>время ${fmtS(r.dur)} из ${fmtS(LIMIT[t])}<br>приёмочные тесты ${r.f2p}, регрессия ${r.p2p}<br>патч ${r.lines ?? "—"} строк`;
+      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${word}<br>время ${fmtS(r.dur)} из ${fmtS(LIMIT[t] * (SCALE[e.id] || 1))}<br>приёмочные тесты ${r.f2p}, регрессия ${r.p2p}<br>патч ${r.lines ?? "—"} строк`;
       h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${glyph}<small>${Math.round(r.dur)}</small></td>`;
     }
     h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
@@ -465,7 +469,7 @@ document.getElementById("facts").innerHTML = [
 document.getElementById("bars").innerHTML = gridExecs.map(e => {
   const to = e.solved - e.strict, fail = e.n - e.solved, w = n => `flex:${n} 1 0`;
   const tipT = `<b>${esc(e.model)} · ${HN[e.harness]}</b><br>решено ${e.solved} из ${e.n}<br>вовремя ${e.strict}, на пределе ${to}<br>общее время ${fmtS(e.time)}`;
-  return `<div class="bar-row" tabindex="0" data-tip="${esc(tipT)}"><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${LOCAL_TAG}</span>` : ""}</span>
+  return `<div class="bar-row" tabindex="0" data-tip="${esc(tipT)}"><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</span>
     <div class="track">${e.strict ? `<div class="seg pass" style="${w(e.strict)}"></div>` : ""}${to ? `<div class="seg to" style="${w(to)}"></div>` : ""}${fail ? `<div class="seg fail" style="${w(fail)}"></div>` : ""}${`<div style="flex:${6 - e.n} 1 0"></div>`}</div>
     <span class="val">${e.strict}+${to} / ${e.n}</span></div>`;
 }).join("");
@@ -483,7 +487,7 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     s += `<line class="lim" x1="${x(LIMIT[t])}" x2="${x(LIMIT[t])}" y1="${cy - rowH / 2 + 4}" y2="${cy + rowH / 2 - 6}"/>`;
     for (const r of [...r1, ...r4base].filter(r => r.task === t)) {
       const c = `var(--${r.harness})`, ok = r.effective;
-      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${LOCAL_TAG}` : ""}<br>${ok ? "решено" : "не решено"}${r.stop === "TIMEOUT" ? " (на пределе)" : ""}<br>${fmtS(r.dur)}`;
+      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${tagOf(r.executor)}` : ""}<br>${ok ? "решено" : "не решено"}${r.stop === "TIMEOUT" ? " (на пределе)" : ""}<br>${fmtS(r.dur)}`;
       s += `<circle cx="${x(r.dur)}" cy="${cy + off[r.harness]}" r="5.5" fill="${ok ? c : "var(--panel)"}" stroke="${ok ? "var(--panel)" : c}" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/>`;
     }
   });
