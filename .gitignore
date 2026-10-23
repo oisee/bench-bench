@@ -9,3 +9,6 @@ runs/*/*/hosts
 runs/*/*/brief.md
 runs/*/*/internal-reviews/
 *.log.tmp
+.env
+runs/*/*/traffic.jsonl
+runs/*/*/proxy.err

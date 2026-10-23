@@ -20,6 +20,9 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
   tests (two by Opus, one by Luna xhigh); each was confirmed by running the critic's repro against the upstream solution.
 - **Round 3 (effort vs executable checks, one run each):** Sol 6.1 at high effort solved L3b, which it failed at medium.
   Luna high solved L2b when half of the held-out cases were in the repo as runnable examples; Luna medium gave up even with them.
+- **Round 4, the first local model (one run, one task so far):** Qwen3.8-Flash-Next, 4-bit, on a single 96 GB GPU
+  in a home machine, solved L2b in Claude Code in 30 minutes. Qwen 3.7 Plus, Kimi K2.5, MiniMax M2.5, GLM-5 and
+  Luna medium/high failed that task; Opus solved it in 20 minutes, GLM-5.3 at the time limit.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1)
@@ -62,6 +65,36 @@ nothing extra until the plan's rolling limit is reached:
 The whole matrix used part of about $580/month of subscriptions plus a few dollars of Azure credits. The list-price
 column shows what the same work would cost through the API, which matters for CI or large-scale use.
 
+## Round 4: local models
+
+The first model in the bench that ran on someone's own hardware instead of a cloud API. **This is a limited result:
+one run of one task (L2b), one quantization, one harness.** It shows that this setup can do an L2 task, not where it
+ranks overall. Runs on the other five tasks are in progress.
+
+| | |
+|---|---|
+| Model | [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next): open weights, MoE with 125B parameters and 6B active per token (512 experts, 10 active), plus a 51B n-gram embedding table; released August 2026 |
+| Checkpoint | [`local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD`](https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD): community 4-bit quantization, NVFP4 experts and MXFP8 attention, 102 GB |
+| Hardware | Minisforum MS-S1 Max (AMD Ryzen AI Max+ 395, 128 GB unified memory) + NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB) in an external GPU dock |
+| Serving | vLLM, Anthropic-compatible `/v1/messages`, 262k context |
+| Harness | Claude Code 2.1.309, effort `xhigh` (the server accepts only `low`, `medium`, `xhigh`) |
+
+| Model | Harness | Task | Result | Time | Requests | Input / output tokens | Hosted price |
+|---|---|---|---|---|---|---|---|
+| Qwen3.8-Flash-Next (local) | Claude Code | L2b | **solved** | 30 min | 111 | 13.1M / 132k | $2.16 |
+| Opus (round 1) | Claude Code | L2b | solved | 20 min | 58 | 6.8M / 72k | — |
+| GLM-5.3 (round 1) | Claude Code | L2b | solved at the limit | 52 min | 128 | 14.2M / 76k | — |
+
+- **Speed.** About 140 tokens/s on long answers, 82 tokens/s averaged over all requests including time to first
+  token. No request failed. The context reached 203k of the server's 262k tokens without compaction.
+- **How it worked.** It found the abaplint sources archived in the repository and implemented the indentation rules
+  from them, checked its formatter on 51 real ABAP files from the repo, and regenerated the golden output, which
+  matched upstream.
+- **Hosted price** is what the same tokens would cost on QwenCloud's hosted `qwen3.8-flash` at list price
+  ([prices.json](prices.json)). The local run paid nothing per token.
+- The full request/response stream was recorded (`BENCH_RECORD=1`, see Quick start); like other transcripts, it is not
+  published.
+
 ## The tasks
 
 | Task | Upstream PR | What the agent must do | Limit |
@@ -91,24 +124,81 @@ matrix.yaml         executors and critics; prices.json list prices
 gateway/            LiteLLM bridge used to run Alibaba models through Codex
 ```
 
-## Reproducing and extending
+## Quick start: run your own model
 
-Requirements: Linux with `bwrap` (bubblewrap) and `systemd-run`, Go and Node.js, plus the harness CLIs you
-want to test: `claude`, `codex` and `pi`. Provider keys are read from the environment
-(`ZAI_API_KEY`, `AZURE_OPENAI_API_KEY` with `AZURE_OPENAI_ENDPOINT`, `ALI_CP_API_KEY`, and so on).
+No SAP system is needed: the tasks are Go and JavaScript changes in ABAP tooling repositories, checked by
+the upstream PR's own tests. What you need is a Linux machine (WSL2 works) and an LLM endpoint.
+
+### 1. Prerequisites
+
+- **Go 1.26+**, **Node.js 20+**, git, Python 3
+- **bubblewrap**: `sudo apt install bubblewrap` (on Ubuntu 24.04+ also
+  `sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0`)
+- **one agent harness**: [Claude Code](https://claude.com/claude-code) (`claude`), Codex (`codex`) or Pi (`pi`).
+  For your own model you only need the CLI installed, no account.
+
+### 2. Set up (once, ~5 minutes, ~3 GB)
 
 ```bash
-git clone --bare https://github.com/oisee/abapiti .cache/repos/abapiti.git   # likewise open-steamgate, minz
-bin/template.sh tasks/L2b-abapiti87                                         # prepare the task's base tree once
-bin/goldcheck.sh tasks/L2b-abapiti87                                        # base must fail, upstream fix must pass
-BENCH_INTERNAL_REVIEW_ROUNDS=0 bin/run.sh tasks/L2b-abapiti87 ant-opus-claude   # one baseline run
-python3 bin/export.py && python3 bin/summary-report.py                      # refresh data/ and the report
+git clone https://github.com/oisee/bench-bench && cd bench-bench
+bin/setup.sh --check     # checks the machine, clones the task repos, builds and verifies the 6 tasks
 ```
 
-**To add a model or harness,** add a line to `matrix.yaml`. For a new harness, also add its launch and
-transcript parsing to `bin/sandbox.sh` and `bin/export.py`. **To add a task,** pick a merged PR whose tests
-fail before it and pass after it, then write `task.env` and `brief.md`. The brief must describe behaviour
-without copying test fixtures; see `brief-review.md` for the QA step.
+`bin/setup.sh` is safe to re-run. If something is missing it says what and how to fix it.
+
+### 3. Point it at your model
+
+```bash
+cp .env.example .env     # set CUSTOM_BASE_URL (and CUSTOM_API_KEY if the endpoint needs one)
+```
+
+Then add a line to `matrix.yaml`; `provider: custom` means "the endpoint from `.env`":
+
+```yaml
+  - {id: my-model-claude, provider: custom, model: <model id from /v1/models>, harness: claude, effort: high}
+```
+
+Any OpenAI- or Anthropic-compatible server works: vLLM, SGLang, Ollama, LM Studio, OpenRouter, a cloud API.
+Which harness to choose:
+
+| harness | endpoint API it uses | notes |
+|---|---|---|
+| `claude` | Anthropic `/v1/messages` | GLM-5.3 did best in this harness; vLLM and SGLang serve this API |
+| `pi` | OpenAI `/v1/chat/completions` | works with almost anything (`CUSTOM_PI_API` switches API) |
+| `codex` | OpenAI `/v1/responses` | needs a Responses-API endpoint |
+
+`effort` is passed to the model as its reasoning effort; use a level your server accepts
+(vLLM rejects levels a model does not support, e.g. some accept only `low`, `medium`, `xhigh`).
+
+### 4. Run
+
+```bash
+bin/doctor.sh --smoke my-model-claude   # 1-minute live check: the model runs a tool inside the sandbox
+bin/bench.sh my-model-claude            # all 6 tasks, one after another (up to ~4.5 h); prints a table
+bin/bench.sh my-model-claude L2b        # or just some tasks (ids or prefixes)
+bin/bench.sh my-model-claude --status   # results so far
+```
+
+`bin/bench.sh` is safe to interrupt and re-run: tasks that already have a result are skipped (`--again` repeats them).
+Each run is kept in `runs/<task>/<executor>-<time>/`: `patch.diff`, `result.json`, `grade/*.log`, and the agent
+transcript in `agent.out`. With `BENCH_RECORD=1` (in `.env` or the environment) every request to and response
+from your endpoint is also logged to `traffic.jsonl` in the run directory.
+
+To compare with the published results, refresh the data and the report:
+`python3 bin/export.py && python3 bin/summary-report.py`.
+
+### Hosted providers and the published matrix
+
+The executors used for the published results (Opus, Sol, Luna, GLM, Qwen, Kimi, MiniMax) are in `matrix.yaml`.
+Claude Code and Codex use your own login (`claude` /login, `codex login`) or `ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY`; Z.ai, Alibaba and Azure read their keys from `.env` (see `.env.example`).
+Pi with a hosted provider also needs that provider in `~/.pi/agent/models.json`.
+`gateway/` has the LiteLLM bridge used to run Alibaba models through Codex.
+
+**To add a harness,** add its launch to `bin/sandbox.sh` and its transcript parsing to `bin/export.py`.
+**To add a task,** pick a merged PR whose tests fail before it and pass after it, then write `task.env` and
+`brief.md` and check it with `bin/setup.sh --check <task>`. The brief must describe behaviour without copying
+test fixtures; see `brief-review.md` for the QA step.
 
 ## License
 

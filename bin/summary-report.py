@@ -22,6 +22,7 @@ NAMES = {
     "ali-minimax25-codex": ("MiniMax M2.5", "codex"),
     "az-sol61-codex-hi": ("Sol 6.1 high", "codex"), "az-sol61-codex-gate": ("Sol 6.1 + final gate", "codex"),
     "oai-luna-codex-m-vis": ("Luna medium + visible checks", "codex"), "oai-luna-codex-h-vis": ("Luna high + visible checks", "codex"),
+    "custom-qwen38fn-claude": ("Qwen3.8-Flash-Next (local)", "claude"), "custom-qwen38fn-pi": ("Qwen3.8-Flash-Next (local)", "pi"),
 }
 CRITICS = {"S-sol": "Sol · Codex", "S-opus": "Opus · Claude Code", "S-fable": "Fable · Claude Code",
            "S-glm": "GLM-5.3 · Claude Code", "S-glm-pi": "GLM-5.3 · Pi", "S-qwen-pi": "Qwen 3.7+ · Pi"}

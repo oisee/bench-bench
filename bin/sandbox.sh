@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch one coding-agent session in an isolated bwrap sandbox.
 #
-#   bin/sandbox.sh --run RUN_DIR --harness claude|codex|pi --provider anthropic|openai|zai|alibaba \
+#   bin/sandbox.sh --run RUN_DIR --harness claude|codex|pi --provider anthropic|openai|zai|alibaba|azure|custom \
 #                  --model MODEL [--effort low|medium|high] [-- extra harness args]
 #
 # RUN_DIR must contain work/ (the prepared task repo). The sandbox:
@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
+. "$BENCH/bin/lib.sh"
 REAL="$HOME"
 RUN="" HARNESS="" PROVIDER="" MODEL="" EFFORT="medium"
 while [ $# -gt 0 ]; do
@@ -47,13 +48,15 @@ case "$PROVIDER" in
     fi ;;
   zai)     K="${ZAI_API_KEY:-$(key_from_rc ZAI_API_KEY)}";     [ -n "$K" ] || { echo "ZAI_API_KEY not set" >&2; exit 1; };     ENVV+=(--setenv ZAI_API_KEY "$K") ;;
   azure)   K="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; [ -n "$K" ] || { echo "AZURE_OPENAI_API_KEY not set" >&2; exit 1; }; ENVV+=(--setenv AZURE_OPENAI_API_KEY "$K") ;;
+  custom)  [ -n "${CUSTOM_BASE_URL:-}" ] || { echo "CUSTOM_BASE_URL not set (see .env.example)" >&2; exit 1; }
+           ENVV+=(--setenv CUSTOM_API_KEY "${CUSTOM_API_KEY:-none}") ;;
   anthropic|openai) ;;
   *) echo "unknown provider $PROVIDER" >&2; exit 2 ;;
 esac
 
 H="$RUN/home"
 mkdir -p "$H"/{.claude,.codex,.pi/agent,.local/bin,.local/share,.cache,go/pkg/mod}
-mkdir -p "$REAL/.cache/go-build" "$REAL/go/pkg/mod"
+toolchain_setup "$REAL" || exit 2
 cat > "$H/.gitconfig" <<'EOF'
 [user]
 	name = bench
@@ -64,10 +67,9 @@ EOF
 
 # --- harness config inside the fake HOME -------------------------------------
 BINDS=()
+harness_bin "$HARNESS" "$REAL" "$H" || exit 2
 case "$HARNESS" in
   claude)
-    BINDS+=(--ro-bind "$REAL/.local/share/claude" "$REAL/.local/share/claude")
-    ln -sfn "$(readlink -f "$REAL/.local/bin/claude")" "$H/.local/bin/claude"
     python3 -I - "$H/.claude.json" <<'EOF'
 import json,sys
 json.dump({"hasCompletedOnboarding":True,"theme":"dark","autoUpdates":False,
@@ -75,9 +77,14 @@ json.dump({"hasCompletedOnboarding":True,"theme":"dark","autoUpdates":False,
 EOF
     echo '{"theme":"dark","autoUpdates":false}' > "$H/.claude/settings.json"
     case "$PROVIDER" in
-      anthropic) # bind the real credentials file so OAuth refreshes are written back, not forked
-        touch "$H/.claude/.credentials.json"
-        BINDS+=(--bind "$REAL/.claude/.credentials.json" "$REAL/.claude/.credentials.json") ;;
+      anthropic)
+        if [ -f "$REAL/.claude/.credentials.json" ]; then
+          # bind the real credentials file so OAuth refreshes are written back, not forked
+          touch "$H/.claude/.credentials.json"
+          BINDS+=(--bind "$REAL/.claude/.credentials.json" "$REAL/.claude/.credentials.json")
+        elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+          ENVV+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
+        else echo 'Anthropic: run `claude` once to log in, or set ANTHROPIC_API_KEY' >&2; exit 1; fi ;;
       alibaba)
         cp "$REAL/.claude/alibaba-settings.json" "$H/.claude/settings.json"
         ENVV+=(--setenv ANTHROPIC_BASE_URL "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
@@ -89,13 +96,15 @@ EOF
       zai)
         ENVV+=(--setenv ANTHROPIC_BASE_URL "https://api.z.ai/api/anthropic" --setenv ANTHROPIC_AUTH_TOKEN "$K"
                --setenv ANTHROPIC_DEFAULT_HAIKU_MODEL "$MODEL" --setenv CLAUDE_CODE_SUBAGENT_MODEL "$MODEL") ;;
+      custom)
+        ENVV+=(--setenv ANTHROPIC_BASE_URL "$(custom_anthropic_url)" --setenv ANTHROPIC_AUTH_TOKEN "${CUSTOM_API_KEY:-none}"
+               --setenv ANTHROPIC_DEFAULT_HAIKU_MODEL "$MODEL" --setenv CLAUDE_CODE_SUBAGENT_MODEL "$MODEL"
+               --setenv CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1)
+        [ -n "${CUSTOM_CONTEXT_WINDOW:-}" ] && ENVV+=(--setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS "$CUSTOM_CONTEXT_WINDOW") ;;
       *) echo "claude harness does not support provider $PROVIDER" >&2; exit 2 ;;
     esac
     CMD=(claude --model "$MODEL" --effort "$EFFORT") ;;
   codex)
-    BINDS+=(--ro-bind "$REAL/.codex/packages" "$REAL/.codex/packages")
-    mkdir -p "$H/.codex/packages"
-    ln -sfn "$(readlink -f "$REAL/.local/bin/codex")" "$H/.local/bin/codex"
     {
       echo "model = \"$MODEL\""
       echo "model_reasoning_effort = \"$EFFORT\""
@@ -120,27 +129,41 @@ EOF
             'name = "Alibaba Coding Plan via LiteLLM"' "base_url = \"$ALI_CODEX_BASE_URL\"" \
             'env_key = "LITELLM_MASTER_KEY"' 'wire_api = "responses"' \
             'requires_openai_auth = false' 'supports_websockets = false' ;;
+        custom) # Codex speaks only the Responses API (/v1/responses)
+          printf '%s\n' 'model_provider = "custom"' '' '[model_providers.custom]' 'name = "Custom endpoint"' \
+            "base_url = \"${CUSTOM_BASE_URL%/}\"" 'env_key = "CUSTOM_API_KEY"' 'wire_api = "responses"' \
+            'requires_openai_auth = false' 'supports_websockets = false'
+          [ -n "${CUSTOM_CONTEXT_WINDOW:-}" ] && echo "model_context_window = $CUSTOM_CONTEXT_WINDOW" ;;
         openai) ;;
         *) echo "codex harness does not support provider $PROVIDER" >&2; exit 2 ;;
       esac
       printf '\n[projects."/work"]\ntrust_level = "trusted"\n'
     } > "$H/.codex/config.toml"
     if [ "$PROVIDER" = openai ]; then
-      # a private copy: a token refresh inside the sandbox must never rotate the user's own login
-      install -m 600 "$REAL/.codex/auth.json" "$H/.codex/auth.json"
+      if [ -f "$REAL/.codex/auth.json" ]; then
+        # a private copy: a token refresh inside the sandbox must never rotate the user's own login
+        install -m 600 "$REAL/.codex/auth.json" "$H/.codex/auth.json"
+      elif [ -n "${OPENAI_API_KEY:-}" ]; then
+        ENVV+=(--setenv CODEX_API_KEY "$OPENAI_API_KEY")
+      else echo 'OpenAI: run `codex login` once, or set OPENAI_API_KEY' >&2; exit 1; fi
     fi
     CMD=(codex) ;;
   pi)
-    BINDS+=(--ro-bind "$REAL/.pi/agent/install" "$REAL/.pi/agent/install" --ro-bind "$REAL/.pi/agent/bin" "$REAL/.pi/agent/bin")
-    mkdir -p "$H/.pi/agent/install" "$H/.pi/agent/bin"
-    ln -sfn "$REAL/.pi/agent/bin/pi" "$H/.local/bin/pi"
-    python3 -I - "$REAL/.pi/agent/models.json" "$H/.pi/agent" "$PROVIDER" "$MODEL" <<'EOF'
+    python3 -I - "$REAL/.pi/agent/models.json" "$H/.pi/agent" "$PROVIDER" "$MODEL" \
+      "${CUSTOM_BASE_URL:-}" "${CUSTOM_PI_API:-openai-completions}" "${CUSTOM_CONTEXT_WINDOW:-131072}" "${CUSTOM_MAX_TOKENS:-32768}" <<'EOF'
 import json,sys,os
-src,dst,prov,model=sys.argv[1:]
-d=json.load(open(src))["providers"]
-if prov not in d: sys.exit(f"provider {prov} not in pi models.json")
-p=d[prov]
-assert str(p.get("apiKey","$")).startswith("$"), "refusing to copy a literal key"
+src,dst,prov,model,url,api,ctx,maxtok=sys.argv[1:]
+if prov=="custom":  # generated from .env; reasoning levels pass through unchanged
+    p={"name":"Custom endpoint","baseUrl":url.rstrip("/"),"apiKey":"$CUSTOM_API_KEY","api":api,
+       "models":[{"id":model,"name":model,"api":api,"reasoning":True,"input":["text"],
+                  "contextWindow":int(ctx),"maxTokens":int(maxtok),
+                  "thinkingLevelMap":{"xhigh":"xhigh"}}]}
+else:
+    if not os.path.exists(src): sys.exit(f"{src} missing: configure provider {prov} in pi first")
+    d=json.load(open(src))["providers"]
+    if prov not in d: sys.exit(f"provider {prov} not in pi models.json")
+    p=d[prov]
+    assert str(p.get("apiKey","$")).startswith("$"), "refusing to copy a literal key"
 json.dump({"providers":{prov:p}},open(os.path.join(dst,"models.json"),"w"),indent=2)
 json.dump({"defaultProvider":prov,"defaultModel":model,"enabledModels":[f"{prov}/{model}"]},
           open(os.path.join(dst,"settings.json"),"w"),indent=2)
@@ -160,13 +183,7 @@ HOSTS="$RUN/hosts"
 
 # /etc/resolv.conf may point into /mnt (WSL); expose just that file
 RESOLV="$(readlink -f /etc/resolv.conf)"
-NODE_PATH="$(command -v node || true)"
-if [ -z "$NODE_PATH" ]; then
-  NODE_PATH="$(find "$REAL/.nvm/versions/node" -type f -path '*/bin/node' 2>/dev/null | sort -V | tail -1)"
-fi
-[ -n "$NODE_PATH" ] && [ -x "$NODE_PATH" ] || { echo 'node executable not found' >&2; exit 2; }
-NODE_BIN="$(dirname "$(readlink -f "$NODE_PATH")")"
-PATH_IN="$REAL/.local/bin:$NODE_BIN:$REAL/go/bin:/usr/local/go/bin:/usr/lib/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH_IN="$REAL/.local/bin:$TOOL_PATH:$REAL/go/bin:/usr/local/go/bin:/usr/lib/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 meta() { python3 -I - "$RUN/meta.json" "$@" <<'EOF'
 import json,sys,os
@@ -186,14 +203,13 @@ bwrap --die-with-parent --unshare-pid --unshare-ipc \
   --proc /proc --dev /dev --tmpfs /tmp --tmpfs /run --tmpfs /mnt \
   --ro-bind "$RESOLV" "$RESOLV" \
   --bind "$H" "$REAL" \
-  --ro-bind "$REAL/.nvm" "$REAL/.nvm" \
-  --bind "$REAL/go/pkg/mod" "$REAL/go/pkg/mod" --bind "$REAL/.cache/go-build" "$REAL/.cache/go-build" \
-  "${BINDS[@]}" \
+  "${TOOL_BINDS[@]+"${TOOL_BINDS[@]}"}" "${GO_BINDS[@]+"${GO_BINDS[@]}"}" \
+  "${BINDS[@]+"${BINDS[@]}"}" \
   --bind "$RUN/work" /work --chdir /work \
   --clearenv --setenv HOME "$REAL" --setenv USER "$USER" --setenv PATH "$PATH_IN" \
   --setenv TERM "${TERM:-xterm-256color}" --setenv LANG "${LANG:-C.UTF-8}" --setenv COLORTERM "${COLORTERM:-truecolor}" \
-  --setenv GOFLAGS "-mod=mod" --setenv GH_CONFIG_DIR /nonexistent \
-  "${ENVV[@]}" \
+  --setenv GOFLAGS "-mod=mod" --setenv GH_CONFIG_DIR /nonexistent "${TOOL_ENV[@]+"${TOOL_ENV[@]}"}" \
+  "${ENVV[@]+"${ENVV[@]}"}" \
   "${CMD[@]}" "$@"
 RC=$?
 set -e

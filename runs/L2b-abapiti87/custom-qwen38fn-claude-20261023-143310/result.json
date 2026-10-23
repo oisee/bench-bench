@@ -1,0 +1,28 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1609,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "custom-qwen38fn-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "Qwen3.8-Flash-Next",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 1800,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "2.1.309 (Claude Code)"
+}

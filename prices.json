@@ -51,6 +51,11 @@
       "cache_read": 0.01,
       "output": 0.5,
       "source": "OpenAI standard rate as reported by price trackers (openrouter.ai, digitalapplied.com); third-party price tracker, checked 2026-10-13; estimate, not an invoice"
+    },
+    "Qwen3.8-Flash-Next": {
+      "input": 0.16,
+      "output": 0.47,
+      "source": "QwenCloud list price of the hosted qwen3.8-flash as reported by the-decoder.com, a third-party report (0.15-0.16 in by source); the round-4 runs used a local server, so this is what the same tokens would cost hosted, not what was paid; no cache-read price, all input at the input rate; checked 2026-10-23; estimate, not an invoice"
     }
   },
   "plans": {

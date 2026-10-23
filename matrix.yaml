@@ -35,6 +35,11 @@ executors:
   - {id: oai-luna-codex-m-vis,  provider: openai, model: gpt-6-luna,  harness: codex, effort: medium}
   - {id: oai-luna-codex-h-vis,  provider: openai, model: gpt-6-luna,  harness: codex, effort: high}
 
+  # --- Your own model: provider custom = the OpenAI/Anthropic-compatible endpoint in .env ---
+  # Copy a line, change id and model; harness claude, codex or pi. Then: bin/bench.sh <id>
+  - {id: custom-qwen38fn-claude, provider: custom, model: Qwen3.8-Flash-Next, harness: claude, effort: xhigh}
+  - {id: custom-qwen38fn-pi,     provider: custom, model: Qwen3.8-Flash-Next, harness: pi,     effort: xhigh}
+
   # --- Control (Anthropic subscription) ---
   - {id: ant-opus-claude,   provider: anthropic, model: opus,         harness: claude, effort: high}
 
