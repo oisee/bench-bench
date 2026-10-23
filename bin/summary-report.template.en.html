@@ -77,6 +77,8 @@ table.matrix { border-collapse: separate; border-spacing: 3px; font-size: 13px; 
 .cell.none { background: var(--none); color: var(--ink-3); font-weight: 400 }
 .cell:focus-visible, [data-tip]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 tr.group-gap td { height: 8px }
+.tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 99px; font: 600 10.5px/1.5 var(--f-mono); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); vertical-align: 1px; white-space: nowrap }
+.matrix tr.local td.who { font-weight: 600 }
 
 /* bars */
 .bars { display: grid; gap: 7px }
@@ -182,7 +184,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head"><span class="n">01</span><h2>The full run grid</h2>
-      <p>Each cell is one run of one task. The number is the wall time in seconds. Hover a cell for test results and details. L3 was run only for finalists.</p></div>
+      <p>Each cell is one run of one task. The number is the wall time in seconds. Hover a cell for test results and details. L3 was run only for finalists. The row tagged <i>local · round 4</i> is Qwen3.8-Flash-Next on a home GPU, run on October 23 with the same briefs, limits and hidden tests (section 05c).</p></div>
     <div class="legend">
       <span><i class="sw-pass"></i>solved</span>
       <span><i class="sw-to"></i>solved, but hit the time limit</span>
@@ -342,6 +344,16 @@ const execs = [...new Set(r1.map(r => r.executor))].map(id => {
     strict: ok.filter(r => r.stop !== "TIMEOUT").length, time: rs.reduce((a, r) => a + (r.dur || 0), 0) };
 }).sort((a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time);
 const cell = (ex, t) => r1.find(r => r.executor === ex && r.task === t);
+// Round 4 (local models): same tasks and grading, shown beside round 1 in the grid, bars and speed chart only.
+const r4base = D.runs.filter(r => r.round === 4 && !r.protocol);
+const local = [...new Set(r4base.map(r => r.executor))].map(id => {
+  const rs = r4base.filter(r => r.executor === id), ok = rs.filter(r => r.effective);
+  return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, n: rs.length, solved: ok.length, local: true,
+    strict: ok.filter(r => r.stop !== "TIMEOUT").length, time: rs.reduce((a, r) => a + (r.dur || 0), 0) };
+});
+const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
+const gridExecs = [...execs, ...local].sort(byRank);
+const LOCAL_TAG = "local · round 4";
 
 /* tooltip */
 const tip = document.getElementById("tip");
@@ -432,15 +444,15 @@ document.getElementById("facts").innerHTML = [
 /* matrix */
 {
   let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="lvl">${t}</th>`).join("")}<th style="text-align:right">solved</th></tr></thead><tbody>`;
-  for (const e of execs) {
-    h += `<tr><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span></td>`;
+  for (const e of gridExecs) {
+    h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${LOCAL_TAG}</span>` : ""}</td>`;
     for (const t of TASKS) {
-      const r = cell(e.id, t);
+      const r = e.rs.find(q => q.task === t);
       if (!r) { h += `<td class="cell none">—</td>`; continue; }
       const cls = !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
       const word = {pass:"solved", to:"solved at the limit", fail:"not solved", veto:"tests passed, jury rejected"}[cls];
       const glyph = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!"}[cls];
-      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b><br>${word}<br>time ${fmtS(r.dur)} of ${fmtS(LIMIT[t])}<br>acceptance tests ${r.f2p}, regression ${r.p2p}<br>patch ${r.lines ?? "—"} lines`;
+      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${LOCAL_TAG}` : ""}<br>${word}<br>time ${fmtS(r.dur)} of ${fmtS(LIMIT[t])}<br>acceptance tests ${r.f2p}, regression ${r.p2p}<br>patch ${r.lines ?? "—"} lines`;
       h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${glyph}<small>${Math.round(r.dur)}</small></td>`;
     }
     h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
@@ -449,10 +461,10 @@ document.getElementById("facts").innerHTML = [
 }
 
 /* bars */
-document.getElementById("bars").innerHTML = execs.map(e => {
+document.getElementById("bars").innerHTML = gridExecs.map(e => {
   const to = e.solved - e.strict, fail = e.n - e.solved, w = n => `flex:${n} 1 0`;
   const tipT = `<b>${esc(e.model)} · ${HN[e.harness]}</b><br>solved ${e.solved} of ${e.n}<br>in time ${e.strict}, at the limit ${to}<br>total time ${fmtS(e.time)}`;
-  return `<div class="bar-row" tabindex="0" data-tip="${esc(tipT)}"><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span></span>
+  return `<div class="bar-row" tabindex="0" data-tip="${esc(tipT)}"><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${LOCAL_TAG}</span>` : ""}</span>
     <div class="track">${e.strict ? `<div class="seg pass" style="${w(e.strict)}"></div>` : ""}${to ? `<div class="seg to" style="${w(to)}"></div>` : ""}${fail ? `<div class="seg fail" style="${w(fail)}"></div>` : ""}${`<div style="flex:${6 - e.n} 1 0"></div>`}</div>
     <span class="val">${e.strict}+${to} / ${e.n}</span></div>`;
 }).join("");
@@ -468,9 +480,9 @@ document.getElementById("bars").innerHTML = execs.map(e => {
     const cy = top + rowH * i + rowH / 2;
     s += `<line class="axis" x1="${L}" x2="${W - R}" y1="${cy + rowH / 2 - 2}" y2="${cy + rowH / 2 - 2}"/><text x="0" y="${cy + 4}" style="font-weight:600;fill:var(--ink)">${t}</text>`;
     s += `<line class="lim" x1="${x(LIMIT[t])}" x2="${x(LIMIT[t])}" y1="${cy - rowH / 2 + 4}" y2="${cy + rowH / 2 - 6}"/>`;
-    for (const r of r1.filter(r => r.task === t)) {
+    for (const r of [...r1, ...r4base].filter(r => r.task === t)) {
       const c = `var(--${r.harness})`, ok = r.effective;
-      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b><br>${ok ? "solved" : "not solved"}${r.stop === "TIMEOUT" ? " (limit)" : ""}<br>${fmtS(r.dur)}`;
+      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${LOCAL_TAG}` : ""}<br>${ok ? "solved" : "not solved"}${r.stop === "TIMEOUT" ? " (limit)" : ""}<br>${fmtS(r.dur)}`;
       s += `<circle cx="${x(r.dur)}" cy="${cy + off[r.harness]}" r="5.5" fill="${ok ? c : "var(--panel)"}" stroke="${ok ? "var(--panel)" : c}" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/>`;
     }
   });
