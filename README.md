@@ -5,7 +5,7 @@ A small, reproducible benchmark of **coding agents** (model + harness + effort) 
 brief, works alone in a sandbox under a time limit, and is graded by the PR's own tests, which it never sees.
 
 **Report:** [`reports/summary.html`](reports/summary.html) (download and open in a browser) ·
-[live version](https://claude.ai/artifact/55YCFRr4r2C6hSLUE2sRXu) ·
+[live version](https://claude.ai/artifact/55YCFRr4r2C6hSLUE2sRXu) ([на русском](https://claude.ai/artifact/RJ9CyqqUJtiEj8Jy9zkmPm)) ·
 **Method:** [METHODOLOGY.md](METHODOLOGY.md) · **Data:** [data/](data/README.md)
 
 ## TL;DR

@@ -9,7 +9,7 @@ source changes:  python3 -I bin/summary-report.py
 import csv, datetime, json, os
 
 B = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGES = [("summary-report.template.en.html", "summary.html")]
+PAGES = [("summary-report.template.en.html", "summary.html"), ("summary-report.template.ru.html", "summary.ru.html")]
 
 NAMES = {
     "ant-opus-claude": ("Opus", "claude"), "az-sol61-codex": ("Sol 6.1", "codex"),
