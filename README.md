@@ -63,6 +63,7 @@ Opus from Claude Code's own cost report, GLM-5.3 from the Z.ai price list, the o
 It is an estimate for comparison, not what was paid; most runs used subscription plans.
 The local rows ran on October 23 with the same briefs, sandbox and hidden tests, on the owners' own hardware, so they
 cost nothing per token; *hosted* is what the same tokens would cost on QwenCloud's hosted API ([Round 4](#round-4-local-models)).
+NVFP4, IQ4_XS and DSLab K224 are different compressed builds of the same model ([what the names mean](#local-builds-what-the-names-mean)).
 
 **How the runs were actually paid.** Almost everything ran on flat-rate coding subscriptions, where a run costs
 nothing extra until the plan's rolling limit is reached:
@@ -91,6 +92,24 @@ one quantization, one harness, one machine; a one-task difference may be noise.
 | Hardware | Minisforum MS-S1 Max (AMD Ryzen AI Max+ 395, 128 GB unified memory) + NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB) in an external GPU dock |
 | Serving | vLLM, Anthropic-compatible `/v1/messages`, 262k context |
 | Harness | Claude Code 2.1.309, effort `xhigh` (the server accepts only `low`, `medium`, `xhigh`) |
+
+### Local builds: what the names mean
+
+Every local row is the same model, Qwen3.8-Flash-Next. The rows differ in how the weights were compressed so that they
+fit the machine.
+
+| Name in the tables | What it is | Size, speed | Machine |
+|---|---|---|---|
+| **NVFP4** | [Community 4-bit quantization](https://huggingface.co/local-inference-lab/Qwen3.8-Flash-Next-NVFP4-MXFP8-CSF-QAD) of all 512 experts (NVFP4 experts, MXFP8 attention), served by vLLM | 102 GB; ~176 tokens/s | one 96 GB GPU |
+| **IQ4_XS** | unsloth's [UD-IQ4_XS GGUF](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF), all 512 experts, ~4 bits; llama.cpp keeps the most used experts in VRAM and the rest in RAM | 94 GB; 16 tokens/s | i7 + 2× 16 GB GPUs |
+| **DSLab K224** | ISTA-DASLab's [GSQ-RCO-Coder](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF) keeps 256 of the 512 experts. They were chosen to keep the pruned model's output closest to the full model's (KL divergence) on a calibration set of code and agentic data ([RCO](https://github.com/IST-DASLab/RCO), [arXiv 2605.00649](https://arxiv.org/abs/2605.00649)), then quantized to ~3.5 bits ([GSQ](https://github.com/IST-DASLab/GSQ), [arXiv 2604.18556](https://arxiv.org/abs/2604.18556)). We removed 32 more experts, the ones our own ABAP agent session routed to least, leaving **224**. DSLab's weights were copied unchanged. Still 10 experts active per token, as in the original model | fits in 32 GB of VRAM; 1,200 tokens/s prefill, 35 tokens/s decode | i7 + 2× 16 GB GPUs |
+
+- **Limits ×5 / ×10.** The home PC is slower, so each task's time limit is multiplied by 5 (K224) or 10 (IQ4_XS)
+  (`BENCH_TIME_SCALE`, protocol `time-scaled-v1`). Times in the tables are real wall-clock minutes.
+- **Why DSLab and not our own cut.** Our own cuts of unsloth's GGUF either did not fit in VRAM (256 experts) or stopped acting. At 192 experts, and at
+  224 experts in IQ3_XXS, the model answered the first L2b turn with a plan sentence and ended the turn without
+  calling a tool; that IQ3 224 attempt failed in 17 s and is kept on record. Before going live, every candidate now
+  replays the first L2b step 20 times and must call a tool each time; DSLab K224 did 20/20.
 
 | Task | Qwen3.8-Flash-Next (local) | Requests | Input / output tokens | Hosted price | Opus, round 1 | GLM-5.3 in Claude Code, round 1 |
 |---|---|---|---|---|---|---|
