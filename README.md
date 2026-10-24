@@ -264,3 +264,9 @@ test fixtures; see `brief-review.md` for the QA step.
 
 [MIT](LICENSE) for the benchmark code, data and report. Task content (briefs aside) comes from the linked public
 repositories under their own licenses.
+
+## Cutting Qwen3.8-Flash-Next to fewer experts
+
+`bin/expert-cut.py` cuts a Hugging Face safetensors checkpoint of Qwen3.8-Flash-Next (e.g. NVIDIA NVFP4) to the 224- or
+192-expert sets in `data/expert-sets/`, streaming, standard-library Python only, with a content `--verify` and a
+`--compare-router` check. How-to: [docs/expert-cut.md](docs/expert-cut.md).
