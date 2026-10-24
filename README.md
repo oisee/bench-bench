@@ -26,6 +26,10 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 - **Reproduced on a simpler, slower home setup:** the same model as a 4-bit GGUF in llama.cpp on a PC with one
   consumer CPU and two 16 GB gaming GPUs (about 16 tokens/s, a tenth of the speed, so limits ×10) solved L1a in
   26 minutes; its L1b session was rated on track by two blind judges when it was stopped at 47 minutes.
+- **A pruned build on the same home PC solved all four L1–L2 tasks:** ISTA-DASLab's 3.5-bit
+  GSQ-RCO-Coder build of Qwen3.8-Flash-Next (256 of 512 experts), cut further to 224 experts on our own
+  routing statistics, fits in 32 GB of VRAM and runs at 20–35 tokens/s. With limits ×5 it solved L1a, L2a, L1b
+  and L2b (8, 38, 88 and 99 minutes). L3b was stopped after 94 minutes to free the machine; the session is kept.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1, plus local models from round 4)
@@ -49,6 +53,7 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 | MiniMax M2.5 | Pi | 0/4 | 0 | ~~L1a~~ ~~L1b~~ ~~L2a~~ ~~L2b~~ | 118 min | 13.1M | 79k | $0.74 |
 | *Local, round 4:* | | | | | | | | |
 | Qwen3.8-Flash-Next NVFP4, one 96 GB GPU | Claude Code | 5/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 153 min | 68.3M | 540k | $0 local (hosted ≈ $11.19) |
+| Qwen3.8-Flash-Next DSLab K224 (pruned to 224/512 experts), i7 + 2× 16 GB GPUs, limits ×5 | Claude Code | 4/4 | 0 | **L1a** **L1b** **L2a** **L2b** (L3b stopped at 94 min) | 233 min | 33.8M | 268k | $0 local (hosted ≈ $5.53) |
 | Qwen3.8-Flash-Next IQ4_XS, i7 + 2× 16 GB GPUs, limits ×10 | Claude Code | 1/1 | 0 | **L1a** (L1b stopped, on track) | 26 min | 0.7M | 17k | $0 local (hosted ≈ $0.11) |
 
 *Solved* means all hidden acceptance tests (fail→pass) and regression tests (pass→pass) pass. A run stopped at

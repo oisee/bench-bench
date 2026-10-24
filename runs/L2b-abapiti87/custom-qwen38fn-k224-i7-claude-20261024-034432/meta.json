@@ -1,0 +1,14 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-dslab-k224",
+  "effort": "xhigh",
+  "round": "1",
+  "harness_version": "2.1.310 (Claude Code)",
+  "started_at": "2026-10-24T03:44:34+01:00",
+  "finished_at": "2026-10-24T05:23:42+01:00",
+  "exit_code": "0",
+  "protocol": "time-scaled-v1",
+  "time_scale": "5",
+  "time_limit_s": 13500
+}

@@ -1,0 +1,60 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..579cd85 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,53 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  A scan, not a regex: `(?:[^']|'')*` takes one backtracking frame per
++ *  character, so V8 answered a 15 million character literal with
++ *  `RangeError: Maximum call stack size exceeded` -- an INSERT of a media
++ *  or longtext value is exactly that literal. The loop below is linear and
++ *  keeps the pairing the regex had: an apostrophe opens a literal, a doubled
++ *  quote stays inside it, and when a literal never closes the match falls
++ *  back to the first quote of its last doubled pair, as the greedy match
++ *  backtracked to. Double quotes change nothing. Only U+0020 runs at the
++ *  end of the literal go; tabs and newlines are data. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const OPEN = 39; // '
++  const SPACE = 32;
++  let out = "";
++  let i = 0;
++  while (i < sql.length) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) return out + sql.slice(i);
++    out += sql.slice(i, open);
++    // Walk the literal: doubled quotes belong to it, a lone quote closes it.
++    let j = open + 1;
++    let lastPair = -1; // first quote of the last doubled pair seen
++    while (j < sql.length) {
++      if (sql.charCodeAt(j) === OPEN) {
++        if (sql.charCodeAt(j + 1) === OPEN) {
++          lastPair = j;
++          j += 2;
++          continue;
++        }
++        break; // closes at j
++      }
++      j++;
++    }
++    if (j >= sql.length && lastPair >= 0) j = lastPair; // never closed: the pair's first quote closes instead
++    if (j >= sql.length) {
++      // no closing quote at all -- the quote is just text, resume after it
++      out += "'";
++      i = open + 1;
++      continue;
++    }
++    let end = j; // trim the blank run at the end of the body, in place
++    while (end > open + 1 && sql.charCodeAt(end - 1) === SPACE) end--;
++    out += "'" + sql.slice(open + 1, end) + "'";
++    i = j + 1;
++  }
++  return out;
+ }
+ 
+ /**

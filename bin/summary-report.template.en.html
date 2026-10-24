@@ -91,6 +91,23 @@ tr.group-gap td { height: 8px }
 .seg.to { background: repeating-linear-gradient(135deg, var(--good) 0 3px, var(--good-tint) 3px 6px) }
 .seg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
 .bar-row .val { font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right }
+.rank-ctl { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px }
+.rank-ctl button { font: 500 13px var(--f-body); padding: 5px 12px; border-radius: 99px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink-2); cursor: pointer }
+.rank-ctl button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent) }
+.rank-ctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.rank { display: grid; gap: 6px }
+.rank-row { display: grid; grid-template-columns: 22px minmax(150px, 230px) minmax(0, 1fr) 118px; gap: 10px; align-items: center; font-size: 14px }
+.rank-row .no { font: 600 12px var(--f-mono); color: var(--ink-3); text-align: right }
+.rank-row .lab { line-height: 1.25; min-width: 0; overflow-wrap: anywhere }
+.rank-row .lab .tag { margin-left: 0; margin-top: 2px }
+.rank-row .lab .h { font: 400 12px var(--f-mono); color: var(--ink-3); margin-left: 4px }
+.rank-row .val { font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right; white-space: nowrap }
+.rtrack { display: flex; gap: 2px; height: 26px; min-width: 0 }
+.rseg { border-radius: 4px; min-width: 2px; overflow: hidden; font: 600 11px/26px var(--f-mono); color: var(--ink); text-align: center; white-space: nowrap; cursor: default }
+.rseg.pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
+.rseg.to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--good) }
+.rseg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+@media (max-width: 640px) { .rank-row { grid-template-columns: 18px minmax(0, 1fr) 96px } .rank-row .rtrack { grid-column: 1 / -1; order: 3 } }
 
 /* svg charts */
 svg { display: block; width: 100%; height: auto; overflow: visible }
@@ -207,6 +224,21 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
   </section>
 
   <section>
+    <div class="sec-head"><span class="n">02b</span><h2>Ranking: where the time goes</h2>
+      <p>One row per agent, ranked by tasks solved, then by total wall time. Each segment is one task, in order L1a → L3b, and its length is the time spent on it. Switch to <i>share of own time</i> to compare how agents split their effort regardless of speed. Local rows ran on home hardware, the i7 ones with time limits scaled up to match, so their minutes are not comparable with cloud rows one to one.</p></div>
+    <div class="rank-ctl" role="group">
+      <button type="button" id="rank-abs" aria-pressed="true">total minutes</button>
+      <button type="button" id="rank-rel" aria-pressed="false">share of own time</button>
+    </div>
+    <div class="legend">
+      <span><i class="sw-pass"></i>solved in time</span>
+      <span><i class="sw-to"></i>solved at the limit</span>
+      <span><i class="sw-fail"></i>not solved</span>
+    </div>
+    <div class="rank" id="rank" style="margin-top:12px"></div>
+  </section>
+
+  <section>
     <div class="sec-head"><span class="n">03</span><h2>Speed: same tasks, tens of times apart</h2>
       <p>Wall time of every run on a log scale. Filled dot: solved; ring: not solved. Dashed line: the level's time limit.</p></div>
     <div class="chart">
@@ -277,6 +309,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
       <li><b>L3b with a critic.</b> A second attempt started from the failed patch: Sol (Codex, xhigh) reviewed it without the hidden tests and reported five gaps, each with a reproducing input it ran (not yet checked against the upstream solution), but not the one the hidden test checks (a record <code>||</code> an anonymous object). Qwen then had 30 minutes to repair, was still refactoring when the time ran out, and the tree it left failed both the held-out test and its own new tests. There was no control run without the critic.</li>
       <li><b>Speed.</b> No server errors in any run. With time to first byte recorded separately (L3b repair run), generation was 176 tokens/s median on answers of 1k+ tokens, and the first byte arrived after 3.6 s median with contexts up to 230k tokens. Earlier runs, measured without that split, show 92–125 tokens/s including the wait.</li>
       <li><b>How it worked.</b> On L2b it found the abaplint sources archived in the repository and implemented the indentation rules from them, then checked its formatter against 51 real ABAP files; on L2a it ran the project's full semantics harness and ABAP Unit fixtures, not only the tests the brief mentions.</li>
+      <li><b>A pruned build on the same home PC: 4 of 4.</b> ISTA-DASLab's 3.5-bit GSQ-RCO-Coder build of Qwen3.8-Flash-Next keeps 256 of 512 experts; we cut it further to 224 using routing statistics from our ABAP sessions. It fits in 32 GB of VRAM and runs at 20–35 tokens/s, so limits were scaled ×5. It solved L1a, L2a, L1b and L2b in 8, 38, 88 and 99 minutes. L3b was stopped after 94 minutes to free the machine; the session is kept so it can be resumed.</li>
       <li><b>The same model on a small home machine.</b> On i7 (Core i7-10700K, 128 GB RAM, 2× RTX 4060 Ti 16 GB), llama.cpp keeps the most used experts in VRAM and the rest in RAM. The 4-bit UD-IQ4_XS build runs there at about 16 tokens/s, a tenth of the speed above, so its time limits were scaled ×10. It solved L1a in 26 minutes, inside even the standard 30, with 18 requests against 22 on the fast machine. In an open-loop replay of 23 steps from the fast machine's solved L2b session (same context at every step) it made the same move on 9 steps, mostly while implementing, and different ones mostly while exploring; blind judging of those steps is pending. L1b was stopped at 47 minutes (35 requests) to free the machine for pruning experiments; two blind judges rated the session on track (it followed the same plan as the fast machine's solved run, 1–4 steps behind), and the session is kept so it can be resumed. A dense Qwen3.8-27B (Q4) run on the same machine was stopped after 31 minutes when the work moved to this model; it has no result.</li>
       <li><b>Price column.</b> Nothing was paid per token. The figure is what the same tokens would cost on QwenCloud's hosted <code>qwen3.8-flash</code> at its list price, for comparison only.</li>
     </ul>
@@ -356,8 +389,8 @@ const local = [...new Set(r4base.map(r => r.executor))].map(id => {
 const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
 const gridExecs = [...execs, ...local].sort(byRank);
 const LOCAL_TAG = "local · round 4";
-const LOCAL_TAGS = {"custom-qwen38fn-iq4-i7-claude": "local i7 · limits ×10"};
-const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10};
+const LOCAL_TAGS = {"custom-qwen38fn-k224-i7-claude": "local i7 · limits ×5", "custom-qwen38fn-iq4-i7-claude": "local i7 · limits ×10"};
+const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10, "custom-qwen38fn-k224-i7-claude": 5};
 const tagOf = id => LOCAL_TAGS[id] || LOCAL_TAG;
 
 /* tooltip */
@@ -474,6 +507,31 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     <span class="val">${e.strict}+${to} / ${e.n}</span></div>`;
 }).join("");
 
+/* ranking: stacked time per task */
+{
+  const W = {pass: "solved in time", to: "solved at the limit", fail: "not solved"};
+  const total = e => e.rs.reduce((a, r) => a + (r.dur || 0), 0);
+  const maxT = Math.max(...gridExecs.map(total));
+  const draw = rel => {
+    document.getElementById("rank").innerHTML = gridExecs.map((e, i) => {
+      const T = total(e);
+      const segs = TASKS.map(t => e.rs.find(r => r.task === t)).filter(Boolean).map(r => {
+        const cls = !r.effective ? "fail" : r.stop === "TIMEOUT" ? "to" : "pass";
+        const f = (r.dur || 0) / (rel ? T : maxT);
+        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% of this agent's time<br>limit ${fmtS(LIMIT[r.task] * (SCALE[e.id] || 1))}`;
+        return `<div class="rseg ${cls}" style="flex:0 0 calc(${(100 * f).toFixed(3)}% - 2px)" tabindex="0" data-tip="${esc(tip)}">${f * 100 > (rel ? 9 : 4.5) ? r.task : ""}</div>`;
+      }).join("");
+      return `<div class="rank-row"><span class="no">${i + 1}</span><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</span><div class="rtrack">${segs}</div><span class="val">${e.solved}/${e.n} · ${fmtS(T)}</span></div>`;
+    }).join("");
+  };
+  const btn = (id, rel) => document.getElementById(id).addEventListener("click", () => {
+    document.getElementById("rank-abs").setAttribute("aria-pressed", String(!rel));
+    document.getElementById("rank-rel").setAttribute("aria-pressed", String(rel));
+    draw(rel);
+  });
+  btn("rank-abs", false); btn("rank-rel", true); draw(false);
+}
+
 /* speed dot plot */
 {
   const W = 760, L = 54, R = 20, rowH = 58, top = 14, H = top + rowH * TASKS.length + 34;
@@ -553,7 +611,7 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
   for (const r of r4) {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
     const lab = r.protocol === "critic-repair-v1" ? `${esc(r.model)} + Sol critic, 2nd attempt`
-      : r.protocol === "time-scaled-v1" ? `${esc(r.model)}, time limit ×10` : esc(r.model);
+      : r.protocol === "time-scaled-v1" ? `${esc(r.model)}, time limit ×${SCALE[r.executor] || 10}` : esc(r.model);
     h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";

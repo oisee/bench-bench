@@ -59,6 +59,9 @@
     },
     "qwen3.8-flash-next-iq4xs": {
       "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab-k224": {
+      "same_as": "Qwen3.8-Flash-Next"
     }
   },
   "plans": {

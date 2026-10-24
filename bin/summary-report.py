@@ -24,6 +24,7 @@ NAMES = {
     "oai-luna-codex-m-vis": ("Luna medium + visible checks", "codex"), "oai-luna-codex-h-vis": ("Luna high + visible checks", "codex"),
     "custom-qwen38fn-claude": ("Qwen3.8-Flash-Next NVFP4", "claude"), "custom-qwen38fn-pi": ("Qwen3.8-Flash-Next NVFP4", "pi"),
     "custom-qwen38fn-iq4-i7-claude": ("Qwen3.8-Flash-Next IQ4_XS (i7)", "claude"),
+    "custom-qwen38fn-k224-i7-claude": ("Qwen3.8-Flash-Next DSLab K224 (i7)", "claude"),
 }
 CRITICS = {"S-sol": "Sol · Codex", "S-opus": "Opus · Claude Code", "S-fable": "Fable · Claude Code",
            "S-glm": "GLM-5.3 · Claude Code", "S-glm-pi": "GLM-5.3 · Pi", "S-qwen-pi": "Qwen 3.7+ · Pi"}

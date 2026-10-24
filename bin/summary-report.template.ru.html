@@ -91,6 +91,23 @@ tr.group-gap td { height: 8px }
 .seg.to { background: repeating-linear-gradient(135deg, var(--good) 0 3px, var(--good-tint) 3px 6px) }
 .seg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
 .bar-row .val { font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right }
+.rank-ctl { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px }
+.rank-ctl button { font: 500 13px var(--f-body); padding: 5px 12px; border-radius: 99px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink-2); cursor: pointer }
+.rank-ctl button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent) }
+.rank-ctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.rank { display: grid; gap: 6px }
+.rank-row { display: grid; grid-template-columns: 22px minmax(150px, 230px) minmax(0, 1fr) 118px; gap: 10px; align-items: center; font-size: 14px }
+.rank-row .no { font: 600 12px var(--f-mono); color: var(--ink-3); text-align: right }
+.rank-row .lab { line-height: 1.25; min-width: 0; overflow-wrap: anywhere }
+.rank-row .lab .tag { margin-left: 0; margin-top: 2px }
+.rank-row .lab .h { font: 400 12px var(--f-mono); color: var(--ink-3); margin-left: 4px }
+.rank-row .val { font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right; white-space: nowrap }
+.rtrack { display: flex; gap: 2px; height: 26px; min-width: 0 }
+.rseg { border-radius: 4px; min-width: 2px; overflow: hidden; font: 600 11px/26px var(--f-mono); color: var(--ink); text-align: center; white-space: nowrap; cursor: default }
+.rseg.pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
+.rseg.to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--good) }
+.rseg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+@media (max-width: 640px) { .rank-row { grid-template-columns: 18px minmax(0, 1fr) 96px } .rank-row .rtrack { grid-column: 1 / -1; order: 3 } }
 
 /* svg charts */
 svg { display: block; width: 100%; height: auto; overflow: visible }
@@ -207,6 +224,21 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
   </section>
 
   <section>
+    <div class="sec-head"><span class="n">02b</span><h2>Рейтинг: куда уходит время</h2>
+      <p>Одна строка на агента: сначала по числу решённых задач, затем по общему времени. Каждый сегмент — одна задача, по порядку L1a → L3b, его длина — время на эту задачу. Переключите на <i>доля своего времени</i>, чтобы сравнить, как агенты распределяют усилия, независимо от скорости. Локальные строки шли на домашнем железе, строки i7 — с увеличенными лимитами, так что их минуты нельзя сравнивать с облачными один к одному.</p></div>
+    <div class="rank-ctl" role="group">
+      <button type="button" id="rank-abs" aria-pressed="true">минуты всего</button>
+      <button type="button" id="rank-rel" aria-pressed="false">доля своего времени</button>
+    </div>
+    <div class="legend">
+      <span><i class="sw-pass"></i>решено вовремя</span>
+      <span><i class="sw-to"></i>решено на пределе</span>
+      <span><i class="sw-fail"></i>не решено</span>
+    </div>
+    <div class="rank" id="rank" style="margin-top:12px"></div>
+  </section>
+
+  <section>
     <div class="sec-head"><span class="n">03</span><h2>Скорость: одни и те же задачи, разница в десятки раз</h2>
       <p>Время каждого прогона в логарифмической шкале. Закрашенная точка — решено, кольцо — не решено. Пунктир — лимит времени уровня.</p></div>
     <div class="chart">
@@ -277,6 +309,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
       <li><b>L3b с критиком.</b> Вторая попытка началась с провального патча: Sol (Codex, xhigh) отревьюил его без скрытых тестов и нашёл пять пробелов, каждый с воспроизводящим примером, который сам запустил (с эталонным решением они пока не сверены), но не тот, что проверяет скрытый тест (record <code>||</code> анонимный объект). Затем у Qwen было 30 минут на исправление; к концу времени она ещё переделывала код, и оставленная рабочая копия провалила и скрытый тест, и её собственные новые тесты. Контрольного прогона без критика не было.</li>
       <li><b>Скорость.</b> Ни одной ошибки сервера за все прогоны. Когда время до первого байта записывалось отдельно (прогон с исправлением L3b), генерация шла со скоростью 176 токенов/с (медиана на ответах от 1k токенов), а первый байт приходил через 3.6 с (медиана) при контексте до 230k токенов. Более ранние прогоны, измеренные без такого разделения, показывают 92–125 токенов/с с учётом ожидания.</li>
       <li><b>Как она работала.</b> На L2b нашла исходники abaplint, лежащие в репозитории архивом, и реализовала правила отступов по ним, затем проверила свой форматтер на 51 реальном ABAP-файле; на L2a прогнала весь semantics-харнесс проекта и ABAP Unit фикстуры, а не только тесты, упомянутые в брифе.</li>
+      <li><b>Урезанная сборка на том же домашнем ПК: 4 из 4.</b> 3,5-битная сборка GSQ-RCO-Coder от ISTA-DASLab оставляет у Qwen3.8-Flash-Next 256 экспертов из 512; мы урезали её до 224 по статистике маршрутизации на наших ABAP-сессиях. Она помещается в 32 GB видеопамяти и работает на 20–35 токенах/с, поэтому лимиты увеличены ×5. L1a, L2a, L1b и L2b решены за 8, 38, 88 и 99 минут. L3b остановлена через 94 минуты, чтобы освободить машину; сессия сохранена, её можно продолжить.</li>
       <li><b>Та же модель на небольшой домашней машине.</b> На i7 (Core i7-10700K, 128 GB RAM, 2× RTX 4060 Ti 16 GB) llama.cpp держит самых используемых экспертов в VRAM, остальных в RAM. 4-битная сборка UD-IQ4_XS работает там примерно на 16 токенах/с, в десять раз медленнее, чем выше, поэтому лимиты времени увеличены ×10. L1a она решила за 26 минут, уложившись даже в стандартные 30, за 18 запросов против 22 на быстрой машине. В реплее 23 шагов из решённой сессии L2b с быстрой машины (на каждом шаге тот же контекст) на 9 шагах она сделала тот же ход, в основном при реализации, а расходилась в основном при изучении кода; слепые судьи ещё оценивают эти шаги. L1b остановлен на 47-й минуте (35 запросов), чтобы освободить машину под эксперименты с прунингом; два слепых судьи оценили сессию как идущую к решению (тот же план, что у решившего прогона на быстрой машине, отставание 1–4 шага), сессия сохранена и её можно продолжить. Прогон плотной Qwen3.8-27B (Q4) на той же машине остановлен через 31 минуту, когда работа переключилась на эту модель; результата у него нет.</li>
       <li><b>Колонка цены.</b> За токены ничего не платили. Цифра — сколько те же токены стоили бы на хостинговом <code>qwen3.8-flash</code> в QwenCloud по прайсу, только для сравнения.</li>
     </ul>
@@ -356,8 +389,8 @@ const local = [...new Set(r4base.map(r => r.executor))].map(id => {
 const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
 const gridExecs = [...execs, ...local].sort(byRank);
 const LOCAL_TAG = "локально · раунд 4";
-const LOCAL_TAGS = {"custom-qwen38fn-iq4-i7-claude": "локально i7 · лимиты ×10"};
-const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10};
+const LOCAL_TAGS = {"custom-qwen38fn-k224-i7-claude": "локально i7 · лимиты ×5", "custom-qwen38fn-iq4-i7-claude": "локально i7 · лимиты ×10"};
+const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10, "custom-qwen38fn-k224-i7-claude": 5};
 const tagOf = id => LOCAL_TAGS[id] || LOCAL_TAG;
 
 /* tooltip */
@@ -474,6 +507,31 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     <span class="val">${e.strict}+${to} / ${e.n}</span></div>`;
 }).join("");
 
+/* ranking: stacked time per task */
+{
+  const W = {pass: "решено вовремя", to: "решено на пределе", fail: "не решено"};
+  const total = e => e.rs.reduce((a, r) => a + (r.dur || 0), 0);
+  const maxT = Math.max(...gridExecs.map(total));
+  const draw = rel => {
+    document.getElementById("rank").innerHTML = gridExecs.map((e, i) => {
+      const T = total(e);
+      const segs = TASKS.map(t => e.rs.find(r => r.task === t)).filter(Boolean).map(r => {
+        const cls = !r.effective ? "fail" : r.stop === "TIMEOUT" ? "to" : "pass";
+        const f = (r.dur || 0) / (rel ? T : maxT);
+        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% от времени агента<br>лимит ${fmtS(LIMIT[r.task] * (SCALE[e.id] || 1))}`;
+        return `<div class="rseg ${cls}" style="flex:0 0 calc(${(100 * f).toFixed(3)}% - 2px)" tabindex="0" data-tip="${esc(tip)}">${f * 100 > (rel ? 9 : 4.5) ? r.task : ""}</div>`;
+      }).join("");
+      return `<div class="rank-row"><span class="no">${i + 1}</span><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</span><div class="rtrack">${segs}</div><span class="val">${e.solved}/${e.n} · ${fmtS(T)}</span></div>`;
+    }).join("");
+  };
+  const btn = (id, rel) => document.getElementById(id).addEventListener("click", () => {
+    document.getElementById("rank-abs").setAttribute("aria-pressed", String(!rel));
+    document.getElementById("rank-rel").setAttribute("aria-pressed", String(rel));
+    draw(rel);
+  });
+  btn("rank-abs", false); btn("rank-rel", true); draw(false);
+}
+
 /* speed dot plot */
 {
   const W = 760, L = 54, R = 20, rowH = 58, top = 14, H = top + rowH * TASKS.length + 34;
@@ -554,7 +612,7 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
     const mname = esc(r.model.replace("(local)", "(локально)"));
     const lab = r.protocol === "critic-repair-v1" ? `${mname} + критик Sol, 2-я попытка`
-      : r.protocol === "time-scaled-v1" ? `${mname}, лимит времени ×10` : mname;
+      : r.protocol === "time-scaled-v1" ? `${mname}, лимит времени ×${SCALE[r.executor] || 10}` : mname;
     h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";

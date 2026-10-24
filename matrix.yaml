@@ -45,6 +45,9 @@ executors:
   # Qwen3.8-Flash-Next on i7 (track B): unsloth UD-IQ4_XS, llama.cpp --fit (hot experts on 2x 4060 Ti, rest in RAM):
   #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=262144 BENCH_TIME_SCALE=10 bin/bench.sh custom-qwen38fn-iq4-i7-claude
   - {id: custom-qwen38fn-iq4-i7-claude, provider: custom, model: qwen3.8-flash-next-iq4xs, harness: claude, effort: xhigh}
+  # ISTA-DASLab GSQ-RCO-Coder (256/512 experts, ~3.5 bpw) cut to 224 by cnm, on i7 (~35 tok/s decode):
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 bin/bench.sh custom-qwen38fn-k224-i7-claude
+  - {id: custom-qwen38fn-k224-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab-k224, harness: claude, effort: xhigh}
 
   # --- Control (Anthropic subscription) ---
   - {id: ant-opus-claude,   provider: anthropic, model: opus,         harness: claude, effort: high}
