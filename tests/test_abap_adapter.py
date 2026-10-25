@@ -176,6 +176,13 @@ class GradeHiddenDir(unittest.TestCase):
         self.assertEqual(res['status'], 'RESOLVED', r.stderr)
         self.assertNotIn('rejected', res)
 
+    def test_tool_cache_in_a_subdirectory_is_not_a_rejection(self):   # osg-abap run from src/x leaves its cache there
+        os.makedirs(os.path.join(self.work, 'src', 'x', '.osg-abap-cache'))
+        os.symlink('/agent-tool/node_modules', os.path.join(self.work, 'src', 'x', '.osg-abap-cache', 'node_modules'))
+        open(os.path.join(self.work, 'answer'), 'w').write('42\n')
+        res, r = self.grade()
+        self.assertEqual(res['status'], 'RESOLVED', r.stderr)
+
     def test_symlink_rejected(self):
         os.remove(os.path.join(self.work, 'answer'))
         os.symlink('.grader/oracle', os.path.join(self.work, 'answer'))           # would read the hidden answer
