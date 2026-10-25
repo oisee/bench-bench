@@ -239,5 +239,6 @@ bwrap --die-with-parent --unshare-pid --unshare-ipc \
   "${CMD[@]}" "$@"
 RC=$?
 set -e
+rm -f "$H/.codex/auth.json"   # the private copy of the Codex login must not stay with the run (it is archived)
 meta finished_at="$(date -Is)" exit_code="$RC"
 exit $RC

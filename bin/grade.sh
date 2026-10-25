@@ -33,6 +33,9 @@ for p in $HIDDEN; do mkdir -p "$G/$(dirname "$p")" && git -C "$SRC" show "$MERGE
 # replaces whatever the agent left under that name, and exists only in this grade copy.
 REJECT=""
 if [ -n "${HIDDEN_DIR:-}" ]; then
+  # osg-abap's own cache (git-ignored, links to its node_modules) is the agent tool's, not the answer: the grader
+  # rebuilds from pristine sources, so drop it from the grade copy.
+  rm -rf "$G/.osg-abap-cache"
   # The task trees have no symlinks of their own. One in the candidate tree could point into the hidden part copied
   # below (e.g. the answer file -> .grader/pristine/...), so the tree is rejected unseen: FAILED, tests not run.
   link="$(find "$G" -path "$G/.git" -prune -o -type l -print | head -1)"

@@ -168,6 +168,14 @@ class GradeHiddenDir(unittest.TestCase):
         res, r = self.grade()
         self.assertEqual(res['status'], 'RESOLVED', r.stderr)                     # the agent's .grader was replaced whole
 
+    def test_tool_cache_symlink_is_not_a_rejection(self):         # osg-abap's cache links its node_modules
+        os.makedirs(os.path.join(self.work, '.osg-abap-cache'))
+        os.symlink('/agent-tool/node_modules', os.path.join(self.work, '.osg-abap-cache', 'node_modules'))
+        open(os.path.join(self.work, 'answer'), 'w').write('42\n')
+        res, r = self.grade()
+        self.assertEqual(res['status'], 'RESOLVED', r.stderr)
+        self.assertNotIn('rejected', res)
+
     def test_symlink_rejected(self):
         os.remove(os.path.join(self.work, 'answer'))
         os.symlink('.grader/oracle', os.path.join(self.work, 'answer'))           # would read the hidden answer
