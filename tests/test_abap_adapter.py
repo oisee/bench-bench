@@ -75,6 +75,16 @@ class Adapter(unittest.TestCase):
         self.assertEqual(self.env_of('zvdb-l1-method-002')[1], 'ABAP-L1')
         self.assertTrue(os.path.exists(os.path.join(self.bench, 'tasks-abap', 'zvdb-l1-method-002', 'brief.md')))
 
+    def test_sources_from_the_package(self):                     # no GitHub: setup.sh clones the package's copy
+        src = os.path.join(self.root, 'private', 'src-repos', 'abapgit')
+        os.makedirs(src)
+        git(src, 'init', '-q'); git(src, 'remote', 'add', 'origin', 'https://github.com/abapGit/abapGit.git')
+        self.assertEqual(self.run_it('smoke').returncode, 0)
+        out = subprocess.run(['bash', '-c', 'source "$1"; echo "$URL|$UPSTREAM_URL"', '_',
+                              os.path.join(self.bench, 'tasks-abap', 'abapgit-l0-block-001', 'task.env')],
+                             capture_output=True, text=True).stdout.strip()
+        self.assertEqual(out, src + '|https://github.com/abapGit/abapGit.git')
+
     def test_refuses_unknown_pin(self):
         self.pin('0' * 40)
         r = self.run_it('smoke')

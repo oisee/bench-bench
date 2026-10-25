@@ -30,7 +30,6 @@ done
 [ -d "$RUN/work" ] || { echo "$RUN/work missing" >&2; exit 1; }
 
 # provider keys live in the user's shell rc files; read just the one we need
-key_from_rc() { bash --norc --noprofile -c 'for f in "$2/.bashrc" "$2/.profile"; do [ -f "$f" ] && eval "$(grep -E "^export $1=" "$f" | tail -1)"; done; printf %s "${!1}"' _ "$1" "$REAL"; }
 ENVV=()
 DUMMY_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
 case "$PROVIDER" in
@@ -120,7 +119,7 @@ EOF
                          kimi*) ENVV+=(--setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 262144) ;;
                          *)     ENVV+=(--setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 200000) ;; esac ;;
       zai)
-        ENVV+=(--setenv ANTHROPIC_BASE_URL "https://api.z.ai/api/anthropic" --setenv ANTHROPIC_AUTH_TOKEN "$K"
+        ENVV+=(--setenv ANTHROPIC_BASE_URL "$ZAI_ORIGIN$ZAI_ANTHROPIC_PATH" --setenv ANTHROPIC_AUTH_TOKEN "$K"
                --setenv ANTHROPIC_DEFAULT_HAIKU_MODEL "$MODEL" --setenv CLAUDE_CODE_SUBAGENT_MODEL "$MODEL") ;;
       custom)
         ENVV+=(--setenv ANTHROPIC_BASE_URL "$(custom_anthropic_url)" --setenv ANTHROPIC_AUTH_TOKEN "${CUSTOM_API_KEY:-none}"
@@ -137,7 +136,7 @@ EOF
       echo 'check_for_update_on_startup = false'
       case "$PROVIDER" in
         zai) printf '%s\n' 'model_provider = "zai"' '' '[model_providers.zai]' 'name = "Z.ai"' \
-               'base_url = "https://api.z.ai/api/v1"' 'env_key = "ZAI_API_KEY"' 'wire_api = "responses"' 'requires_openai_auth = false' ;;
+               "base_url = \"$ZAI_ORIGIN$ZAI_CODEX_PATH\"" 'env_key = "ZAI_API_KEY"' 'wire_api = "responses"' 'requires_openai_auth = false' ;;
         azure) printf '%s\n' 'model_provider = "azure"' '' '[model_providers.azure]' 'name = "Azure"' \
                "base_url = \"${AZURE_OPENAI_ENDPOINT:?AZURE_OPENAI_ENDPOINT not set}/openai\"" 'env_key = "AZURE_OPENAI_API_KEY"' \
                'query_params = { api-version = "2025-04-01-preview" }' 'wire_api = "responses"' ;;
@@ -281,7 +280,7 @@ if [ $EGRESS_ON = 1 ]; then
   case "$PROVIDER" in
     custom) if [ "$HARNESS" = claude ]; then endpoint "$(custom_anthropic_url)"; else endpoint "${CUSTOM_BASE_URL:-}"; fi ;;
     openai) ALLOW="$ALLOW,openai.com,chatgpt.com" ;;
-    zai) ALLOW="$ALLOW,z.ai" ;;
+    zai) ALLOW="$ALLOW,z.ai"; endpoint "$ZAI_ORIGIN" ;;   # a recording proxy on 127.0.0.1 when BENCH_RECORD=1
     anthropic) ALLOW="$ALLOW,anthropic.com,claude.ai" ;;
     alibaba) ALLOW="$ALLOW,aliyuncs.com"; endpoint "${ALI_CODEX_BASE_URL:-}" ;;
     azure) endpoint "${AZURE_OPENAI_ENDPOINT:-}" ;;

@@ -2,7 +2,7 @@
 # One benchmark run: a single agent session, then grading (the baseline protocol).
 # Set BENCH_INTERNAL_REVIEW_ROUNDS=2 to opt in to the two-critic builder protocol
 # (docs/internal-review-protocol.md); its 3-run pilot showed no solve gain at 2-10x time.
-# Set BENCH_RECORD=1 (provider custom) to log every model request/response to RUN/traffic.jsonl.
+# Set BENCH_RECORD=1 (provider custom or zai) to log every model request/response to RUN/traffic.jsonl.
 # It also snapshots the work tree as each request arrives (RUN/snap.git, outside the sandbox; BENCH_SNAPSHOTS=0
 # turns that off); bin/first-green.py RUN TASK grades them afterwards for time to first green.
 # Set BENCH_TIME_SCALE=N to multiply the task's time limit (slow local hardware); such runs are
@@ -39,10 +39,15 @@ harness_args "$HARNESS" "$BRIEF" || exit 2
 # swaps in the real one, so the agent cannot print it into its tree, transcript or traffic.
 REAL_KEY=""
 [ "$PROVIDER" = custom ] && [ -n "${CUSTOM_API_KEY:-}" ] && [ "$CUSTOM_API_KEY" != none ] && REAL_KEY="$CUSTOM_API_KEY"
+if [ "$PROVIDER" = zai ] && [ "${BENCH_RECORD:-0}" = 1 ]; then   # z.ai: recorded the same way, the proxy holds its key
+  REAL_KEY="${ZAI_API_KEY:-$(key_from_rc ZAI_API_KEY)}"
+  [ -n "$REAL_KEY" ] || { echo "ZAI_API_KEY not set" >&2; exit 1; }
+fi
 if [ "${BENCH_RECORD:-0}" = 1 ] || [ -n "$REAL_KEY" ]; then
-  [ "$PROVIDER" = custom ] || { echo 'BENCH_RECORD=1 needs provider custom' >&2; exit 2; }
+  case "$PROVIDER" in custom|zai) ;; *) echo 'BENCH_RECORD=1 needs provider custom or zai' >&2; exit 2 ;; esac
   RECORD=$([ "${BENCH_RECORD:-0}" = 1 ] && echo 1 || echo 0)
-  if [ "$HARNESS" = claude ]; then UP="$(custom_anthropic_url)"; else UP="${CUSTOM_BASE_URL%/}"; fi
+  if [ "$PROVIDER" = zai ]; then UP="$ZAI_ORIGIN$([ "$HARNESS" = claude ] && echo "$ZAI_ANTHROPIC_PATH" || echo "$ZAI_CODEX_PATH")"
+  elif [ "$HARNESS" = claude ]; then UP="$(custom_anthropic_url)"; else UP="${CUSTOM_BASE_URL%/}"; fi
   [[ "$UP" =~ ^(https?://[^/]+)(.*)$ ]] || { echo "cannot parse endpoint URL $UP" >&2; exit 2; }
   ORIGIN="${BASH_REMATCH[1]}"; UPATH="${BASH_REMATCH[2]}"
   # snapshots of the work tree per request, outside the sandbox, for bin/first-green.py (BENCH_SNAPSHOTS=0 turns them off)
@@ -51,9 +56,10 @@ if [ "${BENCH_RECORD:-0}" = 1 ] || [ -n "$REAL_KEY" ]; then
                  exec python3 -I "$BENCH/bin/record-proxy.py" "$ORIGIN" "$RUN/traffic.jsonl" 2> "$RUN/proxy.err"; }
   read -r -t 10 PORT <&"${PROXY[0]}" || { echo 'record proxy did not start (see proxy.err)' >&2; exit 2; }
   trap 'kill "$PROXY_PID" 2>/dev/null' EXIT
-  if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT$UPATH"
+  if [ "$PROVIDER" = zai ]; then export ZAI_ORIGIN="http://127.0.0.1:$PORT" ZAI_API_KEY=bench-sandbox-dummy-key
+  elif [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT$UPATH"
   else export CUSTOM_BASE_URL="http://127.0.0.1:$PORT$UPATH"; fi
-  [ -n "$REAL_KEY" ] && export CUSTOM_API_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
+  [ -n "$REAL_KEY" ] && [ "$PROVIDER" = custom ] && export CUSTOM_API_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
   if [ "$RECORD" = 1 ]; then echo "[run] recording model traffic via 127.0.0.1:$PORT -> $RUN/traffic.jsonl"
   else echo "[run] endpoint key held by the proxy on 127.0.0.1:$PORT (not recording)"; fi
 fi

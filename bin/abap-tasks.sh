@@ -2,7 +2,10 @@
 # Native ABAP tasks (an external, privately distributed package) as bench-bench tasks.
 #   ABAP_TASKS=<package root> ABAP_TASKS_REPO=<descriptor checkout> bin/abap-tasks.sh [smoke|medium|full|ID ...]
 # The package root is <root>/{agent,grader-tool,private/{abap-tasks,src-repos,hidden}}, named after the descriptor
-# repository's commit; tasks-abap/PACKAGE pins that commit. Writes tasks-abap/<id>/{task.env,brief.md} (git-ignored)
+# repository's commit; tasks-abap/PACKAGE pins that commit. Descriptors are read from that commit's git objects, package
+# files are checked against <root>/MANIFEST.sha256 when present, and sources come from the package's own clones
+# (<root>/private/src-repos, matched by remote URL; the upstream stays in UPSTREAM_URL), so no task needs the network.
+# Writes tasks-abap/<id>/{task.env,brief.md} (git-ignored)
 # for the chosen tier (tasks-abap/tiers/<tier>.txt) or ids, then:
 #   BENCH_TASKS_DIR=tasks-abap bin/setup.sh --check smoke-ids...      (or no ids: every materialized task)
 #   BENCH_TASKS_DIR=tasks-abap bin/bench.sh <executor> [ids...]
@@ -37,6 +40,14 @@ for a in "${@:-smoke}"; do
   esac
 done
 
+# the package's own clones of the source repositories (private/src-repos/*), keyed by their upstream URL: tasks then
+# need no network at all (setup.sh clones from the local path)
+declare -A LOCAL_SRC=()
+for d in "$ROOT"/private/src-repos/*/; do
+  u="$(git -C "$d" config --get remote.origin.url 2>/dev/null)" || continue
+  u="${u%.git}"; LOCAL_SRC["${u,,}"]="${d%/}"
+done
+
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 n=0
 for k in "${!IDS[@]}"; do
@@ -52,16 +63,18 @@ for k in "${!IDS[@]}"; do
   gold="${prep/\"\$task_stage\/w\";/\"\$task_stage\/w\" --solution;}"
   [ "$gold" != "$prep" ] || { echo "$id: cannot derive GOLD_PREPARE from PREPARE" >&2; exit 2; }
   case "$id" in *-l0-*) level=ABAP-L0 ;; *-l1-*) level=ABAP-L1 ;; *) level=ABAP ;; esac
+  key="${url%.git}"; local_src="${LOCAL_SRC[${key,,}]:-}"
   name="$(basename "$url" .git)"
   rm -rf "$OUT/$id"; mkdir -p "$OUT/$id"
   cp "$src/brief.md" "$OUT/$id/brief.md"
   { cat "$src/task.env"; echo
     echo "# added by bin/abap-tasks.sh (package $PIN)"
     printf "REPO=%q\nLEVEL=%q\nSTRIP=''\nP2P=''\n" "abap-$name" "$level"
+    if [ -n "$local_src" ]; then printf "UPSTREAM_URL=%q\nURL=%q\n" "$url" "$local_src"; fi
     printf "ABAP_TASKS=%q\nAGENT_TOOL=%q\nGRADER_TOOL=%q\nHIDDEN_ROOT=%q\n" "$ROOT" "$ROOT/agent" "$ROOT/grader-tool" "$ROOT/private"
     printf "GOLD_PREPARE=%q\n" "$gold"
     printf "ABAP_PACKAGE=%q\nABAP_TIER=%q\n" "$PIN" "${TIER[$k]}"
   } > "$OUT/$id/task.env"
   n=$((n + 1))
 done
-echo "[abap-tasks] $n tasks in $OUT (package $PIN)"
+echo "[abap-tasks] $n tasks in $OUT (package $PIN; sources from the package: $( (set +u; echo ${#LOCAL_SRC[@]}) ) repositories)"

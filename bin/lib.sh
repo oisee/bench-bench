@@ -24,6 +24,12 @@ EOF
 
 # The Anthropic-style base URL for a custom endpoint: CUSTOM_ANTHROPIC_BASE_URL, or
 # CUSTOM_BASE_URL without its trailing /v1 (Claude Code appends /v1/messages itself).
+# z.ai endpoints; bin/run.sh points ZAI_ORIGIN at its recording proxy when BENCH_RECORD=1
+: "${ZAI_ORIGIN:=https://api.z.ai}"; ZAI_ANTHROPIC_PATH=/api/anthropic; ZAI_CODEX_PATH=/api/v1
+
+# A provider key exported in ~/.bashrc or ~/.profile (non-interactive shells skip them)
+key_from_rc() { bash --norc --noprofile -c 'for f in "$2/.bashrc" "$2/.profile"; do [ -f "$f" ] && eval "$(grep -E "^export $1=" "$f" | tail -1)"; done; printf %s "${!1}"' _ "$1" "$HOME"; }
+
 custom_anthropic_url() {
   local u="${CUSTOM_ANTHROPIC_BASE_URL:-${CUSTOM_BASE_URL:-}}"
   [ -n "${CUSTOM_ANTHROPIC_BASE_URL:-}" ] || { u="${u%/}"; u="${u%/v1}"; }
