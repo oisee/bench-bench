@@ -51,7 +51,8 @@ free_gb=$(( $(df -Pk "$BENCH" | awk 'NR==2{print $4}') / 1048576 ))
 
 echo; echo "== Tasks"
 READY=0
-for t in "$BENCH"/tasks/*/; do
+for t in "${BENCH_TASKS_DIR:-$BENCH/tasks}"/*/; do
+  [ -f "$t/task.env" ] || continue
   id="$(basename "$t")"
   if git -C "$BENCH/.cache/templates/$id" rev-parse -q --verify baseline >/dev/null 2>&1; then ok "$id"; READY=1
   else echo "  · $id not prepared (bin/setup.sh $id)"; fi
