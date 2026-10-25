@@ -96,26 +96,52 @@ def forms(value):
     return list(dict.fromkeys(out))
 
 
-def matcher(secrets):
-    """One regex for all secrets, a named group per secret, and the mask for a match: its first byte and the label."""
-    labels, parts = {}, []
-    for i, (value, label) in enumerate(sorted(secrets.items(), key=lambda kv: -len(kv[0]))):
-        labels['s%d' % i] = label.encode()
-        parts.append(b'(?P<s%d>%s)' % (i, b'|'.join(forms(value))))
-    rx = re.compile(b'|'.join(parts))
-    return rx, lambda m: m.group(0)[:1] + b'***** [' + labels[m.lastgroup] + b']'
+PREFIX = 16
 
 
-def check_file(path, rx, mask, write):
+class Matcher:
+    """One regex for all secrets (a named group per secret) for confirming and masking, and a fast literal prefilter:
+    the regex is slow on large trees, so a file is only run through it if a 16-byte prefix of some form appears in it,
+    either as is or after percent-decoding."""
+
+    def __init__(self, secrets):
+        labels, parts, lits = {}, [], set()
+        for i, (value, label) in enumerate(sorted(secrets.items(), key=lambda kv: -len(kv[0]))):
+            labels['s%d' % i] = label.encode()
+            parts.append(b'(?P<s%d>%s)' % (i, b'|'.join(forms(value))))
+            k = value.encode()
+            lits.add(k[:PREFIX])
+            for f in forms(value)[1:]:               # base64 forms are plain literals
+                lits.add(re.sub(rb'\\(.)', rb'\1', f)[:PREFIX])
+        self.rx = re.compile(b'|'.join(parts))
+        self.lits = sorted(lits)
+        self.labels = labels
+
+    def maybe(self, data):
+        if any(x in data for x in self.lits):
+            return True
+        if b'%' in data:
+            plain = urllib.parse.unquote_to_bytes(data)
+            return any(x in plain for x in self.lits)
+        return False
+
+    def search(self, data):
+        return self.maybe(data) and self.rx.search(data) is not None
+
+    def mask(self, data):
+        return self.rx.sub(lambda m: m.group(0)[:1] + b'***** [' + self.labels[m.lastgroup] + b']', data)
+
+
+def check_file(path, mt, write):
     """'masked', 'found' or None. With WRITE, masks in place atomically and keeps the file mode. An unreadable file
     raises: the scan must not call a directory clean that it could not read."""
     with open(path, 'rb') as f:
         data = f.read()
-    if not rx.search(data):
+    if not mt.search(data):
         return None
     if not write:
         return 'found'
-    data = rx.sub(mask, data)
+    data = mt.mask(data)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.mask-')
     with os.fdopen(fd, 'wb') as f:
         f.write(data)
@@ -124,7 +150,7 @@ def check_file(path, rx, mask, write):
     return 'masked'
 
 
-def object_hits(gitdir, rx):
+def object_hits(gitdir, mt):
     """Git objects (stored compressed) that hold a secret, in RUN/snap.git or in any repository under RUN, the
     agent's work/.git included. Read through a throwaway repository with our own config that borrows the objects
     (alternates), so no git command runs with the agent's config."""
@@ -145,7 +171,7 @@ def object_hits(gitdir, rx):
             oid, _, size = head.split()
             data = p.stdout.read(int(size))
             p.stdout.read(1)                   # the newline after each object
-            if rx.search(data):
+            if mt.search(data):
                 hits.append(oid.decode())
         if p.wait():
             raise RuntimeError('git cat-file failed on ' + gitdir)
@@ -162,13 +188,13 @@ def scan(run, secrets, mask=False):
     """Lines 'masked<TAB>path' / 'found<TAB>path' for every file or git object store that held a secret."""
     if not secrets:
         return []
-    rx, masker = matcher(secrets)
+    mt = Matcher(secrets)
     out = []
     for root, dirs, files in os.walk(run, onerror=_raise):
         rel_root = os.path.relpath(root, run)
         if os.path.basename(root) == 'objects' and any(
                 d in ('pack', 'info') or re.fullmatch(r'[0-9a-f]{2}', d) for d in dirs):
-            oids = object_hits(os.path.dirname(root), rx)   # a git object store, whatever surrounds it
+            oids = object_hits(os.path.dirname(root), mt)   # a git object store, whatever surrounds it
             if oids:
                 out.append('found\t%s (%d git objects)' % (rel_root, len(oids)))
         write = mask and rel_root.split(os.sep)[0] not in UNMASKED
@@ -176,7 +202,7 @@ def scan(run, secrets, mask=False):
             p = os.path.join(root, n)
             if os.path.islink(p) or not os.path.isfile(p):
                 continue
-            r = check_file(p, rx, masker, write)
+            r = check_file(p, mt, write)
             if r:
                 out.append('%s\t%s' % (r, os.path.relpath(p, run)))
     return sorted(out)
