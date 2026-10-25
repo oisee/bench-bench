@@ -59,6 +59,7 @@ if [ "${BENCH_RECORD:-0}" = 1 ] || [ -n "$REAL_KEY" ]; then
 fi
 
 export BENCH_AGENT_TOOL="${AGENT_TOOL:-}"   # native ABAP tasks: osg-abap, read-only at /agent-tool in the sandbox
+[ -n "${ABAP_PACKAGE:-}" ] && export BENCH_NO_WEB=1   # their answers are public code: no web tools (sandbox.sh)
 T0=$(date +%s)
 SNAP="${BENCH_SNAPSHOT_RUN:+$RUN/snap.git}"
 [ -n "$SNAP" ] && [ -d "$SNAP" ] && echo "$T0" > "$SNAP/t0"   # duration origin for bin/first-green.py

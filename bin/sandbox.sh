@@ -198,6 +198,27 @@ EOF
   *) echo "unknown harness $HARNESS" >&2; exit 2 ;;
 esac
 
+# BENCH_NO_WEB=1 (the native ABAP protocol, whose answers are public code one fetch away): no web tools. Claude Code
+# gets WebFetch/WebSearch disallowed on the command line and denied in its settings; Codex gets its built-in web search
+# (which runs on the provider's side, outside this sandbox) disabled. Code hosts and search engines are also
+# unresolvable below. bin/net-audit.py checks every run for what was still attempted.
+if [ "${BENCH_NO_WEB:-0}" = 1 ]; then
+  case "$HARNESS" in
+    claude)
+      CMD+=(--disallowedTools "WebFetch,WebSearch")
+      python3 -I - "$H/.claude/settings.json" <<'EOF2'
+import json,sys
+p=sys.argv[1]; d=json.load(open(p))
+deny=d.setdefault("permissions",{}).setdefault("deny",[])
+for t in ("WebFetch","WebSearch"):
+    if t not in deny: deny.append(t)
+json.dump(d,open(p,"w"))
+EOF2
+      ;;
+    codex) sed -i '1i web_search = "disabled"' "$H/.codex/config.toml" ;;   # top level, before any [table]
+  esac
+fi
+
 # BENCH_SHELL=1 drops into a shell inside the same sandbox (for debugging / smoke tests)
 [ -n "${BENCH_SHELL:-}" ] && CMD=(bash)
 
@@ -206,6 +227,12 @@ HOSTS="$RUN/hosts"
 { cat /etc/hosts; for h in github.com www.github.com api.github.com gist.github.com raw.githubusercontent.com \
     codeload.github.com objects.githubusercontent.com githubusercontent.com github.io oisee.github.io \
     uploads.github.com; do echo "0.0.0.0 $h"; echo ":: $h"; done; } > "$HOSTS"
+if [ "${BENCH_NO_WEB:-0}" = 1 ]; then   # more code hosts, mirrors and search engines
+  for h in gitlab.com bitbucket.org codeberg.org gitee.com sourcegraph.com codeload.github.com github.io \
+      api.github.com objects.githubusercontent.com raw.github.com gist.githubusercontent.com \
+      www.google.com google.com www.bing.com bing.com duckduckgo.com html.duckduckgo.com search.brave.com \
+      api.search.brave.com www.searchcode.com searchcode.com grep.app; do echo "0.0.0.0 $h"; echo ":: $h"; done >> "$HOSTS"
+fi
 
 # /etc/resolv.conf may point into /mnt (WSL); expose just that file
 RESOLV="$(readlink -f /etc/resolv.conf)"

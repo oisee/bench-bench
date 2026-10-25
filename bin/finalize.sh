@@ -14,6 +14,14 @@ HITS=$(grep -rhoE "github\.com/oisee/$REPO/(pull|pulls|commit|commits|compare|tr
   "$RUN/agent.out" "$RUN/agent.err" "$RUN/home" 2>/dev/null | \
   grep -vF "github.com/oisee/$REPO/blob/main-archive/docs/" | sort | uniq -c | sort -rn | head -20)
 rm -f "$RUN/leak-audit.txt"; [ -n "$HITS" ] && printf '%s\n' "$HITS" > "$RUN/leak-audit.txt"
+# native ABAP tasks: their answers are public code, so a run whose network access brought back the hidden body (or a
+# provider-side search result) is `contaminated`: shown, counted as neither solved nor failed
+CONTAM=""
+if [ -n "${ABAP_PACKAGE:-}" ]; then
+  python3 -I "$BENCH/bin/contamination.py" "$RUN" "$T" > "$RUN/contamination.json" 2> "$RUN/contamination.err" \
+    && rm -f "$RUN/contamination.err" || { echo '[run] contamination check failed; see contamination.err' >&2; CONTAM=unknown; }
+  [ -z "$CONTAM" ] && CONTAM="$(python3 -I -c 'import json,sys;print("yes" if json.load(open(sys.argv[1]))["contaminated"] else "no")' "$RUN/contamination.json")"
+fi
 # no secret may stay in the run's artifacts: the endpoint key (BENCH_SECRET, from bin/run.sh) and every provider key,
 # token or OAuth login secret are masked in place (work/ and snap.git only reported); any hit keeps secret_leak set
 SECRET_LEAK=""; rm -f "$RUN/secret-audit.txt"
@@ -23,13 +31,15 @@ case $? in
   1) SECRET_LEAK=yes; echo "[run] secrets found in the run directory and masked where possible, see $RUN/secret-audit.txt" >&2 ;;
   *) SECRET_LEAK=unknown; echo '[run] secret scan failed; treat the run directory as unsafe to publish' >&2 ;;
 esac
-python3 -I - "$RUN" "$TID" "$LEVEL" "$EX" "$HARNESS" "$PROVIDER" "$MODEL" "$EFFORT" "$RC" "$DUR" "$STOP" "${HITS:+yes}" "$SECRET_LEAK" <<'PY'
+python3 -I - "$RUN" "$TID" "$LEVEL" "$EX" "$HARNESS" "$PROVIDER" "$MODEL" "$EFFORT" "$RC" "$DUR" "$STOP" "${HITS:+yes}" "$SECRET_LEAK" "$CONTAM" <<'PY'
 import json,sys,os
-run,tid,lvl,ex,h,p,m,e,rc,dur,stop,leak,secret=sys.argv[1:]
+run,tid,lvl,ex,h,p,m,e,rc,dur,stop,leak,secret,contam=sys.argv[1:]
 r=json.load(open(os.path.join(run,"result.json")))
 meta=json.load(open(os.path.join(run,"meta.json")))
 r.update(task=tid,level=lvl,executor=ex,harness=h,provider=p,model=m,effort=e,agent_exit=int(rc),
          duration_s=int(dur),stop=stop,leak_suspect=bool(leak),harness_version=meta.get("harness_version"))
+if contam:
+    r["contaminated"]=contam
 if secret:
     r["secret_leak"]=secret
     audit=os.path.join(run,"secret-audit.txt")

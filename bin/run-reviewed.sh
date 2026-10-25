@@ -14,6 +14,7 @@ TID="$(basename "$T")"
 EX="${2:?executor id required}"
 source "$T/task.env"
 export BENCH_AGENT_TOOL="${AGENT_TOOL:-}"   # native ABAP tasks: osg-abap in every stage's sandbox
+[ -n "${ABAP_PACKAGE:-}" ] && export BENCH_NO_WEB=1
 
 read -r PROVIDER MODEL HARNESS EFFORT < <(python3 -I - "$BENCH/matrix.yaml" "$EX" <<'PY'
 import re,sys
