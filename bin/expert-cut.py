@@ -6,12 +6,12 @@ every source byte is read once, kept tensors are written byte-exact (same dtype,
 bytes), experts are renumbered 0..K-1 in ascending original-id order, router rows are
 sliced in the same order. Writes new shards (same file names), model.safetensors.index.json,
 config.json with num_experts=K, copies tokenizer/chat-template/other small files as-is
-and writes cnm-cut-manifest.json (source sha256s, kept ids, new->original mapping).
+and writes expert-cut-manifest.json (source sha256s, kept ids, new->original mapping).
 
 Modes:
-  hf-cut-experts.py SRC KEEP_JSON DST [--dry-run] [--mtp drop]
-  hf-cut-experts.py --verify SRC DST [--keep KEEP_JSON] [--hashes]
-  hf-cut-experts.py --compare-router SRC REF      (REF: a local dir or hf:ORG/REPO[@REV])
+  bin/expert-cut.py SRC KEEP_JSON DST [--dry-run] [--mtp drop]
+  bin/expert-cut.py --verify SRC DST [--keep KEEP_JSON] [--hashes]
+  bin/expert-cut.py --compare-router SRC REF      (REF: a local dir or hf:ORG/REPO[@REV])
 
 KEEP_JSON: {"0": [original ids], ..., "47": [...]} for every routed MoE layer of the
 main model; MTP layers, if cut, as "mtp.0". Keys starting with "_" are ignored.
@@ -35,7 +35,8 @@ from array import array
 TOOL_VERSION = 1
 INDEX = 'model.safetensors.index.json'
 CONFIG = 'config.json'
-MANIFEST = 'cnm-cut-manifest.json'
+MANIFEST = 'expert-cut-manifest.json'
+OLD_MANIFEST = 'cnm-cut-manifest.json'   # name used by cuts made before the tool moved here; still read
 PARTIAL = '.partial'    # shards are written under this suffix and renamed when all are complete
 CHUNK = 64 << 20
 
@@ -439,7 +440,7 @@ def other_files(src_dir):
     copy, skipped = [], []
     for n in sorted(os.listdir(src_dir)):
         p = os.path.join(src_dir, n)
-        if n.startswith('.') or n in (INDEX, CONFIG, MANIFEST):
+        if n.startswith('.') or n in (INDEX, CONFIG, MANIFEST, OLD_MANIFEST):
             continue
         if os.path.isdir(p):
             skipped.append(n + '/')
@@ -577,7 +578,7 @@ def cut(src_dir, keep_path, dst_dir, dry_run=False, mtp_policy=None, log=print):
     with open(keep_path, 'rb') as f:
         keep_sha = hashlib.sha256(f.read()).hexdigest()
     manifest = {
-        'tool': 'cnm scripts/hf-cut-experts.py', 'tool_version': TOOL_VERSION,
+        'tool': 'bench-bench bin/expert-cut.py', 'tool_version': TOOL_VERSION,
         'created_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'src_dir': os.path.abspath(src_dir), 'keep_json': os.path.abspath(keep_path), 'keep_json_sha256': keep_sha,
         'num_experts_src': model['E'], 'num_experts_dst': K, 'top_k': model['topk'],
@@ -618,7 +619,7 @@ def verify(src_dir, dst_dir, keep_path=None, hashes=False, log=print, max_report
 
     src, dst = Source(src_dir), Source(dst_dir)
     model = load_model(src)
-    man = dst.read_json(MANIFEST)
+    man = dst.read_json(MANIFEST if dst.exists(MANIFEST) or not dst.exists(OLD_MANIFEST) else OLD_MANIFEST)
     E = model['E']
     lay = {k: v['new_to_original'] for k, v in man['layers'].items()}
     Ks = {len(v) for v in lay.values()}

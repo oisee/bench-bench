@@ -6,6 +6,7 @@ and a script, not weights: you cut your own files on your own disk.
 - `data/expert-sets/qwen38fn-192.json` — the 192-expert keep list (a subset of the 224 set; the build we run ourselves).
 - `data/expert-sets/qwen38fn-224.json` — the keep list: `{"0": [...], ..., "47": [...]}`, 224 **original** expert ids
   (0..511) per routed MoE layer, ascending.
+- `data/expert-sets/qwen38fn-224-implant16.json` — 224 with 16 per layer replaced by session-ranked experts ([below](#224-with-implanted-experts-qwen38fn-224-implant16json)).
 - `bin/expert-cut.py` — the script: Python 3.8+, **standard library only** (no torch, numpy or
   `safetensors` package). It never loads the model; it streams shard by shard and stays under 1 GB of RAM
   (430 MB peak just to index the 299,545 tensors of the NVIDIA build, plus 64 MB copy buffers).
@@ -21,7 +22,7 @@ tensor unchanged (shared expert, `shared_expert_gate`, attention, PLE, vision, e
 It writes the shards under the same file names (as `*.partial`, renamed only when all are complete), a new
 `model.safetensors.index.json`, and `config.json` with `text_config.num_experts = 224` (nothing else
 changed). It copies the tokenizer, chat template, generation config and quant configs as-is, and writes
-`cnm-cut-manifest.json`: the sha256 of every source file, plus the kept ids and the new->original mapping
+`expert-cut-manifest.json`: the sha256 of every source file, plus the kept ids and the new->original mapping
 for each layer. Contiguous ids are required: vLLM sizes the router and FusedMoE with `num_experts` slots and
 loads checkpoint experts by index.
 
@@ -130,7 +131,7 @@ Not tested or verified:
 
 ## Checks of the script
 
-The script ships with CPU tests on a synthetic model (4 layers x 16 experts, NVFP4-style scales, an MTP
+`python3 tests/test_expert_cut.py` runs CPU tests on a synthetic model (4 layers x 16 experts, NVFP4-style scales, an MTP
 block, layers split across shards). They check router rows, experts under the mapping, non-expert tensors,
 config and index.
 
@@ -160,3 +161,13 @@ Same commands with `data/expert-sets/qwen38fn-192.json`. The 192 set is the 224 
 router weight on the same agentic session. In our GGUF builds it passed the same checks as 224 and solved our first live
 tasks; it was not measured on NVFP4/vLLM either. For the NVIDIA NVFP4 checkpoint a dry run gives 81.4 GiB (192) vs 85.4 GiB
 (224) with `--mtp drop`.
+
+## 224 with implanted experts (`qwen38fn-224-implant16.json`)
+
+DSLab 224 with 16 experts per layer replaced by experts ranked on an agentic ABAP/Go session. In layers 0–46 the 16
+weakest experts of the 224 set (lowest summed router weight on that session) give way to the 16 strongest experts outside
+DSLab's 256; layer 47 has one replacement, 753 in total. Same format and commands as the 224 set. In our 3.5-bit GGUF
+tests it had a lower KL divergence to the full model than DSLab 224 (0.148 vs 0.202) and solved L1a (7.3 min) and L2a (23.9 min) in
+live runs; these runs are not paired with the committed DSLab 224 series, so the times
+do not compare directly. It is not measured on NVFP4/vLLM; there the newcomers keep their own NVFP4 bytes.
+
