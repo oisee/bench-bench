@@ -1,0 +1,367 @@
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..48571ef 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,12 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  // decode_base64 is the transpiler runtime's Buffer.from(encoded, "base64")
++  // .toString(): the base64 rule of DECODE_X_BASE64 above (both alphabets,
++  // optional padding, non-alphabet bytes ignored, a cut at '='), then the
++  // bytes read as UTF-8 text as Node does — one U+FFFD per ill-formed
++  // subpart, Node's counts, go/nodeutf8. Oracle: Node, not measured on A4H.
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/abap/b64decode_test.go b/tools/gogen/go/abap/b64decode_test.go
+index c690cca..8236c0e 100644
+--- a/tools/gogen/go/abap/b64decode_test.go
++++ b/tools/gogen/go/abap/b64decode_test.go
+@@ -19,3 +19,32 @@ func TestDecodeXBase64(t *testing.T) {
+ 		}
+ 	}
+ }
++
++// DecodeBase64 is Buffer.from(encoded, "base64").toString() on Node 22
++// (2026-10-24): the base64 rule above, then go/nodeutf8's text.
++func TestDecodeBase64(t *testing.T) {
++	for _, tc := range []struct{ encoded, want string }{
++		{"YWJhcA==", "abap"},
++		{"YWJhcA", "abap"},
++		{"aGVl=", "hee"},
++		{"aGVl", "hee"},
++		{"aGVl ZGV4", "heedex"},
++		{"aGVl=ZGV4", "hee"},
++		{"aGVl!", "hee"},
++		{"a", ""},
++		{"a-_/", "k��"},
++		{"a+//", "k��"},
++		{"aMOpbGxv", "héllo"},
++		{"/w==", "�"},
++		{"4KCA", "ࠀ"},
++		{"zoDO", "΀\uFFFD"},
++		{"QfRB", "A�A"},
++		{"wIA=", "��"},
++		{"4ICA", "���"},
++		{"", ""},
++	} {
++		if got := DecodeBase64(&Session{}, tc.encoded); got != tc.want {
++			t.Errorf("DecodeBase64(%q) = %q, want %q", tc.encoded, got, tc.want)
++		}
++	}
++}
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..f17b4a6 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,13 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: Buffer.from(encoded,
++// "base64").toString() — the base64 step of DecodeXBase64 (both alphabets,
++// optional padding, non-alphabet bytes ignored, the content cut at '='),
++// then go/nodeutf8 reads the bytes as UTF-8 text the way Node does: one
++// U+FFFD per ill-formed subpart, valid text around it kept. Oracle: Node
++// (the @KERNEL lines of open-abap-core), not measured on A4H.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(DecodeXBase64(s, encoded))
++}
+diff --git a/tools/gogen/go/nodeutf8/README.md b/tools/gogen/go/nodeutf8/README.md
+new file mode 100644
+index 0000000..6bce441
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/README.md
+@@ -0,0 +1,10 @@
++# nodeutf8
++
++Node's UTF-8 text interpretation of raw bytes (`Buffer.toString("utf8")`),
++shared by the base64 host functions and any other byte-to-text seam.
++`Decode` returns valid UTF-8 unchanged; every maximal subpart of an ill-formed
++byte subsequence becomes one U+FFFD, and valid text around it survives.
++The counts follow V8, not the WHATWG table: an out-of-range continuation
++byte replaces the lead alone and is re-read (0xE0 0x9F 0xBF is three),
++a sequence cut by the end of the input is one. The rows of
++`nodeutf8_test.go` are Node 22's answers.
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8.go b/tools/gogen/go/nodeutf8/nodeutf8.go
+new file mode 100644
+index 0000000..15149fd
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8.go
+@@ -0,0 +1,100 @@
++// Package nodeutf8 interprets a string of raw bytes as text the way Node's
++// Buffer.toString("utf8") does: every maximal subpart of an ill-formed byte
++// subsequence becomes one U+FFFD, the valid text around it survives, and a
++// sequence cut by the end of the input is one replacement too. Node (V8),
++// not the WHATWG table, is the oracle: an out-of-range continuation byte
++// ends the sequence at its lead and the byte itself is replaced again (0xE0
++// 0x9F 0xBF is three U+FFFD, not two; 0xC0 0x80 is two, not one), while
++// 0xE1 0x80 cut short is one. Measured on Node 22, 2026-10-24.
++package nodeutf8
++
++import "strings"
++
++const replacement = "\uFFFD"
++
++// Decode returns the Node-compatible UTF-8 text of a string of raw bytes:
++// valid UTF-8 comes back unchanged, each ill-formed subpart of the rest
++// becomes one U+FFFD.
++func Decode(b string) string {
++	ascii := true
++	for i := 0; i < len(b); i++ {
++		if b[i] >= 0x80 {
++			ascii = false
++			break
++		}
++	}
++	if ascii {
++		return b
++	}
++	var out strings.Builder
++	n := len(b)
++	i := 0
++	for i < n {
++		c := b[i]
++		if c < 0x80 {
++			out.WriteByte(c)
++			i++
++			continue
++		}
++		// 0x80..0xC1: a continuation byte used as a lead, or an overlong
++		// lead; 0xF5..0xFF: no sequence starts here. One replacement, one
++		// byte.
++		if c <= 0xC1 || c >= 0xF5 {
++			out.WriteString(replacement)
++			i++
++			continue
++		}
++		// the lead's range for the second byte: E0 excludes the overlong
++		// 80..9F, ED the surrogates A0..BF, F0 the overlong 80..8F and F4
++		// the beyond-10FFFF 90..BF
++		lo := byte(0x80)
++		hi := byte(0xBF)
++		total := 2
++		var cp uint32
++		if c <= 0xDF {
++			cp = uint32(c&0x1F) << 6
++		} else if c <= 0xEF {
++			cp = uint32(c&0x0F) << 12
++			total = 3
++			if c == 0xE0 {
++				lo = 0xA0
++			} else if c == 0xED {
++				hi = 0x9F
++			}
++		} else {
++			cp = uint32(c&0x07) << 18
++			total = 4
++			if c == 0xF0 {
++				lo = 0x90
++			} else if c == 0xF4 {
++				hi = 0x8F
++			}
++		}
++		if i+1 >= n || b[i+1] < lo || b[i+1] > hi {
++			// the second byte is not in the lead's range: Node replaces the
++			// lead and re-reads that byte, it is not part of the sequence
++			out.WriteString(replacement)
++			i++
++			continue
++		}
++		cp |= uint32(b[i+1]&0x3F) << uint32(6*(total-2))
++		k := 2
++		for ; k < total; k++ {
++			if i+k >= n || b[i+k] < 0x80 || b[i+k] > 0xBF {
++				break
++			}
++			cp |= uint32(b[i+k]&0x3F) << uint32(6*(total-1-k))
++		}
++		if k < total {
++			// a missing or non-continuation byte mid-sequence: one
++			// replacement for the valid prefix of the sequence, and the
++			// scan resumes at the byte that broke it
++			out.WriteString(replacement)
++			i += k
++			continue
++		}
++		out.WriteRune(rune(cp))
++		i += total
++	}
++	return out.String()
++}
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8_test.go b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+new file mode 100644
+index 0000000..5c15d53
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+@@ -0,0 +1,60 @@
++package nodeutf8
++
++import "testing"
++
++// the rows are Buffer.from(<bytes>).toString() on Node 22 (2026-10-24):
++// one U+FFFD per maximal ill-formed subpart, Node's counts for an
++// out-of-range continuation byte (the lead is replaced alone and the byte
++// re-read) and for a sequence cut by the end of the input
++func TestDecode(t *testing.T) {
++	for _, tc := range []struct {
++		in, want string
++	}{
++		{"", ""},
++		{"abc", "abc"},
++		{"héllo", "héllo"},
++		{"AéB", "AéB"},
++		// a lone continuation byte, an invalid lead
++		{"\xff", "�"},
++		{"\x80", "�"},
++		{"\xf5\x8e", "��"},
++		{"\xf8\x80\x80\x80", "����"},
++		// overlong leads: Node replaces the lead and re-reads the byte
++		{"\xc0\x80", "��"},
++		{"\xc1\xbf", "��"},
++		{"\xe0\x80\x80", "���"},
++		{"\xe0\x9f\xbf", "���"},
++		{"\xf0\x8f\x80\x80", "����"},
++		{"\xf4\x90\x80\x80", "����"},
++		// the surrogate range
++		{"\xed\xa0\xa0", "���"},
++		// cut by the end of the input: one replacement for the prefix
++		{"\xc2", "�"},
++		{"\xe1\x80", "�"},
++		{"\xe0\xa0", "�"},
++		{"\xf0\x90\x80", "�"},
++		// a non-continuation byte mid-sequence: one replacement, resume
++		// at that byte
++		{"\xc2(", "�("},
++		{"\xe1\x80(", "�("},
++		{"\xf0\x90(", "�("},
++		{"\xf0\x90\x80(", "�("},
++		{"\xf0\x90( ", "�( "},
++		// valid text around the malformed bytes
++		{"\xce\x80\xce", "΀�"},
++		{"A\xf4A", "A�A"},
++		{"h\xc3\xa9e", "hée"},
++		// valid multibyte, all ranges
++		{"\xc2\x80", "\u0080"},
++		{"\xdf\xbf", "\u07ff"},
++		{"\xe0\xa0\x80", "ࠀ"},
++		{"\xef\xbf\xbf", "￿"},
++		{"\xf0\x90\x80\x80", "𐀀"},
++		{"\xf4\x8f\xbf\xbf", "􏿿"},
++		{"\xed\x9f\xbf", "\ud7ff"},
++	} {
++		if got := Decode(tc.in); got != tc.want {
++			t.Errorf("Decode(%q) = %q, want %q", tc.in, got, tc.want)
++		}
++	}
++}
+diff --git a/tools/gogen/semantics.mjs b/tools/gogen/semantics.mjs
+index 2726ba6..83d2636 100644
+--- a/tools/gogen/semantics.mjs
++++ b/tools/gogen/semantics.mjs
+@@ -273,6 +273,14 @@ const EXPECT = {
+   // stays initial; tables compare row by row in order, c without blanks
+   ZCL_GOGEN_T_CORR: "[ab/0007/][abcdef/1234/] empty:0 copy:eq changed:ne shorter:ne reversed:ne blanks:eq wide:ne",
+   ZCL_GOGEN_T_B64: {Go: "b1:/w== b2://4= b3:+/+/ b0:[]", JS: "ERROR NOT_COMPILED in abap.EncodeXBase64: a host function of the Go runtime"},
++  // cl_http_utility=>decode_base64: the transpiler runtime's Buffer.from(
++  // encoded, "base64").toString() — the base64 rule of the entry above
++  // (both alphabets, optional padding, non-alphabet bytes ignored, a cut
++  // at '='), then the bytes read as UTF-8 text as Node does: one U+FFFD per
++  // maximal ill-formed subpart, valid text around it kept, Node's counts
++  // (0xE0 0x9F 0xBF is three, a cut sequence one) — go/nodeutf8. Oracle: Node
++  // (2026-10-24), not measured on A4H; the JS emitter refuses the host call.
++  ZCL_GOGEN_T_B64D: {Go: "pad:hee nopad:hee url:k\uFFFD\uFFFD std:k\uFFFD\uFFFD gap:heedex cut:hee bang:hee one:[] u8:h\u00e9llo len:5 ff:[\uFFFD] c080:[\uFFFD\uFFFD] e08080:[\uFFFD\uFFFD\uFFFD] surro:[\uFFFD\uFFFD\uFFFD] cut3:[\uFFFD] f08f:[\uFFFD\uFFFD\uFFFD\uFFFD] f58e:[\uFFFD\uFFFD] ce80:[\u0380\uFFFD] mid:[A\uFFFDA] a000:[\u0800] mix:[A\u00e9B] len:3", JS: "ERROR NOT_COMPILED in abap.DecodeBase64: a host function of the Go runtime"},
+   // SHIFT s RIGHT DELETING TRAILING mask on a string: the length stays, the
+   // masked tail goes and blanks come in on the left; a blank stops it
+   // (A4H 2026-09-23, $batch parts end their body this way)
+diff --git a/tools/gogen/testdata/zcl_gogen_t_b64d.clas.abap b/tools/gogen/testdata/zcl_gogen_t_b64d.clas.abap
+new file mode 100644
+index 0000000..cafa712
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_b64d.clas.abap
+@@ -0,0 +1,74 @@
++CLASS zcl_gogen_t_b64d DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++
++CLASS zcl_gogen_t_b64d IMPLEMENTATION.
++  METHOD run.
++    DATA lv_e TYPE string.
++    DATA lv_d TYPE string.
++    DATA lv_n TYPE i.
++    lv_e = 'aGVl='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |pad:{ lv_d }|.
++    lv_e = 'aGVl'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } nopad:{ lv_d }|.
++    lv_e = 'a-_/'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } url:{ lv_d }|.
++    lv_e = 'a+//'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } std:{ lv_d }|.
++    lv_e = 'aGVl ZGV4'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } gap:{ lv_d }|.
++    lv_e = 'aGVl=ZGV4'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } cut:{ lv_d }|.
++    lv_e = 'aGVl!'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } bang:{ lv_d }|.
++    lv_e = 'a'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } one:[{ lv_d }]|.
++    lv_e = 'aMOpbGxv'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    lv_n = strlen( lv_d ).
++    rv = |{ rv } u8:{ lv_d } len:{ lv_n }|.
++    lv_e = '/w=='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } ff:[{ lv_d }]|.
++    lv_e = 'wIA='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } c080:[{ lv_d }]|.
++    lv_e = '4ICA'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } e08080:[{ lv_d }]|.
++    lv_e = '7aCg'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } surro:[{ lv_d }]|.
++    lv_e = '4YA='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } cut3:[{ lv_d }]|.
++    lv_e = '8I+AgA=='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } f08f:[{ lv_d }]|.
++    lv_e = '9Y4='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } f58e:[{ lv_d }]|.
++    lv_e = 'zoDO'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } ce80:[{ lv_d }]|.
++    lv_e = 'QfRB'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } mid:[{ lv_d }]|.
++    lv_e = '4KCA'.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    rv = |{ rv } a000:[{ lv_d }]|.
++    lv_e = 'QcOpQg=='.
++    lv_d = cl_http_utility=>decode_base64( lv_e ).
++    lv_n = strlen( lv_d ).
++    rv = |{ rv } mix:[{ lv_d }] len:{ lv_n }|.
++  ENDMETHOD.
++ENDCLASS.

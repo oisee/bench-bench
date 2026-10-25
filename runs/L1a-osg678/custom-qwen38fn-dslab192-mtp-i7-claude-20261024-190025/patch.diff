@@ -1,0 +1,63 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..1f0784f 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,56 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Scanned by hand rather than with `/'((?:[^']|'')*)'/g`: V8 recurses once
++ *  per iteration of a star over an alternation, so a literal of ~15 million
++ *  characters overflowed the C stack before a match was ever reported. The
++ *  loop below keeps the same interpretation of the quotes -- a doubled quote
++ *  inside a literal is content, and when a literal ends the statement on a
++ *  doubled quote, the first of that pair closes it and the second is left
++ *  outside, exactly as the backtracking regex handed it over. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const QUOTE = 39; // '
++  const BLANK = 32; // a space
++  const n = sql.length;
++  const parts = [];
++  let i = 0;
++  for (;;) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) {
++      parts.push(sql.slice(i));
++      break;
++    }
++    parts.push(sql.slice(i, open + 1));
++
++    // Find the closing quote: a doubled quote is content, and the first
++    // quote of the last pair closes the literal if nothing else does.
++    let close = -1;
++    let lastPair = -1;
++    for (let j = open + 1; j < n; j++) {
++      if (sql.charCodeAt(j) !== QUOTE) continue;
++      if (sql.charCodeAt(j + 1) === QUOTE) {
++        lastPair = j;
++        j++;
++        continue;
++      }
++      close = j;
++      break;
++    }
++    if (close < 0 && lastPair >= 0) close = lastPair;
++    if (close < 0) {
++      i = open + 1; // no literal starts here; this quote is statement text
++      continue;
++    }
++
++    const inner = sql.slice(open + 1, close);
++    let k = inner.length;
++    while (k > 0 && inner.charCodeAt(k - 1) === BLANK) k--;
++    parts.push(inner.slice(0, k) + "'");
++    i = close + 1;
++  }
++  return parts.join("");
+ }
+ 
+ /**

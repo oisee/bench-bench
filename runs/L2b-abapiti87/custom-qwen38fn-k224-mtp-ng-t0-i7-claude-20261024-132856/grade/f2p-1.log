@@ -1,0 +1,5 @@
+# github.com/oisee/abapiti/hir/abap [github.com/oisee/abapiti/hir/abap.test]
+hir/abap/indent_test.go:8:6: TestIndentBlocks redeclared in this block
+	hir/abap/format_test.go:15:6: other declaration of TestIndentBlocks
+FAIL	github.com/oisee/abapiti/hir/abap [build failed]
+FAIL

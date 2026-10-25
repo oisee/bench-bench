@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build reports/summary.html: a one-page summary with charts.
 
-Reads data/runs.csv (bin/export.py), data/critic-screen.csv (bin/critic-screen.py)
-and data/critic-adjudication.json (reference checks of rejected passing patches)
+Reads data/runs.csv (bin/export.py), data/critic-screen.csv (bin/critic-screen.py),
+data/critic-adjudication.json (reference checks of rejected passing patches),
+data/first-green.csv and data/decode-speed.csv (local runs)
 and embeds them as JSON; the page draws everything client-side. Re-run after either
 source changes:  python3 -I bin/summary-report.py
 """
@@ -25,6 +26,22 @@ NAMES = {
     "custom-qwen38fn-claude": ("Qwen3.8-Flash-Next NVFP4", "claude"), "custom-qwen38fn-pi": ("Qwen3.8-Flash-Next NVFP4", "pi"),
     "custom-qwen38fn-iq4-i7-claude": ("Qwen3.8-Flash-Next IQ4_XS (i7)", "claude"),
     "custom-qwen38fn-k224-i7-claude": ("Qwen3.8-Flash-Next DSLab K224 (i7)", "claude"),
+    "custom-qwen38fn-k224-mtp-ng-i7-claude": ("K224 variant: MTP + n-gram (i7)", "claude"),
+    "custom-qwen38fn-k224-mtp-ng-t0-i7-claude": ("K224 variant: MTP + n-gram, temperature 0 (i7)", "claude"),
+    "custom-qwen38fn-k224-ng-t06-i7-claude": ("K224 variant: n-gram, temperature 0.6 (i7)", "claude"),
+    "custom-qwen38fn-implant16-i7-claude": ("Qwen3.8-Flash-Next K224-implant16 (i7)", "claude"),
+    "custom-qwen38fn-k192pimp16-i7-claude": ("Qwen3.8-Flash-Next K192p-implant16 (i7)", "claude"),
+    "custom-qwen38fn-dslab192-mtp-i7-claude": ("Qwen3.8-Flash-Next DSLab 192, MTP + n-gram (i7)", "claude"),
+    "custom-qwen38fn-dslab192-q51-i7-claude": ("Qwen3.8-Flash-Next DSLab 192, V cache q5_1 (i7)", "claude"),
+    "custom-qwen38fn-dslab192-q4h-i7-claude": ("Qwen3.8-Flash-Next DSLab 192, Q4 MTP head (i7)", "claude"),
+    "custom-qwen38fn-dslab192p-i7-claude": ("Qwen3.8-Flash-Next DSLab 192p (i7)", "claude"),
+    "custom-qwen38fn-iq2-dslab192-mtp-i7-claude": ("Qwen3.8-Flash-Next 2-bit, 192 experts (i7)", "claude"),
+    "custom-qwen38fn-iq2-dslab280-mtp-i7-claude": ("Qwen3.8-Flash-Next 2-bit, 280 experts (i7)", "claude"),
+    "custom-qwen38-27b-mtp-i7-claude": ("Qwen3.8-27B Q4 + MTP (i7)", "claude"),
+    "custom-cand-ornith-i7-claude": ("Ornith-1.5-35B-A3B Q4_K_M (i7)", "claude"),
+    "custom-cand-flint-i7-claude": ("Flint Q4_K_M (i7)", "claude"),
+    "custom-cand-nemotron-i7-claude": ("Nemotron 3.5 Lightning 30B-A3B (i7)", "claude"),
+    "custom-cand-muse-i7-claude": ("Muse Glimmer 30B + DFlash (i7)", "claude"),
 }
 CRITICS = {"S-sol": "Sol · Codex", "S-opus": "Opus · Claude Code", "S-fable": "Fable · Claude Code",
            "S-glm": "GLM-5.3 · Claude Code", "S-glm-pi": "GLM-5.3 · Pi", "S-qwen-pi": "Qwen 3.7+ · Pi"}
@@ -46,7 +63,21 @@ for r in csv.DictReader(open(os.path.join(B, "data/runs.csv"))):
         override=r.get("jury_override") == "True",
         tin=num(r["input_tokens"]), tcache=num(r["cached_input_tokens"]), tout=num(r["output_tokens"]),
         calls=num(r["llm_calls"]), tools=num(r["tool_calls"]), cost=num(r["cost_api_usd"]), model_id=r["model"],
-        protocol=r.get("protocol") or None))
+        protocol=r.get("protocol") or None, run=r["run_id"]))
+
+# time to first green (data/first-green.csv) and decode speed of local servers (data/decode-speed.csv)
+first_green = []
+p = os.path.join(B, "data/first-green.csv")
+if os.path.exists(p):
+    for r in csv.DictReader(open(p)):
+        first_green.append(dict(run=r["run_id"], fg=num(r["first_green_s"]), req=num(r["first_green_request"]),
+                                reqs=num(r["requests"]), dur=num(r["duration_s"]), stayed=r["stayed_green"] == "True",
+                                method=r["method"]))
+decode = {}
+p = os.path.join(B, "data/decode-speed.csv")
+if os.path.exists(p):
+    for r in csv.DictReader(open(p)):
+        decode[r["executor"]] = num(r["tg_median"])
 
 screen = []
 p = os.path.join(B, "data/critic-screen.csv")
@@ -79,7 +110,7 @@ for k, v in pj.items():
 prices["opus"] = dict(i=None, c=None, o=None, est=False, harness=True)
 
 data = dict(prices=prices, generated=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-            runs=runs, screen=screen, critics=CRITICS)
+            runs=runs, screen=screen, critics=CRITICS, first_green=first_green, decode=decode)
 for tpl, out in PAGES:
     out = os.path.join(B, "reports", out)
     html = open(os.path.join(B, "bin", tpl)).read().replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))

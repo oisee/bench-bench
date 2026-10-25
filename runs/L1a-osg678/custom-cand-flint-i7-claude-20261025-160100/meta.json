@@ -1,0 +1,14 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "cand-flint",
+  "effort": "xhigh",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-25T16:04:39+00:00",
+  "finished_at": "2026-10-25T16:16:05+00:00",
+  "exit_code": "0",
+  "protocol": "time-scaled-v1",
+  "time_scale": "5",
+  "time_limit_s": 9000
+}

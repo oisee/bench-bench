@@ -1,0 +1,25 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "npx mocha test/write-boundary.mjs",
+      "rc": 0
+    }
+  ],
+  "p2p": [],
+  "patch_lines": 63,
+  "task": "L1a-osg678",
+  "level": "L1",
+  "executor": "custom-qwen38fn-dslab192-mtp-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-dslab192-mtp-ng",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 979,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

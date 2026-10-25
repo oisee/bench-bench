@@ -1,0 +1,85 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..1d61330 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,19 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("a literal of millions of characters trims, on the scan, not the backtracker", async () => {
++    // The old pattern `(?:[^']|'')*` pushed a backtracking frame per
++    // repetition, so a literal of a few million characters -- a media
++    // payload written into a BRAW column, a note that grew -- threw
++    // RangeError: Maximum call stack size exceeded once the overall match
++    // had to backtrack: no closing quote, or a quote that could not close.
++    // Both shapes here failed before the scan replaced the regex.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const half = "x".repeat(7_500_000);
++    expect(trimLiterals(`INSERT INTO t (a, b) VALUES ('${half}   ', 'plain   ')`))
++      .to.equal(`INSERT INTO t (a, b) VALUES ('${half}', 'plain')`);
++    const unbalanced = "'" + "y".repeat(15_000_000);
++    expect(trimLiterals(unbalanced)).to.equal(unbalanced);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..7156d7b 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,54 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Scanned, not matched: the old pattern `(?:[^']|'')*` pushes a backtracking
++ *  frame per repetition, and a literal of a few million characters -- a
++ *  media payload written into a BRAW column, a note that grew -- overflowed
++ *  the stack (`RangeError: Maximum call stack size exceeded`), for any
++ *  statement whose long literal made the overall match fail (no closing
++ *  quote, or a later quote that could not close). The loop below walks
++ *  quote positions with indexOf, which is linear.
++ *
++ *  The walk keeps the regex's exact semantics, its backtracking included:
++ *  doubled quotes pair up greedily, a lone quote closes the literal, and
++ *  when the pairs run to the end of the string the closing quote is the
++ *  first of the last pair -- the position the regex unwinds to -- so `'a''`
++ *  matches `'a'` and the last quote starts the next fragment. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const QUOTE = 39; // '
++  const SPACE = 32; //  (ordinary space only: tabs and newlines are kept)
++  const n = sql.length;
++  let out = "";
++  let from = 0; // everything up to `from` is copied verbatim
++  let i = 0;
++  while (i < n) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) break;
++    let close = -1;
++    let lastPair = -1;
++    let p = open + 1;
++    while (p < n) {
++      const q = sql.indexOf("'", p);
++      if (q < 0) break; // no quote left: the literal cannot close
++      if (q + 1 < n && sql.charCodeAt(q + 1) === QUOTE) {
++        lastPair = q;
++        p = q + 2;
++      } else {
++        close = q; // a lone quote closes the literal
++        break;
++      }
++    }
++    if (close < 0) close = lastPair; // pairs to the end: unwind to the last pair
++    if (close < 0) break; // no quote to the right of `open`: rest is verbatim
++    let end = close;
++    while (end > open + 1 && sql.charCodeAt(end - 1) === SPACE) end--;
++    out += sql.slice(from, open) + "'" + sql.slice(open + 1, end) + "'";
++    from = close + 1;
++    i = from;
++  }
++  return out + sql.slice(from);
+ }
+ 
+ /**

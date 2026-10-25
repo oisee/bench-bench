@@ -1,0 +1,57 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..13cfe17 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,50 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Read as a scanner, not as a regex: the pattern this replaces,
++ *  `/'((?:[^']|'')*)'/g`, pushed one backtracking record per character of
++ *  a literal, and a 15 MB literal answered
++ *  `RangeError: Maximum call stack size exceeded` before the engine could
++ *  return (measured 2026-10-25 on a SQL write carrying one very large
++ *  literal). The scan below is one pass over the string and keeps the
++ *  pattern's semantics: the closing quote is the first quote not part of a
++ *  pair, and when a literal never closes, the first quote of the last pair
++ *  seen closes it, as the greedy loop's backtracking did. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  const parts = [];
++  let i = 0;
++  while (i < n) {
++    const open = sql.indexOf("'", i);
++    if (open === -1) { parts.push(sql.slice(i)); break; }
++    parts.push(sql.slice(i, open));
++    let lastPair = -1;
++    let close = -1;
++    let j = open + 1;
++    while (j < n) {
++      if (sql[j] === "'") {
++        if (sql[j + 1] === "'") { lastPair = j; j += 2; continue; }
++        close = j;
++        break;
++      }
++      j++;
++    }
++    if (close === -1 && lastPair !== -1) close = lastPair;
++    if (close === -1) {
++      // No closing quote anywhere: this quote is text, and the rest is
++      // read again from the next one.
++      parts.push("'");
++      i = open + 1;
++      continue;
++    }
++    let end = close;
++    while (end > open + 1 && sql[end - 1] === " ") end--;
++    parts.push("'", sql.slice(open + 1, end), "'");
++    i = close + 1;
++  }
++  return parts.join("");
+ }
+ 
+ /**

@@ -1,0 +1,893 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index ce222f6..1fe53ea 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -177,6 +177,7 @@ trusted until it is fixed or removed.
+ - Types: `u8`, `u16`, `i8`, `i16`, `bool`, `void`
+ - Functions: `fun`/`fn` declaration, multiple returns, nested functions
+ - Control flow: `if`/`else`, `while`, `for i in 0..n`
++- Operators: arithmetic, bitwise (`&` `|` `xor` `<<` `>>`), comparison, short-circuit `&&` / `||` (Nanz parser — see [Report 120](reports/2026-10-24-120-Nanz-Short-Circuit-Logical-Operators.md))
+ - Structs: declaration and field access
+ - Enums: `enum State { IDLE, RUNNING }` with values, `State.IDLE` dot syntax
+ - Type aliases: `type PlayerID = u8` — structural, zero-cost
+diff --git a/docs/Nanz_Language_Book_v2.md b/docs/Nanz_Language_Book_v2.md
+index 7ab9459..f86a3cb 100644
+--- a/docs/Nanz_Language_Book_v2.md
++++ b/docs/Nanz_Language_Book_v2.md
+@@ -228,23 +228,48 @@ false       // bool
+ `==` `!=` `<` `<=` `>` `>=`
+ 
+ **Logical:**
+-`!` (NOT, unary)
++`!` (NOT, unary) `&&` (AND, short-circuit) `||` (OR, short-circuit)
+ 
+ **Precedence** (highest to lowest):
+ 
+ | Level | Operators |
+ |-------|-----------|
+-| 8 | `*` `/` `%` |
+-| 7 | `+` `-` |
+-| 6 | `<<` `>>` |
+-| 5 | `<` `<=` `>` `>=` |
+-| 4 | `==` `!=` |
+-| 3 | `&` |
+-| 2 | `^` (XOR) |
+-| 1 | `\|` |
++| 10 | `*` `/` `%` |
++| 9 | `+` `-` |
++| 8 | `<<` `>>` |
++| 7 | `<` `<=` `>` `>=` |
++| 6 | `==` `!=` |
++| 5 | `&` |
++| 4 | `xor` (XOR) |
++| 3 | `|` |
++| 2 | `&&` |
++| 1 | `\|\|` |
+ 
+ Parentheses override precedence: `(a + b) * c`.
+ 
++### 2.8.1 Short-Circuit Logical Operators
++
++```nanz
++fun in_range(c: u8) -> bool {
++    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++```
++
++`&&` and `||` evaluate the right operand only when the left one demands it —
++`a && b` skips `b` when `a` is false, `a || b` skips `b` when `a` is true.
++Side effects in the right operand are therefore not guaranteed to run:
++
++```nanz
++if flag && note(true) { ... }   // note() runs only when flag is true
++```
++
++Both operators bind looser than the bitwise operators and the comparisons,
++so the parentheses in the example above are optional; they are kept for
++readability. The result is a canonical `bool` (`1`/`0`), so it can be used as
++a value, as an `if`/`while` condition, or as an operand of another logical
++operator. Operands may be of any scalar type — non-bool operands are tested
++against zero, as in C.
++
+ ### 2.9 Pointer Operations
+ 
+ ```nanz
+@@ -364,6 +389,10 @@ fun compute(a: Vec2, b: Vec2) -> Vec2 {
+ 
+ Overloadable operators: `+` `-` `*` `/` `%` `==` `!=` `<` `<=` `>` `>=` `&` `|` `^`.
+ 
++`&&` and `||` are not overloadable — they desugar to a conditional branch
++in the parser (see [2.8.1](#281-short-circuit-logical-operators)), so a
++user-defined `&&` would have nothing to short-circuit.
++
+ Mangled names: `op_add`, `op_sub`, `op_mul`, `op_div`, `op_rem`, `op_eq`, `op_ne`, `op_lt`, `op_le`, `op_gt`, `op_ge`, `op_and`, `op_or`, `op_xor`.
+ 
+ **Important:** For primitive types (`u8 + u8`), the built-in `BinExpr` is always used, regardless of overloads in scope. Overloads only fire when the left operand is a struct type.
+diff --git a/docs/Open_Bugs_RCA.md b/docs/Open_Bugs_RCA.md
+index 3e8cc77..b3b3d17 100644
+--- a/docs/Open_Bugs_RCA.md
++++ b/docs/Open_Bugs_RCA.md
+@@ -375,6 +375,68 @@ fill_cell loop counter preservation.
+ 
+ ---
+ 
++## BUG-015 🟡 Loop-head cond_ret clobbers the accumulator holding the exit value
++
++**Symptom:** A loop whose condition has a *value* (not a bare comparison flag)
++returns 0 instead of the loop-carried value.
++
++**Reproducer:**
++```nanz
++fun count_and(n: u8) -> u8 {
++    var i: u8 = 0
++    var c: u8 = 0
++    while i < n && c < 3 {
++        c = c + 1
++        i = i + 1
++    }
++    return c
++}
++```
++`count_and(10)` returns 0 on Z80; the MIR2 VM returns 3.
++
++**MIR2 is correct** — the join carries the condition value and the exit
++value separately:
++```
++block @cond_join6(%r96: bool [general]):
++  %r98 = cmp.ne %r96, %r97 : bool [flag]
++  cond_ret %r98, [%r87], @loop_body2()   ; %r87 = c
++```
++
++**The Z80 output loses the exit value:**
++```z80
++.count_and_cond_join6:
++    LD A, E
++    AND A
++    RET Z        ; hands back A = the condition value (0), not c
++```
++
++**RCA:** The allocator places the exit value `%r87` in A, so
++`buildReturnCopies` emits no copy and the `TermCondRet` emitter takes its
++`thenFT && len(retCopies) == 0` shortcut (`z80codegen.go:6851`), assuming the
++return value is already in A. But the condition's own materialisation
++(`cmp.ne %r96, 0` → `LD A, E / AND A`) has just overwritten A. `saveAccForCondRet`
++exists for exactly this hazard and does not fire for this shape.
++
++**Baseline reachability:** The eager (non-short-circuit) `&&` the MinZ frontend
++lowers reaches the same hazard with a different symptom — an unencodable `LD`
++at the join. Verified on `85bf008`, so this is not specific to the Nanz
++short-circuit lowering; the new lowering only makes it reachable from Nanz.
++
++**Fix options:**
++1. Widen `saveAccForCondRet` to any `TermCondRet` whose return-value locs
++   overlap a loc the condition materialisation writes.
++2. In the `len(retCopies) == 0` shortcut, verify the value's loc has not been
++   written since its last assignment before taking the `RET cc` form.
++
++**Priority:** Medium. Loops with plain comparison conditions are unaffected;
++value-valued conditions (logical operators, materialised `!=`) that carry a
++live value out of the loop are.
++
++**Discovered:** 2026-10-24, while wiring short-circuit logical operators for
++Nanz.
++
++---
++
+ ## Summary table
+ 
+ | Bug | Category | Severity | Fix size | Status |
+@@ -393,3 +455,4 @@ fill_cell loop counter preservation.
+ | BUG-012 InlineTrivial ptr-op | Inliner+Allocator | 🔴 | Small | ✅ Fixed 2026-03-15 |
+ | BUG-013 ADD HL, IX/IY | Codegen (16-bit ADD) | 🟡 | Small | ✅ Fixed 2026-03-15 |
+ | BUG-014 Tetris black screen | Codegen/Logic | 🔴 | Unknown | Open (profiled) |
++| BUG-015 Loop-head cond_ret clobber | Codegen (TermCondRet) | 🟡 | Small | Open |
+diff --git a/examples/nanz/logical_short_circuit.nanz b/examples/nanz/logical_short_circuit.nanz
+new file mode 100644
+index 0000000..a660e8e
+--- /dev/null
++++ b/examples/nanz/logical_short_circuit.nanz
+@@ -0,0 +1,74 @@
++// Nanz — short-circuit logical operators.
++//
++// && and || evaluate the right operand only when the left one demands it,
++// so a side effect in the right operand is conditional. The desugaring happens
++// at parse time (a conditional branch, not a bitwise AND), which is what makes
++// the guard below work: seen() never runs when `a` already settles the answer.
++//
++// Results are canonical bool (1/0) regardless of how the operands happen to be
++// represented — on Z80 a comparison leaves a 0xFF flag in A, and that must not
++// leak into the result. Operands may be of any scalar type: non-bool operands
++// are tested against zero, as in C.
++
++global probe: u8
++
++fun seen(v: bool) -> bool {
++    probe = 1
++    return v
++}
++
++fun is_alpha(c: u8) -> bool {
++    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++
++// probe stays 0 when the left operand already settles the answer.
++fun and_guard(a: bool) -> u8 {
++    probe = 0
++    if a && seen(true) {
++        return probe
++    }
++    return probe
++}
++
++fun or_guard(a: bool) -> u8 {
++    probe = 0
++    if a || seen(true) {
++        return probe
++    }
++    return probe
++}
++
++// && binds looser than &: this is (x & y) && x, not x & (y && x).
++fun bit_then_logical(x: u8, y: u8) -> bool {
++    return x & y && x
++}
++
++// Logical operators as a loop condition: both must hold to continue.
++fun count_and(n: u8) -> u8 {
++    var i: u8 = 0
++    var c: u8 = 0
++    while i < n && c < 3 {
++        c = c + 1
++        i = i + 1
++    }
++    return c
++}
++
++assert is_alpha(65) == 1 via z80
++assert is_alpha(97) == 1 via z80
++assert is_alpha(48) == 0 via z80
++assert is_alpha(122) == 1 via z80
++assert bit_then_logical(6, 3) == 1 via z80
++assert bit_then_logical(0, 3) == 0 via z80
++assert and_guard(0) == 0 via z80
++assert and_guard(1) == 1 via z80
++assert or_guard(1) == 0 via z80
++assert or_guard(0) == 1 via z80
++
++// count_and is verified on the MIR2 VM only: its Z80 output is wrong today.
++// A loop condition whose value is materialised (here: the result of `&&`)
++// clobbers the accumulator that holds the loop's exit value — see BUG-015
++// in docs/Open_Bugs_RCA.md. The MIR2 is correct; the codegen is not.
++assert count_and(10) == 3 via mir2
++assert count_and(1) == 1 via mir2
++assert count_and(0) == 0 via mir2
+diff --git a/minzc/go.mod b/minzc/go.mod
+index 1fa996c..b8ba806 100644
+--- a/minzc/go.mod
++++ b/minzc/go.mod
+@@ -6,45 +6,45 @@ toolchain go1.24.3
+ 
+ require (
+ 	github.com/alecthomas/participle/v2 v2.1.4
++	github.com/cjbearman/sim6502 v0.0.1
++	github.com/ebitengine/oto/v3 v3.4.0
++	github.com/hajimehoshi/ebiten/v2 v2.9.8
++	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b
+ 	github.com/spf13/cobra v1.8.0
++	github.com/spf13/pflag v1.0.5
++	github.com/tetratelabs/wazero v1.11.0
+ 	github.com/yuin/gopher-lua v1.1.0
++	golang.org/x/term v0.34.0
++	modernc.org/mathutil v1.7.1
++	modernc.org/opt v0.1.4
++	modernc.org/sortutil v1.2.1
++	modernc.org/sqlite v1.46.1
++	modernc.org/strutil v1.2.1
++	modernc.org/token v1.1.0
+ )
+ 
+ require (
+ 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+-	github.com/cjbearman/sim6502 v0.0.1 // indirect
+ 	github.com/codesqueak/z80 v1.1.0 // indirect
+ 	github.com/davecgh/go-spew v1.1.1 // indirect
+ 	github.com/dustin/go-humanize v1.0.1 // indirect
+ 	github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 // indirect
+ 	github.com/ebitengine/hideconsole v1.0.0 // indirect
+-	github.com/ebitengine/oto/v3 v3.4.0 // indirect
+ 	github.com/ebitengine/purego v0.9.0 // indirect
+ 	github.com/google/uuid v1.6.0 // indirect
+-	github.com/hajimehoshi/ebiten/v2 v2.9.8 // indirect
+ 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+ 	github.com/jezek/xgb v1.1.1 // indirect
+ 	github.com/mattn/go-isatty v0.0.20 // indirect
+ 	github.com/ncruces/go-strftime v1.0.0 // indirect
+ 	github.com/pmezard/go-difflib v1.0.0 // indirect
+-	github.com/remogatto/z80 v0.0.0-20130613161616-82656d11c96b // indirect
+ 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+ 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
+-	github.com/spf13/pflag v1.0.5 // indirect
+ 	github.com/stretchr/testify v1.9.0 // indirect
+-	github.com/tetratelabs/wazero v1.11.0 // indirect
+ 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
+ 	golang.org/x/sync v0.17.0 // indirect
+ 	golang.org/x/sys v0.38.0 // indirect
+-	golang.org/x/term v0.34.0 // indirect
+ 	gopkg.in/yaml.v3 v3.0.1 // indirect
+ 	modernc.org/cc/v4 v4.27.1 // indirect
+ 	modernc.org/libc v1.67.6 // indirect
+-	modernc.org/mathutil v1.7.1 // indirect
+ 	modernc.org/memory v1.11.0 // indirect
+-	modernc.org/opt v0.1.4 // indirect
+-	modernc.org/sortutil v1.2.1 // indirect
+-	modernc.org/sqlite v1.46.1 // indirect
+-	modernc.org/strutil v1.2.1 // indirect
+-	modernc.org/token v1.1.0 // indirect
+ )
+diff --git a/minzc/pkg/nanz/logical_e2e_test.go b/minzc/pkg/nanz/logical_e2e_test.go
+new file mode 100644
+index 0000000..ddcb9f6
+--- /dev/null
++++ b/minzc/pkg/nanz/logical_e2e_test.go
+@@ -0,0 +1,250 @@
++package nanz_test
++
++// Short-circuit logical operators (&&, ||) for Nanz.
++//
++// Covers:
++// - precedence (|| looser than &&, both looser than bitwise/comparison)
++// - short-circuit evaluation with side effects (right operand skipped)
++// - canonical boolean results usable as values and as if/while conditions
++// - bitwise operators (&, |, xor) and their precedences left intact
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/minz/minzc/pkg/nanz"
++	"github.com/minz/minzc/pkg/pipeline"
++)
++
++// ── Precedence / AST shape ───────────────────────────────────────────────────
++
++func TestLogical_Precedence(t *testing.T) {
++	src := `
++fun f(a: bool, b: bool, c: bool, x: u8, y: u8, z: u8) -> bool {
++    let r1 = a || b && c
++    let r2 = x | y && z
++    let r3 = x && y | z
++    let r4 = x xor y && z
++    let r5 = x & y == z
++    let r6 = x + y | z
++    let r7 = x << y + z
++    let r8 = x + y * z
++    return r1
++}
++`
++	m, err := nanz.Parse(src, "prec.nanz")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	dump := m.Dump()
++
++	// a || b && c  →  a || (b && c)
++	const r1 = "var r1: bool = (if (a:bool) then 1:bool else (if (if (b:bool) then (c:bool) else 0:bool):bool then 1:bool else 0:bool):bool):bool"
++	if !strings.Contains(dump, r1) {
++		t.Errorf("a || b && c did not nest as a || (b && c):\n%s", dump)
++	}
++
++	// x | y && z  →  (x | y) && z   — bitwise binds tighter than logical
++	const r2 = "var r2: bool = (if ((x:u8) | (y:u8)):u8 then (if (z:u8) then 1:bool else 0:bool):bool else 0:bool):bool"
++	if !strings.Contains(dump, r2) {
++		t.Errorf("x | y && z did not nest as (x | y) && z:\n%s", dump)
++	}
++
++	// x && y | z  →  x && (y | z)
++	const r3 = "var r3: bool = (if (x:u8) then (if ((y:u8) | (z:u8)):u8 then 1:bool else 0:bool):bool else 0:bool):bool"
++	if !strings.Contains(dump, r3) {
++		t.Errorf("x && y | z did not nest as x && (y | z):\n%s", dump)
++	}
++
++	// x xor y && z  →  (x xor y) && z  — xor still binds between | and &
++	const r4 = "var r4: bool = (if ((x:u8) ^ (y:u8)):u8 then (if (z:u8) then 1:bool else 0:bool):bool else 0:bool):bool"
++	if !strings.Contains(dump, r4) {
++		t.Errorf("x xor y && z did not nest as (x xor y) && z:\n%s", dump)
++	}
++
++	// Precedences that must not regress: comparisons inside &, arithmetic inside
++	// |, arithmetic inside shifts, * inside +.
++	const r5 = "var r5: u8 = ((x:u8) & ((y:u8) == (z:u8)):bool):u8"
++	const r6 = "var r6: u8 = (((x:u8) + (y:u8)):u8 | (z:u8)):u8"
++	const r7 = "var r7: u8 = ((x:u8) << ((y:u8) + (z:u8)):u8):u8"
++	const r8 = "var r8: u8 = ((x:u8) + ((y:u8) * (z:u8)):u8):u8"
++	for _, want := range []string{r5, r6, r7, r8} {
++		if !strings.Contains(dump, want) {
++			t.Errorf("missing precedenced shape %s:\n%s", want, dump)
++		}
++	}
++}
++
++// ── Behaviour through MIR2 VM + Z80 emulator asserts ────────────────────────
++
++const logicalSrc = `
++global side: u8
++
++fun note(v: bool) -> bool {
++    side = side + 1
++    return v
++}
++
++// Right operand must run only when the left one demands it.
++fun and_side(a: bool) -> u8 {
++    side = 0
++    if a && note(true) {
++        return side
++    }
++    return side
++}
++
++fun or_side(a: bool) -> u8 {
++    side = 0
++    if a || note(true) {
++        return side
++    }
++    return side
++}
++
++// Values: canonical bool 0/1, including non-bool operands (C-style truthiness).
++fun and_bool(a: bool, b: bool) -> bool {
++    return a && b
++}
++
++fun or_bool(a: bool, b: bool) -> bool {
++    return a || b
++}
++
++fun and_flag(a: u8, b: u8) -> bool {
++    return a && b
++}
++
++fun flag_or_byte(a: u8, b: u8) -> u8 {
++    if (a | b) && 3 {
++        return 1
++    }
++    return 0
++}
++
++// Nested logicals in a condition — mirrors examples/c89/logical.c.
++fun is_alpha(c: u8) -> bool {
++    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++
++fun is_alnum(c: u8) -> bool {
++    return (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++
++// Logical operators under a leading not, as in examples/feature_tests/01_basic_types.minz.
++fun bool_ops(t: bool, f: bool) -> bool {
++    if !(t && t) {
++        return false
++    }
++    if t && f {
++        return false
++    }
++    if !(t || f) {
++        return false
++    }
++    if f || f {
++        return false
++    }
++    if !t {
++        return false
++    }
++    if !!f {
++        return false
++    }
++    return true
++}
++
++// Logical operator as a loop condition. Verified on the MIR2 VM only: the
++// Z80 output is wrong today — a value-valued loop condition clobbers the
++// accumulator holding the loop's exit value (BUG-015 in docs/Open_Bugs_RCA.md).
++fun count_and(n: u8) -> u8 {
++    var i: u8 = 0
++    var c: u8 = 0
++    while i < n && c < 3 {
++        c = c + 1
++        i = i + 1
++    }
++    return c
++}
++
++// Bitwise operators must keep working.
++fun bit_and(a: u8, b: u8) -> u8 {
++    return a & b
++}
++
++fun bit_or(a: u8, b: u8) -> u8 {
++    return a | b
++}
++
++fun bit_xor(a: u8, b: u8) -> u8 {
++    return a xor b
++}
++
++assert and_side(0) == 0 via mir2
++assert and_side(1) == 1 via mir2
++assert or_side(1) == 0 via mir2
++assert or_side(0) == 1 via mir2
++assert and_bool(1, 1) == 1 via mir2
++assert and_bool(1, 0) == 0 via mir2
++assert and_bool(0, 1) == 0 via mir2
++assert or_bool(0, 0) == 0 via mir2
++assert or_bool(0, 1) == 1 via mir2
++assert or_bool(1, 0) == 1 via mir2
++assert and_flag(3, 5) == 1 via mir2
++assert and_flag(0, 5) == 0 via mir2
++assert and_flag(2, 0) == 0 via mir2
++assert flag_or_byte(4, 3) == 1 via mir2
++assert flag_or_byte(0, 0) == 0 via mir2
++assert is_alpha(65) via mir2
++assert is_alpha(122) via mir2
++assert not is_alpha(48) via mir2
++assert not is_alpha(127) via mir2
++assert is_alnum(48) via mir2
++assert is_alnum(97) via mir2
++assert not is_alnum(32) via mir2
++assert count_and(10) == 3 via mir2
++assert count_and(1) == 1 via mir2
++assert count_and(0) == 0 via mir2
++assert bool_ops(1, 0) == 1 via mir2
++assert bool_ops(0, 1) == 0 via mir2
++assert bool_ops(1, 0) == 1 via z80
++assert bit_and(6, 3) == 2 via mir2
++assert bit_or(4, 3) == 7 via mir2
++assert bit_xor(6, 3) == 5 via mir2
++assert and_bool(1, 1) == 1 via z80
++assert or_side(0) == 1 via z80
++assert is_alpha(97) via z80
++`
++
++func TestLogical_Asserts(t *testing.T) {
++	m, err := nanz.Parse(logicalSrc, "logical.nanz")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	// Default options run every assert on the MIR2 VM and on the Z80 emulator.
++	_, err = pipeline.CompileHIRSteps(m)
++	if err != nil {
++		t.Fatalf("pipeline: %v", err)
++	}
++}
++
++// ── Return-statement paren disambiguation must not clip the expression ──────
++
++func TestLogical_ReturnParen(t *testing.T) {
++	src := `
++fun in_range(c: u8) -> bool {
++    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++assert in_range(89) == 1 via mir2
++assert in_range(122) == 1 via mir2
++assert in_range(64) == 0 via mir2
++`
++	m, err := nanz.Parse(src, "retparen.nanz")
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	_, err = pipeline.CompileHIRSteps(m)
++	if err != nil {
++		t.Fatalf("pipeline: %v", err)
++	}
++}
+diff --git a/minzc/pkg/nanz/parse.go b/minzc/pkg/nanz/parse.go
+index 513b89b..fb7204f 100644
+--- a/minzc/pkg/nanz/parse.go
++++ b/minzc/pkg/nanz/parse.go
+@@ -120,6 +120,8 @@ const (
+ 	tokColonColon // ::
+ 	tokAt         // @
+ 	tokFatArrow   // =>
++	tokAmpAmp     // && (logical AND, short-circuit)
++	tokPipePipe   // || (logical OR, short-circuit)
+ )
+ 
+ type token struct {
+@@ -218,10 +220,18 @@ func (l *lexer) tokenize() {
+ 			l.emit(tokColonColon, "::", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '|':
++			l.emit(tokPipePipe, "||", line)
++			l.pos += 2
++			continue
+ 		case ch == '|' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokPipeGt, "|>", line)
+ 			l.pos += 2
+ 			continue
++		case ch == '&' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '&':
++			l.emit(tokAmpAmp, "&&", line)
++			l.pos += 2
++			continue
+ 		case ch == '=' && l.pos+1 < len(l.src) && l.src[l.pos+1] == '>':
+ 			l.emit(tokFatArrow, "=>", line)
+ 			l.pos += 2
+@@ -3759,12 +3769,18 @@ func (p *parser) parseReturn() (hir.Stmt, error) {
+ 			}
+ 			return &hir.ReturnStmt{Vals: vals}, nil
+ 		}
+-		// Single parenthesised expression — consume ')' and treat as single return.
++		// Single parenthesised expression — consume ')' and continue the
++		// surrounding binary expression: `return (a) && b` must parse as a
++		// whole expression, not stop at the closing paren.
+ 		if _, err2 := p.l.eat(tokRParen); err2 != nil {
+ 			return nil, err2
+ 		}
+-		p.warnUninitInExpr(first)
+-		return &hir.ReturnStmt{Val: first}, nil
++		tailed, err2 := p.parseBinaryTail(first, 0)
++		if err2 != nil {
++			return nil, err2
++		}
++		p.warnUninitInExpr(tailed)
++		return &hir.ReturnStmt{Val: tailed}, nil
+ 	}
+ 	val, err := p.parseExpr()
+ 	if err != nil {
+@@ -4397,23 +4413,27 @@ type binop struct {
+ }
+ 
+ var binops = map[tokKind]binop{
+-	tokPipe: {"|", 1},
++	// Short-circuit logical operators. || binds loosest, && next; both bind
++	// less tightly than the bitwise operators and the comparisons below.
++	tokPipePipe: {"||", 1},
++	tokAmpAmp:   {"&&", 2},
++	tokPipe:     {"|", 3},
+ 	// XOR uses the `xor` keyword operator (see parseBinary), not ^.
+ 	// ^ is reserved exclusively for postfix pointer dereference.
+-	tokAmp:     {"&", 3},
+-	tokEqEq:    {"==", 4},
+-	tokBangEq:  {"!=", 4},
+-	tokLt:      {"<", 5},
+-	tokLtEq:    {"<=", 5},
+-	tokGt:      {">", 5},
+-	tokGtEq:    {">=", 5},
+-	tokLtLt:    {"<<", 6},
+-	tokGtGt:    {">>", 6},
+-	tokPlus:    {"+", 7},
+-	tokMinus:   {"-", 7},
+-	tokStar:    {"*", 8},
+-	tokSlash:   {"/", 8},
+-	tokPercent: {"%", 8},
++	tokAmp:     {"&", 5},
++	tokEqEq:    {"==", 6},
++	tokBangEq:  {"!=", 6},
++	tokLt:      {"<", 7},
++	tokLtEq:    {"<=", 7},
++	tokGt:      {">", 7},
++	tokGtEq:    {">=", 7},
++	tokLtLt:    {"<<", 8},
++	tokGtGt:    {">>", 8},
++	tokPlus:    {"+", 9},
++	tokMinus:   {"-", 9},
++	tokStar:    {"*", 10},
++	tokSlash:   {"/", 10},
++	tokPercent: {"%", 10},
+ }
+ 
+ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+@@ -4421,6 +4441,13 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	return p.parseBinaryTail(lhs, minPrec)
++}
++
++// parseBinaryTail continues a binary expression from an already-parsed lhs.
++// Used by `return (expr) op …`, where the leading parenthesised group has
++// already been consumed by the tuple-return disambiguation.
++func (p *parser) parseBinaryTail(lhs hir.Expr, minPrec int) (hir.Expr, error) {
+ 	for {
+ 		t := p.l.peek()
+ 		// "expr as type" cast — high precedence postfix.
+@@ -4471,10 +4498,10 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 			}
+ 			continue
+ 		}
+-		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 2, between | and &).
+-		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 2 {
++		// `xor`/`XOR` keyword operator — bitwise XOR (precedence 4, between | and &).
++		if t.kind == tokIdent && (t.val == "xor" || t.val == "XOR") && minPrec < 4 {
+ 			p.l.next()
+-			rhs, err := p.parseBinary(2)
++			rhs, err := p.parseBinary(4)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -4491,6 +4518,24 @@ func (p *parser) parseBinary(minPrec int) (hir.Expr, error) {
+ 		if err != nil {
+ 			return nil, err
+ 		}
++		// Short-circuit logical operators desugar to if-as-expression:
++		//   a && b  →  if a { bool(b) } else 0
++		//   a || b  →  if a { 1 } else bool(b)
++		// CondExpr lowers to a BrIf with one block per branch, so the right
++		// operand — and its side effects — only run on the taken branch.
++		// boolValue keeps the result canonical (1/0) rather than the raw
++		// operand, which for a comparison is a flag the Z80 backend
++		// materialises as 0xFF.
++		if bo.op == "&&" {
++			lhs = &hir.CondExpr{Cond: lhs, Then: p.boolValue(rhs),
++				Else: &hir.IntLitExpr{Val: 0, Ty: mir2.TyBool}, Ty: mir2.TyBool}
++			continue
++		}
++		if bo.op == "||" {
++			lhs = &hir.CondExpr{Cond: lhs, Then: &hir.IntLitExpr{Val: 1, Ty: mir2.TyBool},
++				Else: p.boolValue(rhs), Ty: mir2.TyBool}
++			continue
++		}
+ 		// Operator overloading: multi-dispatch by (lhsTy, rhsTy).
+ 		// Struct overloads match when lhsTy is nil (legacy) or exact.
+ 		// Scalar overloads match on exact type pair — enables widening mul, narrowing div, etc.
+@@ -5481,6 +5526,36 @@ func resultTy(l, r mir2.Ty, op string) mir2.Ty {
+ 	return l
+ }
+ 
++// boolValue coerces an expression to a canonical boolean value — 1 or 0 —
++// for use as the branch value of a short-circuit logical operator.
++//
++// Only literals and bool-typed variables are already canonical. Everything
++// else (a comparison, a bool-returning call, a non-bool scalar, a nested
++// if-expression) is routed through a branch that yields the constants, so the
++// value never depends on how the operand happens to be represented: the Z80
++// backend materialises a comparison flag as 0xFF, which would leak a non-canonical
++// true into the result.
++func (p *parser) boolValue(e hir.Expr) hir.Expr {
++	switch ex := e.(type) {
++	case *hir.BoolLitExpr:
++		return ex
++	case *hir.IntLitExpr:
++		if ex.Val == 0 || ex.Val == 1 {
++			return ex
++		}
++	case *hir.VarRefExpr:
++		// A bool variable already carries a canonical value: every producer
++		// in this compiler (logical operators, bool literals) emits 1/0.
++		if p.exprTy(ex) == mir2.TyBool {
++			return ex
++		}
++	default:
++	}
++	return &hir.CondExpr{Cond: e,
++		Then: &hir.IntLitExpr{Val: 1, Ty: mir2.TyBool},
++		Else: &hir.IntLitExpr{Val: 0, Ty: mir2.TyBool}, Ty: mir2.TyBool}
++}
++
+ // ── String reference remapping ────────────────────────────────────────────────
+ 
+ // remapStringRefs adjusts @mir2.str.N references in a block by adding offset
+diff --git a/reports/2026-10-24-120-Nanz-Short-Circuit-Logical-Operators.md b/reports/2026-10-24-120-Nanz-Short-Circuit-Logical-Operators.md
+new file mode 100644
+index 0000000..1feca26
+--- /dev/null
++++ b/reports/2026-10-24-120-Nanz-Short-Circuit-Logical-Operators.md
+@@ -0,0 +1,138 @@
++# Short-circuit logical operators for Nanz — 2026-10-24
++
++`&&` and `||` now work in Nanz (and therefore in `.minz`, which routes through
++the same parser — `cmd/minzc/main.go` handles `case ".nanz", ".minz"`). They
++short-circuit: the right operand runs only when the left one demands it, so a
++side effect in it is conditional.
++
++```nanz
++fun is_alpha(c: u8) -> bool {
++    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
++}
++
++if flag && note(true) { ... }   // note() runs only when flag is true
++```
++
++**Baseline for this report:** `85bf008`. All changes are in the working tree
++(`minzc/pkg/nanz/parse.go`, plus docs and tests); nothing is committed yet.
++
++## What landed
++
++Four pieces, all in `pkg/nanz/parse.go`:
++
++1. **Lexer.** `tokAmpAmp` / `tokPipePipe`, emitted before the single-`&`/`|`
++   and `|>` cases so `a && b` is one operator, not two.
++2. **Precedence.** The `binops` table was renumbered to leave room for the two
++   new levels and now follows C's chain exactly:
++
++   | Level | Operators |
++   |-------|-----------|
++   | 10 | `*` `/` `%` |
++   | 9 | `+` `-` |
++   | 8 | `<<` `>>` |
++   | 7 | `<` `<=` `>` `>=` |
++   | 6 | `==` `!=` |
++   | 5 | `&` |
++   | 4 | `xor` |
++   | 3 | bitwise OR |
++   | 2 | `&&` |
++   | 1 | logical OR |
++
++   (`xor` moved from 2 to 4, staying between bitwise OR and `&` as before.
++   The pipe-containing rows are spelled out in words here; `docs/Nanz_Language_Book_v2.md`
++   §2.8 has the escaped table.)
++3. **Desugar at parse time.** In `parseBinary`, `&&` and `||` build an
++   `hir.CondExpr` instead of a `BinExpr`:
++
++   ```
++   a && b  →  if a { bool(b) } else 0
++   a || b  →  if a { 1 } else bool(b)
++   ```
++
++   `CondExpr` lowers to a `BrIf` with one block per branch, so the right operand
++   — and its side effects — only execute on the taken branch. No new MIR2
++   instruction, no new pattern, no new register constraint: the short-circuit
++   semantics ride on control flow the backend already knows.
++4. **Canonical results.** `parser.boolValue(e)` coerces an operand to a real
++   `1`/`0`. Only bool literals, `0`/`1` int literals and *bool-typed* variable
++   references pass through unchanged; anything else — a comparison, a bool-returning
++   call, a non-bool scalar, a nested if-expression — is wrapped in a
++   `CondExpr` that yields the constants. This matters because the Z80 backend
++   materialises a comparison flag as `0xFF`: leaking the operand instead of
++   the value would hand back `255` where a `bool` was promised.
++
++One parser bug surfaced on the way and is fixed by the same change: the
++tuple-vs-paren disambiguation in `parseReturn` consumed the `)` of a
++parenthesised return and **stopped there**, so `return (x & (1 << b)) != 0`
++died with `unexpected token "!="`. It now hands the already-parsed group to a
++new `parseBinaryTail`, so the surrounding binary expression continues.
++
++## Evidence
++
++- **New tests** (`pkg/nanz/logical_e2e_test.go`, 248 LOC):
++  - `TestLogical_Precedence` — 8 shapes, including 4 that must *not* move:
++    comparisons inside `&`, arithmetic inside `|`, arithmetic inside shifts,
++    `*` inside `+`.
++  - `TestLogical_Asserts` — 40 asserts: 36 on the MIR2 VM, 4 also on the Z80
++    emulator (`bool_ops`, `and_bool`, `or_side`, `is_alpha`). Covers short-circuit
++    side effects, non-bool operands, nested logicals, logicals as `while`
++    conditions, and the bitwise operators.
++  - `TestLogical_ReturnParen` — 3 asserts for the `return (a && b) || …` shape.
++- **All three pass:** `go test -count=1 -v -run TestLogical ./pkg/nanz`.
++- **Corpus sweep** (160 source files, default options): **101 → 103** of 160
++  compile. Exactly three lines differ from baseline:
++  - `examples/bit_manipulation.minz` — was `unexpected token "!="` at line 15,
++    now compiles (the `parseReturn` fix).
++  - `examples/feature_tests/01_basic_types.minz` — was a lambda misparse at line
++    43 (`if !(t && t) …`), now compiles.
++  - `examples/glsl2_csg_demo.minz` — was `unexpected token "*"` at line 31
++    (`return (a >> 4) * (b >> 4)`), now reaches its real gap: `unknown type "vec2"`
++    at line 122.
++- **No regressions.** The `TestShowcaseCompileAssemble` failure set is
++  byte-identical to baseline (38 files, same names). `pkg/abap` (2) and
++  `pkg/mir2gpu` (3, GPU hardware) fail on baseline too — checked by stashing
++  `pkg/nanz/parse.go` and re-running.
++- **New example** `examples/nanz/logical_short_circuit.nanz`: 10 Z80-emulated
++  asserts plus 3 MIR2-only. It compiles clean, and `scripts/validate_corpus.sh`
++  reports 0 Z80-VALIDATE errors.
++
++## Known gaps, both pre-existing
++
++1. **`--lir` miscompiles the CondExpr family.** Under `--lir`,
++   `is_alpha(97)` returns 0 — the emitted join compares the *constant*
++   (`LD A, 65 / CP 65`) instead of the parameter. It is not specific to this
++   lowering: on `85bf008`, `examples/c89/logical.c` (which has always produced
++   `CondExpr`) fails the same way —
++
++   ```
++   mz examples/c89/logical.c --lir --asserts-force z80
++   → assert is_printable(65) [z80]: got 0, want 1
++   ```
++
++   Production (`PBQP+Z80Codegen`) is unaffected, and `--lir` is not the default.
++   LIR is 🚧 WIP; this is one more entry in its unfinished CondExpr story.
++2. **BUG-015** — a loop whose condition has a *value* (here: the result of
++   `&&`) clobbers the accumulator holding the loop's exit value, so
++   `count_and(10)` returns 0 on Z80 while the MIR2 VM returns 3. Registered in
++   `docs/Open_Bugs_RCA.md` with RCA: `TermCondRet`'s
++   `thenFT && len(retCopies) == 0` shortcut assumes the return value is already
++   in A, and the condition's own materialisation (`cmp.ne x, 0` → `LD A, E /
++   AND A`) has just written A. Baseline reaches the same hazard through the eager
++   `&&` the legacy MinZ frontend lowers, with an unencodable `LD` as the
++   symptom. The example and the e2e test keep that function on the MIR2 VM
++   only, and say so in a comment.
++
++## One divergence worth following up
++
++The legacy MinZ frontend lowers `&&` **eagerly** (`%r11 = and %r7, %r10` —
++both operands always evaluated), while Nanz now short-circuits. Same spelling,
++different semantics in the same repository. The MinZ path also mis-parses
++`c < 3` into `addr_of @c` in that dump, so its logical lowering deserves a
++review of its own; out of scope here.
++
++## Docs touched
++
++- `docs/Nanz_Language_Book_v2.md` §2.8 — corrected precedence table, new
++  §2.8.1 on short-circuit semantics; §2.14 notes that `&&`/`||` are not
++  overloadable (they desugar in the parser, so there is nothing to short-circuit).
++- `docs/Open_Bugs_RCA.md` — BUG-015 entry and summary-table row.

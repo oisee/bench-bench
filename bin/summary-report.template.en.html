@@ -107,6 +107,12 @@ tr.group-gap td { height: 8px }
 .rseg.pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
 .rseg.to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--good) }
 .rseg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.rseg.stop, .cell.stop { background: repeating-linear-gradient(45deg, var(--none) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.rseg.polish { background: repeating-linear-gradient(135deg, var(--none) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--ink-3); color: var(--ink-2) }
+.sw-stop { background: repeating-linear-gradient(45deg, var(--none) 0 3px, var(--panel) 3px 6px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.sw-polish { background: repeating-linear-gradient(135deg, var(--none) 0 3px, var(--panel) 3px 6px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.matrix tr.grp td { font: 600 11.5px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); text-align: left; padding: 14px 0 4px }
+.cell sup { font-size: 9px; margin-left: 1px; color: var(--ink-2) }
 @media (max-width: 640px) { .rank-row { grid-template-columns: 18px minmax(0, 1fr) 96px } .rank-row .rtrack { grid-column: 1 / -1; order: 3 } }
 
 /* svg charts */
@@ -201,12 +207,13 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head"><span class="n">01</span><h2>The full run grid</h2>
-      <p>Each cell is one run of one task. The number is the wall time in seconds. Hover a cell for test results and details. L3 was run only for finalists. The row tagged <i>local · round 4</i> is Qwen3.8-Flash-Next on a home GPU, run on October 23 with the same briefs, limits and hidden tests (section 05c). The row tagged <i>local i7 · limits ×10</i> is the same model, 4-bit GGUF in llama.cpp, on a much simpler home machine (one consumer CPU, two 16 GB gaming GPUs), about ten times slower, so its limits were scaled ×10.</p></div>
+      <p>Each cell is one run of one task. The number is the wall time in minutes. Rows are grouped: frontier models over a cloud API, open-weight models over a hosted API, and local runs on home hardware. Hover a cell for test results, requests and details. L3 was run only for finalists. The row tagged <i>local · round 4</i> is Qwen3.8-Flash-Next on a home GPU, run on October 23 with the same briefs, limits and hidden tests (section 05c). The row tagged <i>local i7 · limits ×10</i> is the same model, 4-bit GGUF in llama.cpp, on a much simpler home machine (one consumer CPU, two 16 GB gaming GPUs), about ten times slower, so its limits were scaled ×10. Rows tagged <i>local i7 · limits ×5</i> ran on the same PC with builds that fit its GPUs better, at limits ×5 (section 05d).</p></div>
     <div class="legend">
       <span><i class="sw-pass"></i>solved</span>
       <span><i class="sw-to"></i>solved, but hit the time limit</span>
       <span><i class="sw-veto"></i>tests passed, jury rejected</span>
       <span><i class="sw-fail"></i>not solved</span>
+      <span><i class="sw-stop"></i>stopped by the operator</span>
       <span><i class="sw-none"></i>not run</span>
     </div>
     <div class="scroll"><table class="matrix" id="matrix"></table></div>
@@ -315,6 +322,26 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
     </ul>
   </section>
 
+
+  <section id="r4b-sec">
+    <div class="sec-head"><span class="n">05d</span><h2>Smaller builds and small models on the home PC</h2>
+      <p>October 24–25, on the i7 home PC from 05c (two 16 GB gaming GPUs), all at limits ×5, Claude Code at xhigh, same briefs and hidden tests. Two lines of work: Qwen3.8-Flash-Next cut to fewer experts so it fits the GPUs (DSLab 192/224 and versions with session-ranked experts implanted), and small open models that fit entirely in VRAM. The best cut, <b>K192p-implant16</b>, solved L1a, L2a, L1b and L3b, the last one solved here by no other local build.</p></div>
+    <div class="scroll"><table class="tok" id="r4b"></table></div>
+    <ul class="small" style="margin:0;padding-left:20px;display:grid;gap:6px;max-width:72ch" id="r4b-notes"></ul>
+
+    <div class="chart" id="fg-chart"><h3>Time to first green vs polish</h3>
+      <p class="small muted">Each bar is one solved run. Green: from the start until the working tree first passed every hidden test (the agent did not know it). Hatched: the rest of the session, spent on its own tests, docs and checks. Reconstructed from the recorded traffic: every edit replayed and every checkpoint graded with the bench's own grader. ✕ would mark a run whose tree broke again later; none did.</p>
+      <div class="legend"><span><i class="sw-pass"></i>until first green</span><span><i class="sw-polish"></i>after first green</span></div>
+      <div class="rank" id="fg"></div></div>
+
+    <div class="chart"><h3>Fast decoding is not fast solving</h3>
+      <p class="small muted">x: median decode speed of the model's llama.cpp server (tokens/s); y: minutes to a solved run. One dot per solved run; repeats of the same model are separate dots.</p>
+      <div class="scroll"><svg id="tgsc" role="img" aria-label="Decode speed against time to solve"></svg></div></div>
+
+    <div class="chart"><h3>Many small steps or few long ones</h3>
+      <p class="small muted">x: model requests (agent steps) in the run; y: minutes. Dots high and to the left think long per step; dots to the right take many short steps. Blue: the small candidate models and K192p-implant16; gray: the other local builds (hover for names).</p>
+      <div class="scroll"><svg id="reqsc" role="img" aria-label="Requests against minutes"></svg></div></div>
+  </section>
   <section>
     <div class="sec-head"><span class="n">06</span><h2>Critic screening: who finds the bug without seeing the tests</h2>
       <p>Each critic gets a finished patch, the brief and the full repository, but not the hidden-test results. It has to decide on its own whether the patch is correct. Screening is complete.</p>
@@ -381,17 +408,27 @@ const cell = (ex, t) => r1.find(r => r.executor === ex && r.task === t);
 // Round 4 (local models): same tasks and grading, shown beside round 1 in the grid, bars and speed chart only.
 // time-scaled-v1 runs (slower machine, limits ×N) are included; the critic-repair attempt is not.
 const r4base = D.runs.filter(r => r.round === 4 && r.protocol !== "critic-repair-v1");
+// pass / to (solved at the limit) / veto (tests passed, jury rejected) / fail / stop (stopped by the operator, not solved:
+// shown, but not counted as a failure). A run stopped by the operator whose tree passed counts as solved.
+const kindOf = r => r.stop === "OPERATOR" && r.status !== "RESOLVED" ? "stop" : !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
+// one row per local executor: its first run of each task counts, repeats are listed in the cell's tooltip
 const local = [...new Set(r4base.map(r => r.executor))].map(id => {
-  const rs = r4base.filter(r => r.executor === id), ok = rs.filter(r => r.effective);
-  return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, n: rs.length, solved: ok.length, local: true,
+  const all = r4base.filter(r => r.executor === id);
+  const rs = TASKS.map(t => all.find(r => r.task === t)).filter(Boolean);
+  const counted = rs.filter(r => kindOf(r) !== "stop"), ok = counted.filter(r => r.effective);
+  return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, all, n: counted.length, solved: ok.length, local: true,
     strict: ok.filter(r => r.stop !== "TIMEOUT").length, time: rs.reduce((a, r) => a + (r.dur || 0), 0) };
 });
 const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
 const gridExecs = [...execs, ...local].sort(byRank);
 const LOCAL_TAG = "local · round 4";
-const LOCAL_TAGS = {"custom-qwen38fn-k224-i7-claude": "local i7 · limits ×5", "custom-qwen38fn-iq4-i7-claude": "local i7 · limits ×10"};
-const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10, "custom-qwen38fn-k224-i7-claude": 5};
-const tagOf = id => LOCAL_TAGS[id] || LOCAL_TAG;
+// i7 runs (the home PC) have their time limits scaled: ×5, except the first IQ4_XS run at ×10
+const scaleOf = id => id === "custom-qwen38fn-iq4-i7-claude" ? 10 : /-i7-/.test(id) ? 5 : 1;
+const tagOf = id => /-i7-/.test(id) ? `local i7 · limits ×${scaleOf(id)}` : LOCAL_TAG;
+const GROUPS = [["frontier", "Frontier models, cloud API"], ["hosted", "Open-weight models, hosted API"], ["local", "Local, on home hardware"]];
+const groupOf = e => e.local ? "local" : /^(ant|az|oai)-/.test(e.id) ? "frontier" : "hosted";
+const fmtM = s => s == null ? "—" : s < 600 ? (s / 60).toFixed(1) : String(Math.round(s / 60));
+const short = m => m.replace(/ \(i7\)$/, "").replace(/^Qwen3\.8-Flash-Next /, "");
 
 /* tooltip */
 const tip = document.getElementById("tip");
@@ -482,18 +519,25 @@ document.getElementById("facts").innerHTML = [
 /* matrix */
 {
   let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="lvl">${t}</th>`).join("")}<th style="text-align:right">solved</th></tr></thead><tbody>`;
-  for (const e of gridExecs) {
-    h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</td>`;
-    for (const t of TASKS) {
-      const r = e.rs.find(q => q.task === t);
-      if (!r) { h += `<td class="cell none">—</td>`; continue; }
-      const cls = !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
-      const word = {pass:"solved", to:"solved at the limit", fail:"not solved", veto:"tests passed, jury rejected"}[cls];
-      const glyph = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!"}[cls];
-      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${word}<br>time ${fmtS(r.dur)} of ${fmtS(LIMIT[t] * (SCALE[e.id] || 1))}<br>acceptance tests ${r.f2p}, regression ${r.p2p}<br>patch ${r.lines ?? "—"} lines`;
-      h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${glyph}<small>${Math.round(r.dur)}</small></td>`;
+  const WORD = {pass:"solved", to:"solved at the limit", fail:"not solved", veto:"tests passed, jury rejected", stop:"stopped by the operator, not solved"};
+  const GLYPH = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!", stop:"■"};
+  for (const [g, glabel] of GROUPS) {
+    const rows = gridExecs.filter(e => groupOf(e) === g);
+    if (!rows.length) continue;
+    h += `<tr class="grp"><td colspan="${TASKS.length + 2}">${glabel}</td></tr>`;
+    for (const e of rows) {
+      h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</td>`;
+      for (const t of TASKS) {
+        const r = e.rs.find(q => q.task === t);
+        if (!r) { h += `<td class="cell none">—</td>`; continue; }
+        const cls = kindOf(r), reps = (e.all || [r]).filter(q => q.task === t);
+        const word = WORD[cls] + (r.stop === "OPERATOR" && cls !== "stop" ? " (stopped by the operator after finishing)" : "");
+        const more = reps.length > 1 ? `<br>${reps.length} runs: ${reps.map(q => `${fmtM(q.dur)} min ${GLYPH[kindOf(q)]}`).join(", ")} (the first is shown)` : "";
+        const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${word}<br>time ${fmtS(r.dur)} of ${fmtS(LIMIT[t] * scaleOf(e.id))}<br>requests ${r.calls ?? "—"}<br>acceptance tests ${r.f2p}, regression ${r.p2p}<br>patch ${r.lines ?? "—"} lines${more}`;
+        h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${GLYPH[cls]}${reps.length > 1 ? `<sup>×${reps.length}</sup>` : ""}<small>${fmtM(r.dur)}</small></td>`;
+      }
+      h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
     }
-    h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
   }
   document.getElementById("matrix").innerHTML = h + "</tbody>";
 }
@@ -509,16 +553,16 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
 
 /* ranking: stacked time per task */
 {
-  const W = {pass: "solved in time", to: "solved at the limit", fail: "not solved"};
+  const W = {pass: "solved in time", to: "solved at the limit", fail: "not solved", stop: "stopped by the operator"};
   const total = e => e.rs.reduce((a, r) => a + (r.dur || 0), 0);
   const maxT = Math.max(...gridExecs.map(total));
   const draw = rel => {
     document.getElementById("rank").innerHTML = gridExecs.map((e, i) => {
       const T = total(e);
       const segs = TASKS.map(t => e.rs.find(r => r.task === t)).filter(Boolean).map(r => {
-        const cls = !r.effective ? "fail" : r.stop === "TIMEOUT" ? "to" : "pass";
+        const cls = {veto: "fail"}[kindOf(r)] || kindOf(r);
         const f = (r.dur || 0) / (rel ? T : maxT);
-        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% of this agent's time<br>limit ${fmtS(LIMIT[r.task] * (SCALE[e.id] || 1))}`;
+        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% of this agent's time<br>limit ${fmtS(LIMIT[r.task] * (scaleOf(e.id)))}`;
         return `<div class="rseg ${cls}" style="flex:0 0 calc(${(100 * f).toFixed(3)}% - 2px)" tabindex="0" data-tip="${esc(tip)}">${f * 100 > (rel ? 9 : 4.5) ? r.task : ""}</div>`;
       }).join("");
       return `<div class="rank-row"><span class="no">${i + 1}</span><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</span><div class="rtrack">${segs}</div><span class="val">${e.solved}/${e.n} · ${fmtS(T)}</span></div>`;
@@ -545,7 +589,7 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     s += `<line class="lim" x1="${x(LIMIT[t])}" x2="${x(LIMIT[t])}" y1="${cy - rowH / 2 + 4}" y2="${cy + rowH / 2 - 6}"/>`;
     for (const r of [...r1, ...r4base].filter(r => r.task === t)) {
       const c = `var(--${r.harness})`, ok = r.effective;
-      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${tagOf(r.executor)}` : ""}<br>${ok ? "solved" : "not solved"}${r.stop === "TIMEOUT" ? " (limit)" : ""}<br>${fmtS(r.dur)}`;
+      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${tagOf(r.executor)}` : ""}<br>${kindOf(r) === "stop" ? "stopped by the operator" : ok ? "solved" : "not solved"}${r.stop === "TIMEOUT" ? " (limit)" : ""}<br>${fmtS(r.dur)}`;
       s += `<circle cx="${x(r.dur)}" cy="${cy + off[r.harness]}" r="5.5" fill="${ok ? c : "var(--panel)"}" stroke="${ok ? "var(--panel)" : c}" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/>`;
     }
   });
@@ -605,16 +649,93 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
 
 /* round 4: local models */
 {
-  const r4 = D.runs.filter(r => r.round === 4).sort((a, b) => a.task.localeCompare(b.task) || (a.protocol ? 1 : 0) - (b.protocol ? 1 : 0));
+  const R4_05C = ["custom-qwen38fn-claude", "custom-qwen38fn-iq4-i7-claude", "custom-qwen38fn-k224-i7-claude"];
+  const r4 = D.runs.filter(r => r.round === 4 && R4_05C.includes(r.executor)).sort((a, b) => a.task.localeCompare(b.task) || (a.protocol ? 1 : 0) - (b.protocol ? 1 : 0));
   const st = r => r ? `${r.effective ? "✓" : "✗"} ${fmtS(r.dur)}${r.stop === "TIMEOUT" ? " (limit)" : ""}` : "—";
   let h = `<thead><tr><th>Model</th><th>task</th><th>result</th><th>requests</th><th>tokens in / out</th><th>hosted price</th><th>same task, round 1 in Claude Code</th></tr></thead><tbody>`;
   for (const r of r4) {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
     const lab = r.protocol === "critic-repair-v1" ? `${esc(r.model)} + Sol critic, 2nd attempt`
-      : r.protocol === "time-scaled-v1" ? `${esc(r.model)}, time limit ×${SCALE[r.executor] || 10}` : esc(r.model);
+      : r.protocol === "time-scaled-v1" ? `${esc(r.model)}, time limit ×${scaleOf(r.executor)}` : esc(r.model);
     h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";
+}
+
+/* 05d: smaller builds and small models on the i7 */
+{
+  const NEW = local.filter(e => /-i7-/.test(e.id) && !["custom-qwen38fn-iq4-i7-claude", "custom-qwen38fn-k224-i7-claude"].includes(e.id));
+  const runs = r4base.filter(r => NEW.some(e => e.id === r.executor)).sort((a, b) => a.model.localeCompare(b.model) || a.task.localeCompare(b.task) || a.run.localeCompare(b.run));
+  const st = r => ({pass: "✓ solved", to: "✓ at the limit", fail: "✗ not solved", veto: "! rejected", stop: "■ stopped"}[kindOf(r)]) + (r.stop === "OPERATOR" && kindOf(r) !== "stop" ? " (operator stop)" : "");
+  const price = r => r.cost != null ? `$0 local <span class="muted">(hosted ≈ $${r.cost.toFixed(2)})</span>` : "$0 local";
+  let h = `<thead><tr><th>Model</th><th>task</th><th>result</th><th>minutes</th><th>requests</th><th>decode tok/s</th><th>tokens in / out</th><th>API cost</th></tr></thead><tbody>`;
+  for (const r of runs)
+    h += `<tr><td>${esc(short(r.model))}</td><td>${r.task}</td><td>${st(r)}</td><td>${fmtM(r.dur)}</td><td>${r.calls ?? "—"}</td><td>${D.decode[r.executor] ? D.decode[r.executor].toFixed(0) : "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${price(r)}</td></tr>`;
+  document.getElementById("r4b").innerHTML = h + "</tbody>";
+  document.getElementById("r4b-notes").innerHTML = [
+    `<b>K192p-implant16</b> (on Hugging Face as <code>oisee/Qwen3.8-Flash-Next-GSQ-RCO-Coder-192E-implant16-GGUF</code>): 192 experts chosen inside DSLab's 224 with protection for decision tokens, plus 16 experts per layer implanted from our session statistics; served with a Q4 MTP head and n-gram drafts at 190K context. Solved L1a and L2a twice each, L1b and L3b. <b>L1b is in-sample:</b> the experts were selected on an L1b session. <b>L2b was stopped by the operator</b> at 49.5 min after the model looped in its reasoning with no edits; it is shown as stopped, not as a failure. L3a was not run.`,
+    `The second L2a run of K192p-implant16 is flagged <code>leak_suspect</code> by the URL audit. It is a false positive: the URLs come from the repository's own <code>ANORMALIES.md</code>, and the agent made no web calls.`,
+    `<b>Small models, all in VRAM</b> (llama.cpp, Q4, 131K context, vendor sampling; per-model server flags to follow): Ornith-1.5-35B-A3B Q4_K_M (<code>ornith-ai/Ornith-1.5-35B-A3B-GGUF</code>, MTP), Flint Q4_K_M (<code>ggml-org/Flint-GGUF</code>, no speculation), NVIDIA Nemotron 3.5 Lightning 30B-A3B UD-Q4_K_XL (<code>unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF</code>, MTP), Muse Glimmer 30B KQuant-Dynamic-Q4_K_XL with DFlash (<code>meta-models/Muse-Glimmer-30B-GGUF</code>). All four solved L1a in 11–13 minutes; L2a is next.`,
+    `<b>A harness caveat for small models:</b> Claude Code sends system messages in the middle of the conversation. Ornith and gpt-oss drop them with their vendor chat templates; Devstral and Muse were served with patched templates. Devstral Small 2's first L1a run is not shown: its tool calls came out as plain text the server did not parse (a template problem, rerun pending), so it says nothing about the model.`,
+    `<b>K224 variants</b> are the K224 cut from 05c with other server settings: MTP head + n-gram drafts, the same at temperature 0, and n-gram only at temperature 0.6. At temperature 0 it failed L2a and L2b, which the default sampling solved.`,
+    `<b>DSLab 192, Q4 MTP head, L3a</b> was stopped by the operator at 105 min, after the agent had finished its code, tests and docs and was running its own full-corpus comparison; the tree passed every hidden test at the stop.`,
+    `<b>API cost.</b> Nothing was paid per token. For the Qwen3.8-Flash-Next builds the hosted figure is what the same tokens would cost on QwenCloud's <code>qwen3.8-flash</code>; the small models have no hosted price here.`,
+  ].map(x => `<li>${x}</li>`).join("");
+
+  // time to first green vs polish
+  const fgs = D.first_green.map(f => ({ f, r: D.runs.find(r => r.run === f.run) })).filter(x => x.r)
+    .sort((a, b) => a.r.task.localeCompare(b.r.task) || a.f.dur - b.f.dur);
+  const maxD = Math.max(...fgs.map(x => x.f.dur));
+  document.getElementById("fg").innerHTML = fgs.map(({ f, r }) => {
+    const a = f.fg / maxD, b = (f.dur - f.fg) / maxD;
+    const tt = `<b>${esc(short(r.model))} · ${r.task}</b><br>first green ${fmtM(f.fg)} min, at request ${f.req} of ${f.reqs}<br>then ${fmtM(f.dur - f.fg)} min more (${Math.round(100 * (f.dur - f.fg) / f.dur)}% of the session)<br>${f.stayed ? "stayed green to the end" : "broke again later"}`;
+    return `<div class="rank-row"><span class="no">${r.task}</span><span class="lab">${esc(short(r.model))}</span><div class="rtrack" tabindex="0" data-tip="${esc(tt)}"><div class="rseg pass" style="flex:0 0 calc(${(100 * a).toFixed(2)}% - 2px)">${a > .08 ? fmtM(f.fg) : ""}</div><div class="rseg polish" style="flex:0 0 calc(${(100 * b).toFixed(2)}% - 2px)">${b > .08 ? "+" + fmtM(f.dur - f.fg) : ""}</div></div><span class="val">${fmtM(f.fg)} / ${fmtM(f.dur)} min${f.stayed ? "" : " ✕"}</span></div>`;
+  }).join("");
+
+  // scatter helper, faceted by task (panels with 3+ dots). Highlighted runs: blue dot + direct label; the rest: small
+  // gray dots, named in the tooltip only (selective labels keep the panel readable)
+  const scatter = (id, pts, xLab, xOf, xTicks, hi) => {
+    const tasks = [...new Set(pts.map(p => p.r.task))].sort().filter(t => pts.filter(p => p.r.task === t).length >= 3);
+    const W = 760, Lm = 46, Rm = 40, panelH = 250, B = 44, gap = 26, H = tasks.length * (panelH + gap) + 10;
+    const xmax = Math.max(...pts.map(xOf)) * 1.12;
+    const X = v => Lm + v / xmax * (W - Lm - Rm);
+    let g = "";
+    tasks.forEach((t, i) => {
+      const ps = pts.filter(p => p.r.task === t), y0 = i * (panelH + gap) + 16;
+      const ymax = Math.max(...ps.map(p => p.r.dur / 60)) * 1.15;
+      const Y = v => y0 + (1 - v / ymax) * (panelH - B);
+      const ystep = ymax > 40 ? 10 : 5;
+      for (let v = 0; v <= ymax; v += ystep) g += `<line class="grid" x1="${Lm}" x2="${W - Rm}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${Lm - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+      for (const v of xTicks.filter(v => v <= xmax)) g += `<text x="${X(v)}" y="${Y(0) + 16}" text-anchor="middle">${v}</text>`;
+      g += `<line class="axis" x1="${Lm}" x2="${W - Rm}" y1="${Y(0)}" y2="${Y(0)}"/><text x="0" y="${y0 - 2}" style="font-weight:600;fill:var(--ink)">${t}</text><text x="${Lm}" y="${y0 - 2}">minutes</text><text x="${W - Rm}" y="${Y(0) + 34}" text-anchor="end">${xLab} →</text>`;
+      const dots = ps.map(p => ({ p, cx: X(xOf(p)), cy: Y(p.r.dur / 60), on: hi(p.r) }));
+      for (const d of dots.filter(d => !d.on)) {
+        const tt = `<b>${esc(short(d.p.r.model))} · ${t}</b><br>${fmtM(d.p.r.dur)} min · ${d.p.r.calls ?? "—"} requests`;
+        g += `<circle cx="${d.cx}" cy="${d.cy}" r="4.5" fill="var(--ink-3)" stroke="var(--panel)" stroke-width="1.5" tabindex="0" data-tip="${esc(tt)}"/>`;
+      }
+      const boxes = dots.map(d => ({ x0: d.cx - 7, x1: d.cx + 7, y0: d.cy - 7, y1: d.cy + 7 }));
+      for (const d of dots.filter(d => d.on).sort((a, b) => a.cx - b.cx)) {
+        const lab = short(d.p.r.model).replace(/ (Q4_K_M|UD-Q4_K_XL)$/, ""), w = lab.length * 6.7;
+        const cand = [[10, 4, "start"], [-10, 4, "end"], [0, -11, "middle"], [0, 19, "middle"], [10, -9, "start"], [10, 17, "start"],
+                      [-10, -9, "end"], [-10, 17, "end"], [0, -24, "middle"], [0, 32, "middle"]];
+        let best = cand[0];
+        for (const c of cand) {
+          const x0 = c[2] === "start" ? d.cx + c[0] : c[2] === "end" ? d.cx + c[0] - w : d.cx - w / 2, b = { x0, x1: x0 + w, y0: d.cy + c[1] - 10, y1: d.cy + c[1] + 2 };
+          if (b.x0 < Lm || b.x1 > W) continue;
+          if (!boxes.some(o => o.x0 < b.x1 && b.x0 < o.x1 && o.y0 < b.y1 && b.y0 < o.y1)) { best = c; break; }
+        }
+        const x0 = best[2] === "start" ? d.cx + best[0] : best[2] === "end" ? d.cx + best[0] - w : d.cx - w / 2;
+        boxes.push({ x0, x1: x0 + w, y0: d.cy + best[1] - 10, y1: d.cy + best[1] + 2 });
+        const tt = `<b>${esc(short(d.p.r.model))} · ${t}</b><br>${fmtM(d.p.r.dur)} min · ${d.p.r.calls ?? "—"} requests${D.decode[d.p.r.executor] ? ` · ${D.decode[d.p.r.executor].toFixed(1)} tok/s decode` : ""}`;
+        g += `<circle cx="${d.cx}" cy="${d.cy}" r="6" fill="var(--claude)" stroke="var(--panel)" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/><text x="${d.cx + best[0]}" y="${d.cy + best[1]}" text-anchor="${best[2]}" style="font-size:11px">${esc(lab)}</text>`;
+      }
+    });
+    const el = document.getElementById(id); el.setAttribute("viewBox", `0 0 ${W} ${H}`); el.style.minWidth = "560px"; el.innerHTML = g;
+  };
+  const hiRun = r => /^custom-cand-/.test(r.executor) || r.executor === "custom-qwen38fn-k192pimp16-i7-claude";
+  const solved = r4base.filter(r => /-i7-/.test(r.executor) && kindOf(r) === "pass");
+  scatter("tgsc", solved.filter(r => D.decode[r.executor]).map(r => ({ r })), "decode tokens/s", p => D.decode[p.r.executor], [0, 20, 40, 60, 80, 100], () => true);
+  scatter("reqsc", solved.filter(r => ["L1a", "L2a"].includes(r.task) && r.calls).map(r => ({ r })), "requests", p => p.r.calls, [0, 25, 50, 75, 100, 125, 150, 175], hiRun);
 }
 
 /* critic screening */

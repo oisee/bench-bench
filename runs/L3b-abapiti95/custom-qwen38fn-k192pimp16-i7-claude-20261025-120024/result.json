@@ -1,0 +1,31 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -run TestAnonymousObjectLiterals",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./tsfront -skip \"^TestAnonymousObjectLiterals(_BenchHeldOut95)?$\"",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 503,
+  "grade_fix": "l3b-hidden-test-name-v1",
+  "task": "L3b-abapiti95",
+  "level": "L3",
+  "executor": "custom-qwen38fn-k192pimp16-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-k192p-implant16",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 3590,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

@@ -1,0 +1,1425 @@
+diff --git a/hir/abap/emit.go b/hir/abap/emit.go
+index 3c515a3..0679b5c 100644
+--- a/hir/abap/emit.go
++++ b/hir/abap/emit.go
+@@ -91,7 +91,7 @@ func EmitNamed(p *hir.Program) (map[string]string, *hir.Names, error) {
+ 		e.traceCasts()
+ 	}
+ 	for file, src := range e.files {
+-		out, err := wrap(src)
++		out, err := Format(src)
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("%s: %w", file, err)
+ 		}
+@@ -2137,42 +2137,6 @@ func (b *body) stmt(s *hir.Stmt) {
+ 	}
+ }
+ 
+-// wrap only splits outside literal tokens. Long strings are already chunked.
+-func wrap(src string) (string, error) {
+-	var out strings.Builder
+-	for _, line := range strings.Split(strings.TrimSuffix(src, "\n"), "\n") {
+-		for len(line) > 255 {
+-			quote := byte(0)
+-			cut := -1
+-			for i := 0; i < len(line) && i <= 240; i++ {
+-				c := line[i]
+-				if quote != 0 {
+-					if quote == '|' && c == '\\' {
+-						i++
+-					} else if c == quote {
+-						if quote != '|' && i+1 < len(line) && line[i+1] == quote {
+-							i++
+-						} else {
+-							quote = 0
+-						}
+-					}
+-				} else if c == '`' || c == '\'' || c == '|' {
+-					quote = c
+-				} else if c == ' ' {
+-					cut = i
+-				}
+-			}
+-			if cut <= 0 {
+-				return "", fmt.Errorf("unbreakable source line (%s bytes)", strconv.Itoa(len(line)))
+-			}
+-			out.WriteString(line[:cut] + "\n")
+-			line = strings.TrimLeft(line[cut:], " ")
+-		}
+-		out.WriteString(line + "\n")
+-	}
+-	return out.String(), nil
+-}
+-
+ // boxDynamic preserves identity and absence instead of boxing the ABI wrapper
+ // itself. Objects already represented as graph nodes flow through unchanged.
+ func (b *body) boxDynamic(n, a string, t hir.Type) {
+diff --git a/hir/abap/format.go b/hir/abap/format.go
+new file mode 100644
+index 0000000..7c553f4
+--- /dev/null
++++ b/hir/abap/format.go
+@@ -0,0 +1,462 @@
++// format.go re-indents and wraps generated ABAP. Indentation follows abaplint's
++// default style: two spaces per block level, closing statements aligned with
++// their openers, and alternative branches aligned with the branch they continue.
++// Indentation is recomputed from the statement structure, so existing leading
++// whitespace never influences the result and both operations are idempotent.
++package abap
++
++import (
++	"fmt"
++	"strings"
++)
++
++// blockWidth is abaplint's default indentation: two spaces per block level.
++const blockWidth = 2
++
++// lineLimit is the longest source line the ABAP compilers accept, counted in
++// bytes and including the indentation of wrapped continuation lines.
++const lineLimit = 255
++
++// frame is one open block: the column its opener sits at and the column of the
++// statements inside it. TRY and CASE bodies sit deeper than their middles,
++// which is why body is not always indent + blockWidth.
++type frame struct {
++	kind   string
++	indent int
++	body   int
++}
++
++type formatter struct {
++	stack []frame
++	quote byte // literal delimiter carried across lines, 0 outside literals
++	cont  bool // the previous line ended inside a statement
++	stmt  int  // indentation of the statement being continued
++}
++
++// indent re-indents ABAP source. Statements keep their line layout: a
++// continuation line retains its statement's indentation and several statements
++// on one line stay together while still updating the following indentation.
++func indent(src string) string {
++	f := &formatter{}
++	lines := strings.Split(src, "\n")
++	if len(lines) > 0 && lines[len(lines)-1] == "" {
++		lines = lines[:len(lines)-1]
++	}
++	var out strings.Builder
++	for _, line := range lines {
++		out.WriteString(f.line(line))
++		out.WriteByte('\n')
++	}
++	return out.String()
++}
++
++// Format indents and wraps: every line stays within lineLimit bytes, and a
++// wrapped statement continues at its own indentation.
++func Format(src string) (string, error) {
++	return wrap(indent(src))
++}
++
++// line re-indents one physical line, carrying statement and literal state.
++func (f *formatter) line(line string) string {
++	trimmed := strings.TrimLeft(line, " \t")
++	if trimmed == "" {
++		return ""
++	}
++	// A full-line * comment is not code: it stays at column zero.
++	if f.quote == 0 && strings.HasPrefix(trimmed, "*") {
++		return trimmed
++	}
++	terms, comment := f.scan(line)
++	codeEnd := comment
++	if comment < 0 {
++		codeEnd = len(line)
++	}
++	lead := 0
++	for lead < codeEnd && (line[lead] == ' ' || line[lead] == '\t') {
++		lead++
++	}
++	core := line[lead:codeEnd]
++
++	// Split the code part into statements at the terminators outside literals.
++	var frags []string
++	start := 0
++	for _, t := range terms {
++		if t < lead {
++			continue
++		}
++		frags = append(frags, core[start:t-lead])
++		start = t + 1 - lead
++	}
++	open := start < len(core) && strings.TrimRight(core[start:], " \t") != ""
++	if open {
++		frags = append(frags, core[start:])
++	}
++
++	// The line's indentation comes from its first statement, except when it
++	// continues the statement of the previous line.
++	wasCont := f.cont
++	ind := f.cur()
++	if wasCont {
++		ind = f.stmt
++	} else if len(frags) > 0 {
++		ind = f.process(frags[0])
++		for k := 1; k < len(frags); k++ {
++			f.process(frags[k])
++		}
++	}
++	f.stmt = ind
++	f.cont = open
++
++	var out strings.Builder
++	out.WriteString(strings.Repeat(" ", ind))
++	out.WriteString(strings.TrimRight(core, " \t"))
++	if comment >= 0 {
++		out.WriteString(line[comment:])
++	}
++	return out.String()
++}
++
++// scan walks a physical line outside literals, returning the byte offsets of
++// statement terminators and the offset where a trailing " comment starts (-1
++// when there is none). Quote state carries across lines, so a literal that
++// spans lines hides its keywords and periods on every line it touches.
++func (f *formatter) scan(line string) (terms []int, comment int) {
++	comment = -1
++	for i := 0; i < len(line); i++ {
++		c := line[i]
++		if f.quote != 0 {
++			if f.quote == '|' && c == '\\' {
++				i++ // escaped character in a string template
++				continue
++			}
++			if c == f.quote {
++				// A doubled delimiter is an escaped one and keeps the literal
++				// open; templates escape with the backslash instead.
++				if f.quote != '|' && i+1 < len(line) && line[i+1] == f.quote {
++					i++
++					continue
++				}
++				f.quote = 0
++				continue
++			}
++			continue
++		}
++		if c == '\'' || c == '`' || c == '|' {
++			f.quote = c
++			continue
++		}
++		if c == '"' {
++			comment = i
++			return terms, comment
++		}
++		if c == '.' {
++			terms = append(terms, i)
++		}
++	}
++	return terms, comment
++}
++
++// process applies a statement's block effect and returns the column the
++// statement itself sits at. Openers push a frame, closers pop back to their
++// opener, and middles (ELSE, WHEN, CATCH, sections) realign with the block
++// they continue before opening their own body.
++func (f *formatter) process(s string) int {
++	w := firstWord(s)
++	switch w {
++	case "CLASS":
++		f.stack = nil
++		// A forward (deferred) declaration opens no block.
++		if hasWord(s, "DEFERRED") {
++			return 0
++		}
++		f.push("CLASS", 0, blockWidth)
++		return 0
++	case "INTERFACE", "REPORT":
++		f.stack = nil
++		f.push(w, 0, blockWidth)
++		return 0
++	case "FORM", "FUNCTION":
++		// A header returns to column zero, closing any open report.
++		f.stack = nil
++		f.push(w, 0, blockWidth)
++		return 0
++	case "ENDCLASS":
++		return f.popUntil("CLASS")
++	case "ENDINTERFACE":
++		return f.popUntil("INTERFACE")
++	case "ENDMETHOD":
++		return f.popUntil("METHOD")
++	case "ENDFORM":
++		return f.popUntil("FORM")
++	case "ENDFUNCTION":
++		return f.popUntil("FUNCTION")
++	case "ENDREPORT":
++		return f.popUntil("REPORT")
++	case "ENDIF":
++		return f.popUntil("IF")
++	case "ENDWHILE":
++		return f.popUntil("WHILE")
++	case "ENDDO":
++		return f.popUntil("DO")
++	case "ENDLOOP":
++		return f.popUntil("LOOP")
++	case "ENDAT":
++		return f.popUntil("AT")
++	case "ENDCASE", "ENDSELECT":
++		return f.popUntil("CASE")
++	case "ENDTRY":
++		return f.popUntil("TRY")
++	case "PUBLIC", "PROTECTED", "PRIVATE":
++		if !hasWord(s, "SECTION") {
++			return f.cur()
++		}
++		// Sections align with each other and open their declaration list.
++		for len(f.stack) > 0 && f.stack[len(f.stack)-1].kind == "SECTION" {
++			f.stack = f.stack[:len(f.stack)-1]
++		}
++		d := f.cur()
++		f.push("SECTION", d, d+blockWidth)
++		return d
++	case "METHOD":
++		d := f.cur()
++		f.push("METHOD", d, d+blockWidth)
++		return d
++	case "IF":
++		d := f.cur()
++		f.push("IF", d, d+blockWidth)
++		return d
++	case "ELSE", "ELSEIF":
++		d := f.popUntil("IF")
++		f.push("IF", d, d+blockWidth)
++		return d
++	case "CASE", "SELECT":
++		d := f.cur()
++		f.push("CASE", d, d+blockWidth)
++		return d
++	case "WHEN":
++		d := f.find("CASE")
++		if d < 0 {
++			return f.cur()
++		}
++		f.popAbove("CASE")
++		f.push("WHEN", d+blockWidth, d+2*blockWidth)
++		return d + blockWidth
++	case "WHILE", "DO", "LOOP", "AT":
++		d := f.cur()
++		f.push(w, d, d+blockWidth)
++		return d
++	case "TRY":
++		// TRY bodies sit two levels in; CATCH and CLEANUP sit one level in.
++		d := f.cur()
++		f.push("TRY", d, d+2*blockWidth)
++		return d
++	case "CATCH", "CLEANUP":
++		d := f.find("TRY")
++		if d < 0 {
++			return f.cur()
++		}
++		f.popAbove("TRY")
++		f.push("CATCH", d+blockWidth, d+2*blockWidth)
++		return d + blockWidth
++	default:
++		return f.cur()
++	}
++}
++
++func (f *formatter) push(kind string, ind, body int) {
++	f.stack = append(f.stack, frame{kind: kind, indent: ind, body: body})
++}
++
++func (f *formatter) cur() int {
++	if len(f.stack) == 0 {
++		return 0
++	}
++	return f.stack[len(f.stack)-1].body
++}
++
++// popUntil removes every frame above and including the innermost frame of the
++// given kind, returning that frame's column (the closer aligns with it).
++func (f *formatter) popUntil(kind string) int {
++	for k := len(f.stack) - 1; k >= 0; k-- {
++		if f.stack[k].kind == kind {
++			ind := f.stack[k].indent
++			f.stack = f.stack[:k]
++			return ind
++		}
++	}
++	return f.cur()
++}
++
++// find returns the column of the innermost frame of the given kind, or -1.
++func (f *formatter) find(kind string) int {
++	for k := len(f.stack) - 1; k >= 0; k-- {
++		if f.stack[k].kind == kind {
++			return f.stack[k].indent
++		}
++	}
++	return -1
++}
++
++// popAbove keeps the innermost frame of the given kind and drops the frames
++// opened inside it, so a middle aligns with its block.
++func (f *formatter) popAbove(kind string) {
++	for k := len(f.stack) - 1; k >= 0; k-- {
++		if f.stack[k].kind == kind {
++			f.stack = f.stack[:k+1]
++			return
++		}
++	}
++}
++
++// firstWord returns the leading keyword of a statement, uppercased. Hyphens
++// stay inside the word, so CLASS-DATA never reads as CLASS.
++func firstWord(s string) string {
++	var b []byte
++	for i := 0; i < len(s); i++ {
++		c := s[i]
++		if len(b) == 0 && (c == ' ' || c == '\t') {
++			continue
++		}
++		if c >= 'a' && c <= 'z' {
++			b = append(b, c-96)
++		} else if (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
++			b = append(b, c)
++		} else {
++			break
++		}
++	}
++	return string(b)
++}
++
++// hasWord reports whether the statement contains the standalone word.
++func hasWord(s, word string) bool {
++	i := 0
++	for i < len(s) {
++		if isWordByte(s[i]) {
++			j := i
++			for j < len(s) && isWordByte(s[j]) {
++				j++
++			}
++			if strings.ToUpper(s[i:j]) == word {
++				return true
++			}
++			i = j
++			continue
++		}
++		i++
++	}
++	return false
++}
++
++func isWordByte(c byte) bool {
++	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
++}
++
++// wrap splits every line that exceeds lineLimit bytes at a space outside
++// literals. Continuation lines keep the statement's indentation, so the byte
++// budget includes the leading spaces, and a trailing comment never gets split.
++func wrap(src string) (string, error) {
++	var out strings.Builder
++	lines := strings.Split(src, "\n")
++	if len(lines) > 0 && lines[len(lines)-1] == "" {
++		lines = lines[:len(lines)-1]
++	}
++	for _, line := range lines {
++		if len(line) <= lineLimit {
++			out.WriteString(line + "\n")
++			continue
++		}
++		trimmed := strings.TrimLeft(line, " \t")
++		if strings.HasPrefix(trimmed, "*") {
++			out.WriteString(line + "\n") // a full-line comment cannot wrap
++			continue
++		}
++		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
++		comment := commentOffset(line)
++		var breaks []int
++		var quote byte
++		end := len(line)
++		if comment >= 0 {
++			end = comment
++		}
++		for i := len(indent); i < end; i++ {
++			c := line[i]
++			if quote != 0 {
++				if quote == '|' && c == '\\' {
++					i++
++				} else if c == quote {
++					if quote != '|' && i+1 < len(line) && line[i+1] == quote {
++						i++
++					} else {
++						quote = 0
++					}
++				}
++				continue
++			}
++			if c == '\'' || c == '`' || c == '|' {
++				quote = c
++			} else if c == ' ' {
++				breaks = append(breaks, i)
++			}
++		}
++		start := len(indent)
++		for len(indent)+len(line)-start > lineLimit {
++			best := -1
++			for _, b := range breaks {
++				if b <= start {
++					continue
++				}
++				if len(indent)+b-start <= lineLimit {
++					best = b
++					continue
++				}
++				break
++			}
++			if best < 0 {
++				for _, b := range breaks {
++					if b > start {
++						best = b
++						break
++					}
++				}
++			}
++			if best <= start {
++				return "", fmt.Errorf("unbreakable source line (%d bytes)", len(line))
++			}
++			out.WriteString(indent + strings.TrimRight(line[start:best], " \t") + "\n")
++			start = best
++			for start < len(line) && line[start] == ' ' {
++				start++
++			}
++		}
++		out.WriteString(indent + line[start:] + "\n")
++	}
++	return out.String(), nil
++}
++
++// commentOffset returns where a trailing " comment starts outside literals,
++// or -1.
++func commentOffset(line string) int {
++	var quote byte
++	for i := 0; i < len(line); i++ {
++		c := line[i]
++		if quote != 0 {
++			if quote == '|' && c == '\\' {
++				i++
++			} else if c == quote {
++				if quote != '|' && i+1 < len(line) && line[i+1] == quote {
++					i++
++				} else {
++					quote = 0
++				}
++			}
++			continue
++		}
++		if c == '\'' || c == '`' || c == '|' {
++			quote = c
++		} else if c == '"' {
++			return i
++		}
++	}
++	return -1
++}
+diff --git a/hir/abap/format_test.go b/hir/abap/format_test.go
+new file mode 100644
+index 0000000..dfed29f
+--- /dev/null
++++ b/hir/abap/format_test.go
+@@ -0,0 +1,225 @@
++package abap
++
++import "testing"
++
++func lines(v ...string) string {
++	var s string
++	for _, x := range v {
++		s += x + "\n"
++	}
++	return s
++}
++
++// The formatter follows abaplint's default indentation: two spaces per block
++// level, closers aligned with openers, middles aligned with their branch.
++func TestIndentBlocks(t *testing.T) {
++	src := lines(
++		"CLASS zcl_a DEFINITION PUBLIC CREATE PUBLIC.",
++		"PUBLIC SECTION.",
++		"METHODS run RETURNING VALUE(result) TYPE i.",
++		"PROTECTED SECTION.",
++		"PRIVATE SECTION.",
++		"ENDCLASS.",
++		"CLASS zcl_a IMPLEMENTATION.",
++		"METHOD run.",
++		"IF a = 1.",
++		"result = 1.",
++		"ELSEIF a = 2.",
++		"result = 2.",
++		"ELSE.",
++		"result = 3.",
++		"ENDIF.",
++		"CASE a.",
++		"WHEN 1.",
++		"result = 1.",
++		"WHEN OTHERS.",
++		"result = 0.",
++		"ENDCASE.",
++		"TRY.",
++		"result = zcl_a=>run( ).",
++		"CATCH cx_root INTO e.",
++		"result = 1.",
++		"CLEANUP.",
++		"result = 2.",
++		"ENDTRY.",
++		"WHILE i < 3.",
++		"i = i + 1.",
++		"ENDWHILE.",
++		"ENDMETHOD.",
++		"ENDCLASS.",
++	)
++	want := lines(
++		"CLASS zcl_a DEFINITION PUBLIC CREATE PUBLIC.",
++		"  PUBLIC SECTION.",
++		"    METHODS run RETURNING VALUE(result) TYPE i.",
++		"  PROTECTED SECTION.",
++		"  PRIVATE SECTION.",
++		"ENDCLASS.",
++		"CLASS zcl_a IMPLEMENTATION.",
++		"  METHOD run.",
++		"    IF a = 1.",
++		"      result = 1.",
++		"    ELSEIF a = 2.",
++		"      result = 2.",
++		"    ELSE.",
++		"      result = 3.",
++		"    ENDIF.",
++		"    CASE a.",
++		"      WHEN 1.",
++		"        result = 1.",
++		"      WHEN OTHERS.",
++		"        result = 0.",
++		"    ENDCASE.",
++		"    TRY.",
++		"        result = zcl_a=>run( ).",
++		"      CATCH cx_root INTO e.",
++		"        result = 1.",
++		"      CLEANUP.",
++		"        result = 2.",
++		"    ENDTRY.",
++		"    WHILE i < 3.",
++		"      i = i + 1.",
++		"    ENDWHILE.",
++		"  ENDMETHOD.",
++		"ENDCLASS.",
++	)
++	if got := indent(src); got != want {
++		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
++	}
++	if indent(want) != want {
++		t.Fatal("indent is not idempotent")
++	}
++}
++
++// Interfaces and forms indent like every other block.
++func TestIndentInterfaceAndForm(t *testing.T) {
++	src := lines(
++		"INTERFACE zif_a PUBLIC.",
++		"METHODS run RETURNING VALUE(result) TYPE i.",
++		"ENDINTERFACE.",
++		"FORM run USING iv_a TYPE i CHANGING rv TYPE i.",
++		"rv = iv_a.",
++		"ENDFORM.",
++	)
++	want := lines(
++		"INTERFACE zif_a PUBLIC.",
++		"  METHODS run RETURNING VALUE(result) TYPE i.",
++		"ENDINTERFACE.",
++		"FORM run USING iv_a TYPE i CHANGING rv TYPE i.",
++		"  rv = iv_a.",
++		"ENDFORM.",
++	)
++	if got := indent(src); got != want {
++		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
++	}
++}
++
++// Report event headers open at column zero; a following form returns there.
++// A deferred class declaration opens nothing and a runtime GET opens nothing.
++func TestIndentReportAndForward(t *testing.T) {
++	src := lines(
++		"REPORT zprog.",
++		"DATA x TYPE i.",
++		"GET RUN TIME FIELD t.",
++		"CLASS lcl_x DEFINITION DEFERRED.",
++		"FORM f1.",
++		"DATA y TYPE i.",
++		"ENDFORM.",
++	)
++	want := lines(
++		"REPORT zprog.",
++		"  DATA x TYPE i.",
++		"  GET RUN TIME FIELD t.",
++		"CLASS lcl_x DEFINITION DEFERRED.",
++		"FORM f1.",
++		"  DATA y TYPE i.",
++		"ENDFORM.",
++	)
++	if got := indent(src); got != want {
++		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
++	}
++}
++
++// Keywords and periods inside literals, templates, escapes and comments are
++// inert; a full-line * comment stays at column zero.
++func TestIndentIgnoresLiterals(t *testing.T) {
++	src := lines(
++		"METHOD run.",
++		"DATA s TYPE string.",
++		"s = 'CASE x. ENDCLASS.'.",
++		"WRITE: / |{ s } CASE |.",
++		"s = `a''b`.",
++		"x = 1. y = 2. IF x = 1.",
++		"z = 3.",
++		"ENDIF.",
++		"ENDMETHOD.",
++		"* full line comment",
++	)
++	want := lines(
++		"METHOD run.",
++		"  DATA s TYPE string.",
++		"  s = 'CASE x. ENDCLASS.'.",
++		"  WRITE: / |{ s } CASE |.",
++		"  s = `a''b`.",
++		"  x = 1. y = 2. IF x = 1.",
++		"    z = 3.",
++		"  ENDIF.",
++		"ENDMETHOD.",
++		"* full line comment",
++	)
++	if got := indent(src); got != want {
++		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
++	}
++	if indent(want) != want {
++		t.Fatal("literal handling is not idempotent")
++	}
++}
++
++// A multiline statement keeps its indentation on every continuation line, and
++// Format wraps over-long statements at that indentation within 255 bytes.
++func TestFormatWraps(t *testing.T) {
++	long := "x = " + rep(100) + " " + rep(100) + " " + rep(100) + "."
++	src := lines("METHOD run.", "DATA x TYPE string.", long, "ENDMETHOD.")
++	out, err := Format(src)
++	if err != nil {
++		t.Fatal(err)
++	}
++	intact := false
++	for _, line := range splitLines(out) {
++		if len(line) > 255 {
++			t.Fatalf("line of %d bytes:\n%s", len(line), out)
++		}
++		if line == "  x = "+rep(100)+" "+rep(100)+" "+rep(100)+"." {
++			intact = true
++		}
++	}
++	if intact {
++		t.Fatal("the long statement was not wrapped")
++	}
++	if again, err := Format(out); err != nil || again != out {
++		t.Fatal("Format is not idempotent")
++	}
++	if indent(out) != out {
++		t.Fatalf("wrapped source is not stable under indent:\n%s", indent(out))
++	}
++}
++
++func rep(n int) string {
++	var b []byte
++	for i := 0; i < n; i++ {
++		b = append(b, 'a')
++	}
++	return string(b)
++}
++
++func splitLines(s string) []string {
++	var out []string
++	start := 0
++	for i := 0; i < len(s); i++ {
++		if s[i] == '\n' {
++			out = append(out, s[start:i])
++			start = i + 1
++		}
++	}
++	return out
++}
+diff --git a/hir/abap/membership_test.go b/hir/abap/membership_test.go
+index 7d25fab..fbf9f4d 100644
+--- a/hir/abap/membership_test.go
++++ b/hir/abap/membership_test.go
+@@ -49,7 +49,7 @@ func TestConstantSetHas(t *testing.T) {
+ 	lexer := files[names.Get("Lexer")+".clas.abap"]
+ 	split := lexer[strings.Index(lexer, "METHOD "+names.Get("member.isSplit")):]
+ 	split = split[:strings.Index(split, "ENDMETHOD.")]
+-	if !strings.Contains(split, " = 32\nOR ") || !strings.Contains(split, " = 46\nOR ") || !strings.Contains(split, " = 10\n).") {
++	if !strings.Contains(split, " = 32\n    OR ") || !strings.Contains(split, " = 46\n    OR ") || !strings.Contains(split, " = 10\n    ).") {
+ 		t.Fatal("constant set has() is not a comparison chain:\n" + split)
+ 	}
+ 	if strings.Contains(split, "->has(") || strings.Contains(split, names.Get("member.splits")) {
+diff --git a/hir/abap/testdata/global_definitions_v750.txt b/hir/abap/testdata/global_definitions_v750.txt
+index 595536c..84f3c05 100644
+--- a/hir/abap/testdata/global_definitions_v750.txt
++++ b/hir/abap/testdata/global_definitions_v750.txt
+@@ -1,394 +1,394 @@
+ z_abstractread_8ebec87d7f365c.clas.abap
+ CLASS z_abstractread_8ebec87d7f365c DEFINITION PUBLIC ABSTRACT CREATE PUBLIC.
+-PUBLIC SECTION.
+-INTERFACES z_readable_bf56ee2fe3345c.
+-METHODS z_member_read_59b6b0bf4d78d2 ABSTRACT RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    INTERFACES z_readable_bf56ee2fe3345c.
++    METHODS z_member_read_59b6b0bf4d78d2 ABSTRACT RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_base_7b47361aad19bb.clas.abap
+ CLASS z_base_7b47361aad19bb DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-METHODS z_member_value_7595a45cb12c0f RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    METHODS z_member_value_7595a45cb12c0f RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_collection_f_24b4cd4887dc68.clas.abap
+ CLASS z_collection_f_24b4cd4887dc68 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-CLASS-METHODS z_member_explo_697757acd09486 RETURNING VALUE(result) TYPE abap_bool.
+-CLASS-METHODS z_member_extra_7da18ebc284b8c RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++    CLASS-METHODS z_member_explo_697757acd09486 RETURNING VALUE(result) TYPE abap_bool.
++    CLASS-METHODS z_member_extra_7da18ebc284b8c RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_derived_10809b749b011a.clas.abap
+ CLASS z_derived_10809b749b011a DEFINITION PUBLIC INHERITING FROM z_base_7b47361aad19bb CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA z_member_n_c1ff4e7cef4f79 TYPE i.
+-METHODS constructor IMPORTING z_param_p_7a4f9874d42c75 TYPE i.
+-METHODS z_member_value_7595a45cb12c0f REDEFINITION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA z_member_n_c1ff4e7cef4f79 TYPE i.
++    METHODS constructor IMPORTING z_param_p_7a4f9874d42c75 TYPE i.
++    METHODS z_member_value_7595a45cb12c0f REDEFINITION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_exception_fi_8d11a2cf8240a7.clas.abap
+ CLASS z_exception_fi_8d11a2cf8240a7 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_exception_st_fa837731be5acf.clas.abap
+ CLASS z_exception_st_fa837731be5acf DEFINITION PUBLIC INHERITING FROM cx_no_check CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA payload TYPE string.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA payload TYPE string.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_inlbase_b52fcd354508ee.clas.abap
+ CLASS z_inlbase_b52fcd354508ee DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-METHODS z_member_val_6490c08c033857 RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    METHODS z_member_val_6490c08c033857 RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_inlcounter_03bada14f1f721.clas.abap
+ CLASS z_inlcounter_03bada14f1f721 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA z_member_n_c1ff4e7cef4f79 TYPE i.
+-DATA z_member_log_7b3c7cc9234d99 TYPE i.
+-METHODS z_member_cur_2989a8bacb2dd4 RETURNING VALUE(result) TYPE i.
+-METHODS z_member_next_a389cab76f79f4 RETURNING VALUE(result) TYPE i.
+-METHODS z_member_pair_43851a2470e3e0 IMPORTING z_param_a_e1e38fa8a20539 TYPE i z_param_b_d0cf320cdbfa49 TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS z_member_bump_f8fe9036201247 IMPORTING z_param_k_49304ba90d1dcb TYPE i.
+-METHODS z_member_me_46661d4057b2f2 RETURNING VALUE(result) TYPE REF TO z_inlcounter_03bada14f1f721.
+-METHODS z_member_fact_92ae39f6dffbfb IMPORTING z_param_k_49304ba90d1dcb TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS z_member_shado_010d685803a817 IMPORTING z_param_a_e1e38fa8a20539 TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS z_member_late_cd6a94800cbdd8 IMPORTING z_param_k_49304ba90d1dcb TYPE i RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA z_member_n_c1ff4e7cef4f79 TYPE i.
++    DATA z_member_log_7b3c7cc9234d99 TYPE i.
++    METHODS z_member_cur_2989a8bacb2dd4 RETURNING VALUE(result) TYPE i.
++    METHODS z_member_next_a389cab76f79f4 RETURNING VALUE(result) TYPE i.
++    METHODS z_member_pair_43851a2470e3e0 IMPORTING z_param_a_e1e38fa8a20539 TYPE i z_param_b_d0cf320cdbfa49 TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS z_member_bump_f8fe9036201247 IMPORTING z_param_k_49304ba90d1dcb TYPE i.
++    METHODS z_member_me_46661d4057b2f2 RETURNING VALUE(result) TYPE REF TO z_inlcounter_03bada14f1f721.
++    METHODS z_member_fact_92ae39f6dffbfb IMPORTING z_param_k_49304ba90d1dcb TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS z_member_shado_010d685803a817 IMPORTING z_param_a_e1e38fa8a20539 TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS z_member_late_cd6a94800cbdd8 IMPORTING z_param_k_49304ba90d1dcb TYPE i RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_inline_fixtu_40cc22c093faea.clas.abap
+ CLASS z_inline_fixtu_40cc22c093faea DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_inlsub_2e41bc734c8ce9.clas.abap
+ CLASS z_inlsub_2e41bc734c8ce9 DEFINITION PUBLIC INHERITING FROM z_inlbase_b52fcd354508ee CREATE PUBLIC.
+-PUBLIC SECTION.
+-METHODS z_member_val_6490c08c033857 REDEFINITION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    METHODS z_member_val_6490c08c033857 REDEFINITION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_instance_fix_f92337c1a24612.clas.abap
+ CLASS z_instance_fix_f92337c1a24612 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_interface_fi_857a17f1cb06b4.clas.abap
+ CLASS z_interface_fi_857a17f1cb06b4 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_leaf_b83382a973db8e.clas.abap
+ CLASS z_leaf_b83382a973db8e DEFINITION PUBLIC INHERITING FROM z_middle_d93006ec2e4339 CREATE PUBLIC.
+-PUBLIC SECTION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_middle_d93006ec2e4339.clas.abap
+ CLASS z_middle_d93006ec2e4339 DEFINITION PUBLIC INHERITING FROM z_root_44cb005ee2e65d CREATE PUBLIC.
+-PUBLIC SECTION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_optional_fix_0d8177d2e4274c.clas.abap
+ CLASS z_optional_fix_0d8177d2e4274c DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_optionalobje_29dc64d120c317.clas.abap
+ CLASS z_optionalobje_29dc64d120c317 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_reader_d8554253f56d58.clas.abap
+ CLASS z_reader_d8554253f56d58 DEFINITION PUBLIC INHERITING FROM z_abstractread_8ebec87d7f365c CREATE PUBLIC.
+-PUBLIC SECTION.
+-METHODS z_member_read_59b6b0bf4d78d2 REDEFINITION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    METHODS z_member_read_59b6b0bf4d78d2 REDEFINITION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_root_44cb005ee2e65d.clas.abap
+ CLASS z_root_44cb005ee2e65d DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_arra_59ccfd100c9888.clas.abap
+ CLASS z_runtime_arra_59ccfd100c9888 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES items_type TYPE STANDARD TABLE OF i WITH DEFAULT KEY.
+-DATA items TYPE items_type.
+-METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS push IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS unshift IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS length RETURNING VALUE(result) TYPE i.
+-METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_59ccfd100c9888 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
+-METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
+-METHODS indexOf IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
+-METHODS includes IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
+-METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
+-METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES items_type TYPE STANDARD TABLE OF i WITH DEFAULT KEY.
++    DATA items TYPE items_type.
++    METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS push IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS unshift IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS length RETURNING VALUE(result) TYPE i.
++    METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_59ccfd100c9888 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
++    METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
++    METHODS indexOf IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE i.
++    METHODS includes IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
++    METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
++    METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_arra_8ecd6afe19e0a5.clas.abap
+ CLASS z_runtime_arra_8ecd6afe19e0a5 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES items_type TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
+-DATA items TYPE items_type.
+-METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS push IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
+-METHODS unshift IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
+-METHODS length RETURNING VALUE(result) TYPE i.
+-METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_8ecd6afe19e0a5 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
+-METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
+-METHODS indexOf IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
+-METHODS includes IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE abap_bool.
+-METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
+-METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES items_type TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
++    DATA items TYPE items_type.
++    METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS push IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
++    METHODS unshift IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
++    METHODS length RETURNING VALUE(result) TYPE i.
++    METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_8ecd6afe19e0a5 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
++    METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
++    METHODS indexOf IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE i.
++    METHODS includes IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE abap_bool.
++    METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
++    METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_arra_c22708faf2e354.clas.abap
+ CLASS z_runtime_arra_c22708faf2e354 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES items_type TYPE STANDARD TABLE OF REF TO object WITH DEFAULT KEY.
+-DATA items TYPE items_type.
+-METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS push IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
+-METHODS unshift IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
+-METHODS length RETURNING VALUE(result) TYPE i.
+-METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_c22708faf2e354 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE REF TO object RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-METHODS pop RETURNING VALUE(result) TYPE REF TO object.
+-METHODS shift RETURNING VALUE(result) TYPE REF TO object.
+-METHODS indexOf IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
+-METHODS includes IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE abap_bool.
+-METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO object.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES items_type TYPE STANDARD TABLE OF REF TO object WITH DEFAULT KEY.
++    DATA items TYPE items_type.
++    METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS push IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
++    METHODS unshift IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
++    METHODS length RETURNING VALUE(result) TYPE i.
++    METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_c22708faf2e354 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE REF TO object RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++    METHODS pop RETURNING VALUE(result) TYPE REF TO object.
++    METHODS shift RETURNING VALUE(result) TYPE REF TO object.
++    METHODS indexOf IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE i.
++    METHODS includes IMPORTING p0 TYPE REF TO object RETURNING VALUE(result) TYPE abap_bool.
++    METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO object.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_arra_f39560c658f841.clas.abap
+ CLASS z_runtime_arra_f39560c658f841 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES items_type TYPE STANDARD TABLE OF int8 WITH DEFAULT KEY.
+-DATA items TYPE items_type.
+-METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS push IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
+-METHODS unshift IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
+-METHODS length RETURNING VALUE(result) TYPE i.
+-METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_f39560c658f841 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE int8 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
+-METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
+-METHODS indexOf IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
+-METHODS includes IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE abap_bool.
+-METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
+-METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES items_type TYPE STANDARD TABLE OF int8 WITH DEFAULT KEY.
++    DATA items TYPE items_type.
++    METHODS reverse RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS push IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
++    METHODS unshift IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
++    METHODS length RETURNING VALUE(result) TYPE i.
++    METHODS concat IMPORTING p0 TYPE REF TO z_runtime_arra_f39560c658f841 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS slice0 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS slice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS slice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS splice1 IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS splice1_view IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS splice2 IMPORTING p0 TYPE i p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS splice3 IMPORTING p0 TYPE i p1 TYPE i p2 TYPE int8 RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS pop RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
++    METHODS shift RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
++    METHODS indexOf IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE i.
++    METHODS includes IMPORTING p0 TYPE int8 RETURNING VALUE(result) TYPE abap_bool.
++    METHODS join IMPORTING p0 TYPE REF TO z_runtime_opti_4ba3bdccd169bb RETURNING VALUE(result) TYPE string.
++    METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_map__294b9108fab6db.clas.abap
+ CLASS z_runtime_map__294b9108fab6db DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES: BEGIN OF entry, k TYPE REF TO z_collection_f_24b4cd4887dc68, v TYPE int8, END OF entry.
+-TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
+-DATA entries TYPE entries_type.
+-METHODS size RETURNING VALUE(result) TYPE i.
+-METHODS has IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 RETURNING VALUE(result) TYPE abap_bool.
+-METHODS set IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 p1 TYPE int8 RETURNING VALUE(result) TYPE REF TO z_runtime_map__294b9108fab6db.
+-METHODS get IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
+-METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
+-METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES: BEGIN OF entry, k TYPE REF TO z_collection_f_24b4cd4887dc68, v TYPE int8, END OF entry.
++    TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
++    DATA entries TYPE entries_type.
++    METHODS size RETURNING VALUE(result) TYPE i.
++    METHODS has IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 RETURNING VALUE(result) TYPE abap_bool.
++    METHODS set IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 p1 TYPE int8 RETURNING VALUE(result) TYPE REF TO z_runtime_map__294b9108fab6db.
++    METHODS get IMPORTING p0 TYPE REF TO z_collection_f_24b4cd4887dc68 RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4a236cd5714dd3.
++    METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_f39560c658f841.
++    METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_c22708faf2e354.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_map__bdc9cedddb3dfe.clas.abap
+ CLASS z_runtime_map__bdc9cedddb3dfe DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES: BEGIN OF entry, k TYPE string, v TYPE i, END OF entry.
+-TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
+-DATA entries TYPE entries_type.
+-METHODS size RETURNING VALUE(result) TYPE i.
+-METHODS has IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE abap_bool.
+-METHODS set IMPORTING p0 TYPE string p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_map__bdc9cedddb3dfe.
+-METHODS get IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
+-METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES: BEGIN OF entry, k TYPE string, v TYPE i, END OF entry.
++    TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
++    DATA entries TYPE entries_type.
++    METHODS size RETURNING VALUE(result) TYPE i.
++    METHODS has IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE abap_bool.
++    METHODS set IMPORTING p0 TYPE string p1 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_map__bdc9cedddb3dfe.
++    METHODS get IMPORTING p0 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_opti_6c43db715f35c9.
++    METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++    METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_map__c61ab32dd6a58d.clas.abap
+ CLASS z_runtime_map__c61ab32dd6a58d DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES: BEGIN OF entry, k TYPE i, v TYPE string, END OF entry.
+-TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
+-DATA entries TYPE entries_type.
+-METHODS size RETURNING VALUE(result) TYPE i.
+-METHODS has IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
+-METHODS set IMPORTING p0 TYPE i p1 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_map__c61ab32dd6a58d.
+-METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
+-METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
+-METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES: BEGIN OF entry, k TYPE i, v TYPE string, END OF entry.
++    TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
++    DATA entries TYPE entries_type.
++    METHODS size RETURNING VALUE(result) TYPE i.
++    METHODS has IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
++    METHODS set IMPORTING p0 TYPE i p1 TYPE string RETURNING VALUE(result) TYPE REF TO z_runtime_map__c61ab32dd6a58d.
++    METHODS get IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_opti_4ba3bdccd169bb.
++    METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_8ecd6afe19e0a5.
++    METHODS keys RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_opti_4a236cd5714dd3.clas.abap
+ CLASS z_runtime_opti_4a236cd5714dd3 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA value TYPE int8.
+-DATA has TYPE abap_bool.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA value TYPE int8.
++    DATA has TYPE abap_bool.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_opti_4ba3bdccd169bb.clas.abap
+ CLASS z_runtime_opti_4ba3bdccd169bb DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA value TYPE string.
+-DATA has TYPE abap_bool.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA value TYPE string.
++    DATA has TYPE abap_bool.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_opti_6c43db715f35c9.clas.abap
+ CLASS z_runtime_opti_6c43db715f35c9 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA value TYPE i.
+-DATA has TYPE abap_bool.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA value TYPE i.
++    DATA has TYPE abap_bool.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_opti_7f2541396f4337.clas.abap
+ CLASS z_runtime_opti_7f2541396f4337 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA value TYPE abap_bool.
+-DATA has TYPE abap_bool.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA value TYPE abap_bool.
++    DATA has TYPE abap_bool.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_opti_8df4f98f9a3a52.clas.abap
+ CLASS z_runtime_opti_8df4f98f9a3a52 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-DATA value TYPE f.
+-DATA has TYPE abap_bool.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    DATA value TYPE f.
++    DATA has TYPE abap_bool.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_runtime_set__edc1f1305a34c6.clas.abap
+ CLASS z_runtime_set__edc1f1305a34c6 DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-TYPES: BEGIN OF entry, k TYPE i, v TYPE abap_bool, END OF entry.
+-TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
+-DATA entries TYPE entries_type.
+-METHODS size RETURNING VALUE(result) TYPE i.
+-METHODS has IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
+-METHODS add IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
+-METHODS fromArray IMPORTING p0 TYPE REF TO z_runtime_arra_59ccfd100c9888 RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
+-METHODS copy IMPORTING p0 TYPE REF TO z_runtime_set__edc1f1305a34c6 RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
+-METHODS delete IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
+-METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    TYPES: BEGIN OF entry, k TYPE i, v TYPE abap_bool, END OF entry.
++    TYPES entries_type TYPE STANDARD TABLE OF entry WITH DEFAULT KEY.
++    DATA entries TYPE entries_type.
++    METHODS size RETURNING VALUE(result) TYPE i.
++    METHODS has IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
++    METHODS add IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
++    METHODS fromArray IMPORTING p0 TYPE REF TO z_runtime_arra_59ccfd100c9888 RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
++    METHODS copy IMPORTING p0 TYPE REF TO z_runtime_set__edc1f1305a34c6 RETURNING VALUE(result) TYPE REF TO z_runtime_set__edc1f1305a34c6.
++    METHODS delete IMPORTING p0 TYPE i RETURNING VALUE(result) TYPE abap_bool.
++    METHODS values RETURNING VALUE(result) TYPE REF TO z_runtime_arra_59ccfd100c9888.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_sibling_6c09e23e480794.clas.abap
+ CLASS z_sibling_6c09e23e480794 DEFINITION PUBLIC INHERITING FROM z_root_44cb005ee2e65d CREATE PUBLIC.
+-PUBLIC SECTION.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_thrower_737e56c2e5a9db.clas.abap
+ CLASS z_thrower_737e56c2e5a9db DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_boom_135f0b330edc0b RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_boom_135f0b330edc0b RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 
+ z_virtual_fixt_a960646a5fe1fd.clas.abap
+ CLASS z_virtual_fixt_a960646a5fe1fd DEFINITION PUBLIC CREATE PUBLIC.
+-PUBLIC SECTION.
+-CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
+-PROTECTED SECTION.
+-PRIVATE SECTION.
++  PUBLIC SECTION.
++    CLASS-METHODS z_member_run_71be1bca84374a RETURNING VALUE(result) TYPE i.
++  PROTECTED SECTION.
++  PRIVATE SECTION.
+ ENDCLASS.
+ 

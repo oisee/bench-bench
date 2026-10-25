@@ -1,0 +1,69 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..421bbe6 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,15 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("and a fifteen million character literal still trims, without the stack", async () => {
++    // The rule was one line of regex, and V8 recurses once per repetition of
++    // a quantified group, so a literal this size is fifteen million frames deep
++    // and the call died here before it could trim a single blank (measured
++    // 2026-10-24). The scan is a loop now, so this case can fail no more.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const LIT = "a".repeat(15000000);
++    expect(trimLiterals("INSERT INTO t VALUES ('" + LIT + "       ')")).to.equal("INSERT INTO t VALUES ('" + LIT + "')");
++    expect(trimLiterals("VALUES ('" + LIT + "  ')")).to.equal("VALUES ('" + LIT + "')");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..2868fa1 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,42 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  This was one line of regex, and the regex held the stack: V8 recurses once
++ *  per repetition of a quantified group, so a literal of fifteen million
++ *  characters is fifteen million frames deep and the call dies with
++ *  `RangeError: Maximum call stack size exceeded` before it can trim a
++ *  single blank (measured 2026-10-24, on a full statement and on a bare
++ *  balanced fragment). So the scan is a loop over the string, and the rule
++ *  is read off the characters rather than matched: a quote that is doubled
++ *  is content, a quote that is not closes the literal, and only the spaces
++ *  immediately before that closing quote are dropped. Same rule, no frames;
++ *  a fragment with no closing quote is left as it was, as the regex left it. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const out = [];
++  let i = 0;
++
++  while (i < sql.length) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) { out.push(sql.slice(i)); break; }
++    if (open > i) out.push(sql.slice(i, open));
++
++    let close = open + 1;
++    while (close < sql.length) {
++      if (sql.charAt(close) !== "'") { close++; continue; }
++      if (sql.charAt(close + 1) === "'") { close += 2; continue; }
++      break;
++    }
++    if (close >= sql.length) { out.push(sql.slice(open)); break; }
++
++    let end = close;
++    while (end > open + 1 && sql.charAt(end - 1) === " ") end--;
++    out.push("'", sql.slice(open + 1, end), "'");
++    i = close + 1;
++  }
++
++  return out.join("");
+ }
+ 
+ /**

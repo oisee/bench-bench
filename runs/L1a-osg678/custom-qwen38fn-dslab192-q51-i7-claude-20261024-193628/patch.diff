@@ -1,0 +1,72 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..95c2672 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,20 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("empty and space-only literals, and several of them in one statement", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('', '  ', 'a  ', 'b '' c  ')")).to.equal("VALUES ('', '', 'a', 'b '' c')");
++  });
++
++  it("a literal the size of a whole statement costs one pass, not a stack", async () => {
++    // The regex this rule was written with backtracked one recursion per
++    // character, so a 15-million-character literal died with
++    // `RangeError: Maximum call stack size exceeded` before it answered.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const big = "INSERT INTO t VALUES('" + "x".repeat(15_000_000) + "   ')";
++    const out = trimLiterals(big);
++    expect(out.endsWith("x')"), "the literal was not trimmed").to.equal(true);
++    expect(out.length, "exactly the three blanks went").to.equal(big.length - 3);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..f2428a8 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,40 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  This is a scan, not a regex. The old one — `/'((?:[^']|'')*)'/g` —
++ *  was right about every balanced statement and wrong about its own cost:
++ *  V8 backtracks a quantified group by recursing once per repetition, so
++ *  a literal of 15 million characters overflowed the stack before it
++ *  answered (`RangeError: Maximum call stack size exceeded`, 2026-10-24).
++ *  The walk below is the same greedy left-to-right parse the regex made
++ *  — open a quote, skip doubled pairs, close at the next single — done
++ *  with `indexOf` jumps, and it costs one pass whatever the size. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  if (!sql.includes("'")) return sql;
++  const n = sql.length;
++  let out = "";
++  let plainFrom = 0;   // text not yet copied, up to the next literal
++  let i = 0;
++  while (i < n) {
++    if (sql[i] !== "'") { i++; continue; }
++    let end = -1;      // the literal's closing quote, or none
++    for (let j = i + 1; j < n; ) {
++      const q = sql.indexOf("'", j);
++      if (q === -1) break;
++      if (q + 1 < n && sql[q + 1] === "'") { j = q + 2; continue; }  // doubled
++      end = q;
++      break;
++    }
++    if (end === -1) break;  // never closes: the tail is left as it was
++    out += sql.slice(plainFrom, i);
++    let k = end;
++    while (k > i + 1 && sql[k - 1] === " ") k--;   // trailing blanks only
++    out += k > i + 1 ? "'" + sql.slice(i + 1, k) + "'" : "''";
++    i = plainFrom = end + 1;
++  }
++  return out + sql.slice(plainFrom);
+ }
+ 
+ /**

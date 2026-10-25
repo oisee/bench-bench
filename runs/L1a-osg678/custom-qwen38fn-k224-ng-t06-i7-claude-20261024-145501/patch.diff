@@ -1,0 +1,75 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..bfddba2 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,18 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("trims two literals in one statement, each to its own closing quote", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('a  ', 'b  ')")).to.equal("VALUES ('a', 'b')");
++  });
++
++  it("and a 15 M character literal trims without a stack overflow", async () => {
++    // a media payload on its way into a BLOB column; the quote-aware regex
++    // this used to be recursed once per character in V8 and died with
++    // RangeError before the statement reached the database
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "a".repeat(15_000_000);
++    expect(trimLiterals(`INSERT INTO t VALUES ('${body}   ')`)).to.equal(`INSERT INTO t VALUES ('${body}')`);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..0ec4865 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,45 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  This is a character scan, not a regex, because a regex with a repeated
++ *  alternation recurses once per repetition in V8 and a literal of 15 M
++ *  characters -- a media payload on its way into a BLOB column -- dies with
++ *  `RangeError: Maximum call stack size exceeded` before the database ever
++ *  sees the statement. The scan reads exactly what the old regex matched:
++ *  a literal runs from a quote over non-quotes and `''` pairs to the next
++ *  lone quote, and a run that hits end of input closes at the first quote
++ *  of its last `''` pair (the regex's backtracking, said as a variable).
++ *  A quote that opens nothing is left alone, as the regex left it. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  let out = null; // pieces of the rewritten prefix, once there is one
++  let cut = 0;    // start of the verbatim region not yet emitted
++  let i = 0;
++  while (i < n) {
++    if (sql[i] !== "'") { i++; continue; }
++    // Walk the literal body: non-quotes and `''` pairs, until a lone quote
++    // closes it or the input ends.
++    let j = i + 1;
++    let lastPair = -1; // first quote of the last `''` pair walked
++    let closed = false;
++    while (j < n) {
++      if (sql[j] !== "'") { j++; continue; }
++      if (j + 1 < n && sql[j + 1] === "'") { lastPair = j; j += 2; continue; }
++      closed = true; // sql[j] is the closing quote
++      break;
++    }
++    const close = closed ? j : lastPair; // end of input: the pair's first quote, as the regex backtracked to it
++    if (close === -1) { i++; continue; } // no literal starts here
++    let end = close; // drop ordinary spaces only, at the tail
++    while (end > i + 1 && sql[end - 1] === " ") end--;
++    out = (out ?? "") + sql.slice(cut, i) + "'" + sql.slice(i + 1, end) + "'";
++    cut = close + 1;
++    i = close + 1;
++  }
++  if (out === null) return sql;
++  return out + sql.slice(cut);
+ }
+ 
+ /**

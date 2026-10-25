@@ -62,6 +62,39 @@
     },
     "qwen3.8-flash-next-dslab-k224": {
       "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab-k224-mtp-ng": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab-k224-mtp-ng-t0": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab-k224-ng-t06": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-k224-implant16": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab192-mtp-ng": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab192-mtp-q51": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab192-q4h": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-dslab192p-q4h": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-k192p-implant16": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-iq2-dslab192-mtp": {
+      "same_as": "Qwen3.8-Flash-Next"
+    },
+    "qwen3.8-flash-next-iq2-dslab280-mtp": {
+      "same_as": "Qwen3.8-Flash-Next"
     }
   },
   "plans": {

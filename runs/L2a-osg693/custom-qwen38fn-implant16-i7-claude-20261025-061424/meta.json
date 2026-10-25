@@ -1,0 +1,14 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-k224-implant16",
+  "effort": "xhigh",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-25T06:14:29+00:00",
+  "finished_at": "2026-10-25T06:38:19+00:00",
+  "exit_code": "0",
+  "protocol": "time-scaled-v1",
+  "time_scale": "5",
+  "time_limit_s": 13500
+}

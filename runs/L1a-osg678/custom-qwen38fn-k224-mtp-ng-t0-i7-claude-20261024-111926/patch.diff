@@ -1,0 +1,68 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..cb3b1d6 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,13 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("and a fifteen-million-character literal trims without a stack overflow", async () => {
++    // The quote-aware regex backtracked by recursion and died with
++    // RangeError on a media-sized literal; the scanner is linear.
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "x".repeat(15_000_000);
++    expect(trimLiterals(`INSERT INTO t VALUES ('${body}   ')`)).to.equal(`INSERT INTO t VALUES ('${body}')`);
++    expect(trimLiterals(`INSERT INTO t VALUES ('${body} ', '  y  ')`)).to.equal(`INSERT INTO t VALUES ('${body}', '  y')`);
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..050c3ec 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,43 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  This used to be one regex, `/'((?:[^']|'')*)'/g`. It was right and it
++ *  was a bomb: a quantified group backtracks by recursion, so a literal of
++ *  fifteen million characters -- a media row through an INSERT -- died with
++ *  `RangeError: Maximum call stack size exceeded` (measured 2026-10-24).
++ *  The scan below is the same automaton said as a loop: linear, no stack.
++ *  Greedy means the literal closes at the LAST quote the token scan reaches
++ *  -- every doubled `''` is also a candidate close the engine would backtrack
++ *  to -- not the first: `'a ''` is the literal `'a '` plus a stray quote,
++ *  which is why the scanner records candidates as it goes instead of stopping
++ *  at the first one. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  const parts = [];
++  let i = 0;
++  while (i < n) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) { parts.push(sql.slice(i)); break; }
++    parts.push(sql.slice(i, open));
++    // Maximal token scan from the opening quote: a non-quote character, or a
++    // doubled quote, is content; a lone quote can only end the literal.
++    let pos = open + 1;
++    let close = -1;
++    while (pos < n) {
++      if (sql.charCodeAt(pos) !== 0x27) { pos++; continue; }
++      close = pos;
++      if (pos + 1 < n && sql.charCodeAt(pos + 1) === 0x27) { pos += 2; continue; }
++      break;
++    }
++    if (close < 0) { parts.push(sql.slice(open)); break; } // no closing quote: the rest is not a literal
++    let end = close; // ordinary spaces only -- tabs and newlines are data
++    while (end > open + 1 && sql.charCodeAt(end - 1) === 0x20) end--;
++    parts.push("'", sql.slice(open + 1, end), "'");
++    i = close + 1;
++  }
++  return parts.join("");
+ }
+ 
+ /**

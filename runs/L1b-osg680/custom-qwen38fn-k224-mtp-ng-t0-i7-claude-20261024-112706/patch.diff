@@ -1,0 +1,417 @@
+diff --git a/.github/workflows/gogen.yml b/.github/workflows/gogen.yml
+index a433ff6..a729761 100644
+--- a/.github/workflows/gogen.yml
++++ b/.github/workflows/gogen.yml
+@@ -105,8 +105,8 @@ jobs:
+       - name: Go vet and tests
+         working-directory: tools/gogen/go
+         run: |
+-          go vet ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./objstore/ ./osdbind/
+-          go test ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./objstore/... ./osdbind/...
++          go vet ./abap/ ./nodeutf8/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./objstore/ ./osdbind/
++          go test ./xbuf/... ./bytesection/... ./abap/... ./nodeutf8/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./objstore/... ./osdbind/...
+           # the sandbox builds for the browser too (nofollow_other.go)
+           GOOS=js GOARCH=wasm go build ./sandbox/ ./objstore/
+           # ABAP's process-global string memos, the AMC broker and the lock
+diff --git a/tools/gogen/frontend.mjs b/tools/gogen/frontend.mjs
+index ba3b7bf..183d5c6 100644
+--- a/tools/gogen/frontend.mjs
++++ b/tools/gogen/frontend.mjs
+@@ -734,6 +734,10 @@ const NATIVE = new Map([
+   ["CL_ABAP_GZIP=>COMPRESS_BINARY", {fn: "abap.DeflateRaw", args: ["RAW_IN:xstring", "&GZIP_OUT:xstring", "&GZIP_OUT_LEN:i"]}],
+   ["CL_ABAP_GZIP=>DECOMPRESS_BINARY", {fn: "abap.InflateRaw", args: ["GZIP_IN:xstring", "&RAW_OUT:xstring", "&RAW_OUT_LEN:i"]}],
+   ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~ENCODE_BASE64", {fn: "abap.EncodeBase64", args: ["UNENCODED:string"]}],
++  // the other half: Buffer.from(encoded, "base64") as bytes, then their
++  // text as Buffer#toString gives it (go/abap/http_utility.go reads the
++  // bytes as UTF-8 through go/nodeutf8, one U+FFFD per malformed sequence)
++  ["CL_HTTP_UTILITY=>IF_HTTP_UTILITY~DECODE_BASE64", {fn: "abap.DecodeBase64", args: ["ENCODED:string"]}],
+   // Native application host: the browser implementation of these classic
+   // frontend services is intentionally inert. In a compiled command the
+   // frontend is the local machine, so files and directories map to the OS.
+diff --git a/tools/gogen/go/README.md b/tools/gogen/go/README.md
+index ddff057..cb86ce7 100644
+--- a/tools/gogen/go/README.md
++++ b/tools/gogen/go/README.md
+@@ -16,6 +16,8 @@
+ 
+ `nodehdr/` implements Node-compatible duplicate-header joining for ICF and HTTP clients.
+ 
++`nodeutf8/` decodes bytes as text the way Node's `Buffer#toString()` does, one U+FFFD per malformed sequence.
++
+ `sxmlscan/` scans XML byte boundaries and UTF-8 text.
+ 
+ Go package tests sit beside their implementations as `*_test.go` files. The generated code and parity workflow are described in [gogen's README](../README.md).
+diff --git a/tools/gogen/go/abap/conv.go b/tools/gogen/go/abap/conv.go
+index 17c7e05..5cb7717 100644
+--- a/tools/gogen/go/abap/conv.go
++++ b/tools/gogen/go/abap/conv.go
+@@ -708,8 +708,13 @@ func EncodeXBase64(s *Session, unencoded string) string {
+ // as raw bytes in the Go runtime, so the decoded bytes can be returned as a
+ // string without the hex conversion used by the Node transpiler runtime.
+ func DecodeXBase64(s *Session, encoded string) string {
+-	// Buffer.from(s, "base64") accepts both alphabets, ignores non-alphabet
+-	// bytes, stops at padding, and decodes the final unpadded group.
++	return string(nodeBase64Bytes(encoded))
++}
++
++// nodeBase64Bytes decodes like Buffer.from(s, "base64"): both alphabets,
++// non-alphabet bytes ignored, stops at padding, the final unpadded group
++// decoded, a lone leftover character dropped.
++func nodeBase64Bytes(encoded string) []byte {
+ 	clean := make([]byte, 0, len(encoded))
+ 	for i := 0; i < len(encoded); i++ {
+ 		c := encoded[i]
+@@ -729,7 +734,7 @@ func DecodeXBase64(s *Session, encoded string) string {
+ 		clean = clean[:len(clean)-1]
+ 	}
+ 	b, _ := base64.RawStdEncoding.DecodeString(string(clean))
+-	return string(b)
++	return b
+ }
+ 
+ // CP is the pattern match, measured on A4H (2026-09-23): * is any run, + any
+diff --git a/tools/gogen/go/abap/http_utility.go b/tools/gogen/go/abap/http_utility.go
+index 719b1a7..4afda6b 100644
+--- a/tools/gogen/go/abap/http_utility.go
++++ b/tools/gogen/go/abap/http_utility.go
+@@ -1,5 +1,7 @@
+ package abap
+ 
++import "osg/gogen/nodeutf8"
++
+ // EncodeBase64 is cl_http_utility=>encode_base64: Buffer.from(text), its
+ // UTF-8 bytes, as base64 (open-abap-core's kernel lines; authenticate's
+ // Basic header). A system converts the text in its own code page first;
+@@ -7,3 +9,11 @@ package abap
+ func EncodeBase64(s *Session, unencoded string) string {
+ 	return EncodeXBase64(s, unencoded)
+ }
++
++// DecodeBase64 is cl_http_utility=>decode_base64: Buffer.from(encoded,
++// "base64") as bytes, then their text as Buffer#toString gives it — nodeutf8
++// decodes the bytes as UTF-8, one U+FFFD per malformed sequence. A system
++// converts the text in its own code page first; not measured on A4H.
++func DecodeBase64(s *Session, encoded string) string {
++	return nodeutf8.Decode(string(nodeBase64Bytes(encoded)))
++}
+diff --git a/tools/gogen/go/go.sum b/tools/gogen/go/go.sum
+index 730852e..1e6a7e3 100644
+--- a/tools/gogen/go/go.sum
++++ b/tools/gogen/go/go.sum
+@@ -1,34 +1,64 @@
++github.com/chromedp/cdproto v0.0.0-20250803210736-d308e07a266d/go.mod h1:NItd7aLkcfOA/dcMXvl8p1u+lQqioRMq/SqDp71Pb/k=
++github.com/chromedp/chromedp v0.14.2/go.mod h1:rHzAv60xDE7VNy/MYtTUrYreSc0ujt2O1/C3bzctYBo=
++github.com/chromedp/sysutil v1.1.0/go.mod h1:WiThHUdltqCNKGc4gaU50XgYjwjYIhKWoHGPTUfWTJ8=
+ github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
+ github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
+ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
+ github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
++github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
+ github.com/gdamore/encoding v1.0.1 h1:YzKZckdBL6jVt2Gc+5p82qhrGiqMdG/eNs6Wy0u3Uhw=
+ github.com/gdamore/encoding v1.0.1/go.mod h1:0Z0cMFinngz9kS1QfMjCP8TY7em3bZYeeklsSDPivEo=
+ github.com/gdamore/tcell/v2 v2.13.10 h1:Afs3JKt83HnhuUKdZ3MnxUgOqQRWftj5JyDqv1LLynA=
+ github.com/gdamore/tcell/v2 v2.13.10/go.mod h1:+Wfe208WDdB7INEtCsNrAN6O2m+wsTPk1RAovjaILlo=
++github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2/go.mod h1:TiCD2a1pcmjd7YnhGH0f/zKNcCD06B029pHhzV23c2M=
++github.com/go-viper/mapstructure/v2 v2.4.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
++github.com/gobwas/httphead v0.1.0/go.mod h1:O/RXo79gxV8G+RqlR/otEwx4Q36zl9rqC5u12GKvMCM=
++github.com/gobwas/pool v0.2.1/go.mod h1:q8bcK0KcYlCgd9e7WYLm9LpyS+YeLd8JVDW6WezmKEw=
++github.com/gobwas/ws v1.4.0/go.mod h1:G3gNqMNtPppf5XUz7O4shetPpcZ1VJ7zt18dlUeakrc=
++github.com/google/jsonschema-go v0.4.2/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
+ github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3 h1:LMLX+LgTNWpfvCBdFebv6EsYotImrt/Ppc5cXIriCSo=
+ github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3/go.mod h1:jl5iWTm0/hd5PjEYEOuwAJ57L/CibdZfrqZ5XA5GrCk=
+ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+ github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
++github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
+ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
+ github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
++github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
++github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
+ github.com/klauspost/compress v1.19.2 h1:hMRETovs/pu/dVWN7zIT1PGG8t509MwT6bO7XSi26R8=
+ github.com/klauspost/compress v1.19.2/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+ github.com/lucasb-eyer/go-colorful v1.3.0 h1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=
+ github.com/lucasb-eyer/go-colorful v1.3.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
++github.com/mark3labs/mcp-go v0.47.0/go.mod h1:JKTC7R2LLVagkEWK7Kwu7DbmA6iIvnNAod6yrHiQMag=
+ github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
+ github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
++github.com/mattn/go-sixel v0.0.5/go.mod h1:h2Sss+DiUEHy0pUqcIB6PFXo5Cy8sTQEFr3a9/5ZLNw=
+ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
+ github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
+ github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc h1:x8ASYhpbzGsKSLoashF8CXJrHPRWf7dxDVdMQdKUlXw=
+ github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc/go.mod h1:M2hRvxgpsTVwtGrcWYxS2ttAzp4N+kPxEBEkXDmMNY0=
++github.com/oisee/open-rfc-go v0.0.0-20260820234724-6ef4d9eeb9cd/go.mod h1:ymKpeVFBsjAHn/YF/zk1d7z+MkRVrEO2Ckqa2RKGD6c=
+ github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff h1:r5JL30tNWEo8/BWVQiEsn2kQIlf2kCKDnyBs4HKgoCo=
+ github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff/go.mod h1:weVJ4zs+HTOuvr6sCNmKynR69962DcCLQ+ittD38paY=
++github.com/pelletier/go-toml/v2 v2.2.4/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
+ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
+ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
+ github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
+ github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
++github.com/sagikazarmark/locafero v0.11.0/go.mod h1:nVIGvgyzw595SUSUE6tvCp3YYTeHs15MvlmU87WwIik=
++github.com/soniakeys/quant v1.0.0/go.mod h1:HI1k023QuVbD4H8i9YdfZP2munIHU4QpjsImz6Y6zds=
++github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8/go.mod h1:3n1Cwaq1E1/1lhQhtRK2ts/ZwZEhjcQeJQ1RuC6Q/8U=
++github.com/spf13/afero v1.15.0/go.mod h1:NC2ByUVxtQs4b3sIUphxK0NioZnmxgyCrfzeuq8lxMg=
++github.com/spf13/cast v1.10.0/go.mod h1:jNfB8QC9IA6ZuY2ZjDp0KtFO2LZZlg4S/7bzP6qqeHo=
++github.com/spf13/cobra v1.10.1/go.mod h1:7SmJGaTHFVBY0jW4NXGluQoLvhqFQM+6XSKD+P4XaB0=
++github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
++github.com/spf13/viper v1.21.0/go.mod h1:P0lhsswPGWD/1lZJ9ny3fYnVqxiegrlNrEmgLjbTCAY=
++github.com/subosito/gotenv v1.6.0/go.mod h1:Dk4QP5c2W3ibzajGcXpNraDfq2IrhjMIvMSWPKKo0FU=
++github.com/tetratelabs/wazero v1.11.0/go.mod h1:eV28rsN8Q+xwjogd7f4/Pp4xFxO7uOGbLcD/LzB1wiU=
++github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
+ github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
++github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
++go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
+ golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
+ golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
+ golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
+@@ -39,6 +69,7 @@ golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLL
+ golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+ golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
+ golang.org/x/net v0.6.0/go.mod h1:2Tu9+aMcznHK/AK1HMvgo6xiTLG5rD5rZLDS+rp2Bjs=
++golang.org/x/net v0.52.0/go.mod h1:R1MAz7uMZxVMualyPXb+VaqGSa3LIaUqk0eEt3w36Sw=
+ golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.1.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+@@ -71,6 +102,7 @@ golang.org/x/tools v0.6.0/go.mod h1:Xwgl3UAJ/d3gWutnCtw505GrjyAbvKui8lOU390QaIU=
+ golang.org/x/tools v0.50.0 h1:c2ifzfcuY7L90lZ2aKd8S4K2NpASF08SZx9ZuJkHmSU=
+ golang.org/x/tools v0.50.0/go.mod h1:7ulVMw3831Mwi5EZD6RomGyffr4VFjuNYXf2BbCEAV0=
+ golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+ modernc.org/cc/v4 v4.29.7 h1:q+NXGJ0bK3b4TXFYQQVr9pYETGnmwFWkrUzJnMya/Tg=
+ modernc.org/cc/v4 v4.29.7/go.mod h1:OnovgIhbbMXMu1aISnJ0wvVD1KnW+cAUJkIrAWh+kVI=
+ modernc.org/ccgo/v4 v4.36.1 h1:ZNIUZAryN0UgnJwtyxrdEzcFc3yD4Cu4AzjfPXsLsIE=
+diff --git a/tools/gogen/go/nodeutf8/README.md b/tools/gogen/go/nodeutf8/README.md
+new file mode 100644
+index 0000000..fa1e373
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/README.md
+@@ -0,0 +1,6 @@
++# nodeutf8
++
++Node `Buffer#toString()` UTF-8 decoding: the WHATWG maximal-subpart rule,
++one U+FFFD per malformed sequence, the offending byte read again as a
++start byte. `Decode` gives the text Node answers for the same bytes.
++Used by `abap.DecodeBase64` (`cl_http_utility=>decode_base64`).
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8.go b/tools/gogen/go/nodeutf8/nodeutf8.go
+new file mode 100644
+index 0000000..e788159
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8.go
+@@ -0,0 +1,93 @@
++// Package nodeutf8 interprets raw bytes as text the way Node does:
++// Buffer#toString() decodes UTF-8 by the WHATWG algorithm — the maximal
++// subpart of a maximal sequence is decoded, every malformed sequence
++// becomes one U+FFFD, and the byte that broke a sequence is read again
++// as a start byte. A stream that ends inside a sequence is one error.
++package nodeutf8
++
++import "strings"
++
++// Decode returns the Node-compatible UTF-8 text of the bytes of b.
++// A well-formed sequence becomes its code point; an invalid lead byte,
++// an overlong form, a surrogate half, a value past U+10FFFF, a bad
++// continuation and a truncated tail each give one U+FFFD. Valid text
++// around a malformed sequence is kept.
++func Decode(b string) string {
++	n := len(b)
++	ascii := true
++	for i := 0; i < n; i++ {
++		if b[i] >= 0x80 {
++			ascii = false
++			break
++		}
++	}
++	if ascii {
++		return b
++	}
++	var out strings.Builder
++	i := 0
++	for i < n {
++		c := b[i]
++		if c < 0x80 {
++			out.WriteByte(c)
++			i++
++			continue
++		}
++		// the sequence the lead byte opens: its length and the range of
++		// its first continuation byte (the rest are 80..BF); C0, C1,
++		// F5..FF and a bare 80..BF open nothing
++		var length int
++		var lo, hi byte
++		switch {
++		case c >= 0xC2 && c <= 0xDF:
++			length, lo, hi = 2, byte(0x80), byte(0xBF)
++		case c == 0xE0:
++			length, lo, hi = 3, byte(0xA0), byte(0xBF)
++		case c >= 0xE1 && c <= 0xEC:
++			length, lo, hi = 3, byte(0x80), byte(0xBF)
++		case c == 0xED:
++			length, lo, hi = 3, byte(0x80), byte(0x9F)
++		case c >= 0xEE && c <= 0xEF:
++			length, lo, hi = 3, byte(0x80), byte(0xBF)
++		case c == 0xF0:
++			length, lo, hi = 4, byte(0x90), byte(0xBF)
++		case c >= 0xF1 && c <= 0xF3:
++			length, lo, hi = 4, byte(0x80), byte(0xBF)
++		case c == 0xF4:
++			length, lo, hi = 4, byte(0x80), byte(0x8F)
++		default:
++			out.WriteRune(0xFFFD)
++			i++
++			continue
++		}
++		mask := byte(0x07)
++		if length == 2 {
++			mask = 0x1F
++		} else if length == 3 {
++			mask = 0x0F
++		}
++		cp := uint32(c & mask)
++		var k int
++		for k = 1; k < length; k++ {
++			if i+k >= n {
++				break // the stream ends inside the sequence: one error
++			}
++			d := b[i+k]
++			if d < lo || d > hi {
++				break // the maximal subpart ends here; d starts the next
++			}
++			cp = (cp << 6) | uint32(d-0x80)
++			lo, hi = 0x80, 0xBF
++		}
++		if k == length {
++			out.WriteRune(rune(cp))
++			i += length
++		} else {
++			out.WriteRune(0xFFFD)
++			// k is the failing byte's offset, or the stream's end when
++			// the sequence was cut short
++			i += k
++		}
++	}
++	return out.String()
++}
+diff --git a/tools/gogen/go/nodeutf8/nodeutf8_test.go b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+new file mode 100644
+index 0000000..c87bb79
+--- /dev/null
++++ b/tools/gogen/go/nodeutf8/nodeutf8_test.go
+@@ -0,0 +1,58 @@
++package nodeutf8
++
++import "testing"
++
++const R = "\uFFFD" // one U+FFFD, what Node gives for a malformed sequence
++
++// The cases are Buffer.from([...]).toString() answers measured on Node.
++func TestDecode(t *testing.T) {
++	for _, tc := range []struct {
++		in  []byte
++		out string
++	}{
++		// well-formed: ASCII, 2-, 3- and 4-byte sequences, the boundaries
++		{[]byte{}, ""},
++		{[]byte{'a', 'b'}, "ab"},
++		{[]byte{0xC3, 0x84}, "Ä"},                     // U+00C4
++		{[]byte{0xE0, 0xA0, 0x80}, "ࠀ"},               // U+0800, the E0 lower bound
++		{[]byte{0xED, 0x9F, 0xBF}, "\uD7FF"},          // U+D7FF, the ED upper bound
++		{[]byte{0xEF, 0xBF, 0xBF}, "￿"},               // U+FFFF
++		{[]byte{0xF0, 0x90, 0x80, 0x80}, "𐀀"},         // U+10000, the F0 lower bound
++		{[]byte{0xF4, 0x8F, 0xBF, 0xBF}, "􏿿"},         // U+10FFFF
++		{[]byte{0xF0, 0x9F, 0xBF, 0xBF}, "\U0001FFFF"}, // F0 byte2 9F is inside 90..BF
++		{[]byte{0xF1, 0x80, 0x80, 0x80}, "\U00040000"}, // F1 takes 80..BF, not 90..
++		{[]byte{0xE1, 0x9F, 0x9F}, "៟"},               // U+17DF, E1 takes 80..BF
++		{[]byte{0x41, 0xE0, 0xA0, 0x80, 0x42}, "AࠀB"}, // valid around a 3-byte sequence
++		{[]byte{0xC2, 0x80, 0x80}, "\u0080" + R},      // the third byte is a bare continuation
++		// malformed: one U+FFFD per error, the offending byte read again
++		{[]byte{0x80}, R},
++		{[]byte{0xC0, 0x80}, R + R}, // overlong 2-byte lead
++		{[]byte{0xC1, 0xBF}, R + R},
++		{[]byte{0xE0, 0x80, 0x80}, R + R + R},           // overlong 3-byte lead
++		{[]byte{0xED, 0xA0, 0xBF}, R + R + R},           // surrogate half D800
++		{[]byte{0xF5, 0x80, 0x80, 0x80}, R + R + R + R}, // invalid lead
++		{[]byte{0xF4, 0x90, 0x80, 0x80}, R + R + R + R}, // past U+10FFFF
++		{[]byte{0xF0, 0x8F, 0xBF, 0xBF}, R + R + R + R}, // overlong 4-byte: F0 takes 90..BF
++		{[]byte{0xF0, 0x80, 0x80, 0x80}, R + R + R + R}, // overlong 4-byte lead
++		{[]byte{0xF0, 0xE0, 0xA0, 0x80}, R + "ࠀ"},       // byte2 past BF, E0 A0 80 read again
++		{[]byte{0xF1, 0x8D, 0xD5, 0xBF}, R + "\u057F"},      // byte3 fails, D5 BF is a 2-byte pair
++		{[]byte{0xE2, 0x82}, R},                         // truncated 3-byte
++		{[]byte{0xC2}, R},                               // truncated 2-byte
++		{[]byte{0xE0, 0x80}, R + R},                     // bad continuation, then a bare one
++		{[]byte{0x61, 0xC3, 0x80, 0x62}, "aÀb"},         // valid around a 2-byte sequence
++	} {
++		if got := Decode(string(tc.in)); got != tc.out {
++			t.Errorf("Decode(%v) = %q, want %q", tc.in, got, tc.out)
++		}
++	}
++}
++
++// Decode is byte-for-byte what Node's Buffer#toString gives for the same
++// bytes: the output is always valid UTF-8, so re-decoding it is the identity.
++func TestDecodeIdempotent(t *testing.T) {
++	for _, s := range []string{"", "ab", "ä", "ࠀ", "𐀀", R + R, "a" + R + "b"} {
++		if got := Decode(s); got != s {
++			t.Errorf("Decode(%q) = %q, want the text itself", s, got)
++		}
++	}
++}
+diff --git a/tools/gogen/semantics.mjs b/tools/gogen/semantics.mjs
+index 2726ba6..6cd43d1 100644
+--- a/tools/gogen/semantics.mjs
++++ b/tools/gogen/semantics.mjs
+@@ -273,6 +273,15 @@ const EXPECT = {
+   // stays initial; tables compare row by row in order, c without blanks
+   ZCL_GOGEN_T_CORR: "[ab/0007/][abcdef/1234/] empty:0 copy:eq changed:ne shorter:ne reversed:ne blanks:eq wide:ne",
+   ZCL_GOGEN_T_B64: {Go: "b1:/w== b2://4= b3:+/+/ b0:[]", JS: "ERROR NOT_COMPILED in abap.EncodeXBase64: a host function of the Go runtime"},
++  // cl_http_utility=>decode_base64: Buffer.from(encoded, "base64") as bytes
++  // (both alphabets, non-alphabet bytes ignored, stops at padding), then
++  // their text as Buffer#toString gives it (go/nodeutf8: one U+FFFD per
++  // malformed sequence, the offending byte read again as a start byte).
++  // Node is the oracle here, not A4H: a system converts the text in its own
++  // code page; not measured on A4H. strlen counts the UTF-16 units of the
++  // text, so U+0800 is 1 and U+10000 is 2.
++  ZCL_GOGEN_T_B64DEC: {Go: "pad:abap nopal:abap both:\uFFFD\uFFFD\uFFFD=\uFFFD\uFFFD\uFFFD fffd:\uFFFD=\uFFFD u800:aࠀb len:3 u10000:\u{10000} len:2 over:\uFFFD\uFFFD\uFFFD len:3 around:A\uFFFD\uFFFD\u{FFFD}B len:5 badcont:aÀb len:3 space:abap stop:[]",
++    JS: "ERROR NOT_COMPILED in abap.DecodeBase64: a host function of the Go runtime"},
+   // SHIFT s RIGHT DELETING TRAILING mask on a string: the length stays, the
+   // masked tail goes and blanks come in on the left; a blank stops it
+   // (A4H 2026-09-23, $batch parts end their body this way)
+diff --git a/tools/gogen/testdata/zcl_gogen_t_b64dec.clas.abap b/tools/gogen/testdata/zcl_gogen_t_b64dec.clas.abap
+new file mode 100644
+index 0000000..08f62ae
+--- /dev/null
++++ b/tools/gogen/testdata/zcl_gogen_t_b64dec.clas.abap
+@@ -0,0 +1,35 @@
++CLASS zcl_gogen_t_b64dec DEFINITION PUBLIC FINAL CREATE PUBLIC.
++  PUBLIC SECTION.
++    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
++ENDCLASS.
++
++CLASS zcl_gogen_t_b64dec IMPLEMENTATION.
++  METHOD run.
++    DATA lv_s TYPE string.
++    DATA lv_t TYPE string.
++    lv_s = cl_http_utility=>decode_base64( 'YWJhcA==' ).
++    rv = |pad:{ lv_s }|.
++    lv_s = cl_http_utility=>decode_base64( 'YWJhcA' ).
++    rv = |{ rv } nopal:{ lv_s }|.
++    lv_s = cl_http_utility=>decode_base64( '////' ).
++    lv_t = cl_http_utility=>decode_base64( '____' ).
++    rv = |{ rv } both:{ lv_s }={ lv_t }|.
++    lv_s = cl_http_utility=>decode_base64( '77+9' ).
++    lv_t = cl_http_utility=>decode_base64( '77-9' ).
++    rv = |{ rv } fffd:{ lv_s }={ lv_t }|.
++    lv_s = cl_http_utility=>decode_base64( 'YeCggGI=' ).
++    rv = |{ rv } u800:{ lv_s } len:{ strlen( lv_s ) }|.
++    lv_s = cl_http_utility=>decode_base64( '8JCAgA==' ).
++    rv = |{ rv } u10000:{ lv_s } len:{ strlen( lv_s ) }|.
++    lv_s = cl_http_utility=>decode_base64( '4ICA' ).
++    rv = |{ rv } over:{ lv_s } len:{ strlen( lv_s ) }|.
++    lv_s = cl_http_utility=>decode_base64( 'QeCAgEI=' ).
++    rv = |{ rv } around:{ lv_s } len:{ strlen( lv_s ) }|.
++    lv_s = cl_http_utility=>decode_base64( 'YcOAYg==' ).
++    rv = |{ rv } badcont:{ lv_s } len:{ strlen( lv_s ) }|.
++    lv_s = cl_http_utility=>decode_base64( 'Y WJhcA==' ).
++    rv = |{ rv } space:{ lv_s }|.
++    lv_s = cl_http_utility=>decode_base64( 'a=b' ).
++    rv = |{ rv } stop:[{ lv_s }]|.
++  ENDMETHOD.
++ENDCLASS.

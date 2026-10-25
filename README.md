@@ -30,6 +30,12 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
   GSQ-RCO-Coder build of Qwen3.8-Flash-Next (256 of 512 experts), cut further to 224 experts on our own
   routing statistics, fits in 32 GB of VRAM and runs at 20–35 tokens/s. With limits ×5 it solved L1a, L2a, L1b
   and L2b (8, 38, 88 and 99 minutes). L3b was stopped after 94 minutes to free the machine; the session is kept.
+- **Smaller builds and small models on the same home PC (October 24–25):** K192p-implant16, a 192-expert cut of
+  DSLab's build with 16 experts per layer implanted from our session statistics, solved L1a, L2a, L1b and L3b (L2b was
+  stopped by the operator after a reasoning loop). Four small models that fit entirely in VRAM (Ornith-1.5-35B-A3B,
+  Flint, Nemotron 3.5 Lightning, Muse Glimmer 30B) each solved L1a in 11–13 minutes. On L2a the fix was in place
+  after about 11 minutes in all three runs where we measured it; the rest of each session (12–38 min) went into
+  the agent's own tests and checks.
 - **A two-critic build loop did not help** in a 3-run pilot. It did not solve more tasks, and runs took 2–10× longer.
 
 ## Results (baseline, round 1, plus local models from round 4)
@@ -55,6 +61,20 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 | Qwen3.8-Flash-Next NVFP4, one 96 GB GPU | Claude Code | 5/6 | 1 | **L1a** **L1b** **L2a** **L2b** **L3a** ~~L3b~~ | 153 min | 68.3M | 540k | $0 local (hosted ≈ $11.19) |
 | Qwen3.8-Flash-Next DSLab K224 (pruned to 224/512 experts), i7 + 2× 16 GB GPUs, limits ×5 | Claude Code | 4/4 | 0 | **L1a** **L1b** **L2a** **L2b** (L3b stopped at 94 min) | 233 min | 33.8M | 268k | $0 local (hosted ≈ $5.53) |
 | Qwen3.8-Flash-Next IQ4_XS, i7 + 2× 16 GB GPUs, limits ×10 | Claude Code | 1/1 | 0 | **L1a** (L1b stopped, on track) | 26 min | 0.7M | 17k | $0 local (hosted ≈ $0.11) |
+| *Local, October 24–25, home PC (i7, 2× 16 GB GPUs), limits ×5:* | | | | | | | | |
+| Qwen3.8-Flash-Next K192p-implant16 | Claude Code | 4/4 | 0 | **L1a** **L1b**¹ **L2a** **L3b** (L2b stopped by the operator at 49.5 min; L1a and L2a solved twice) | 221 min | 42.8M | 339k | $0 local (hosted ≈ $7.01) |
+| Qwen3.8-27B (dense) Q4 + MTP | Claude Code | 3/3 | 0 | **L1a** **L2a** **L3a** | 226 min | 31.5M | 226k | $0 local |
+| Qwen3.8-Flash-Next K224-implant16 | Claude Code | 2/2 | 0 | **L1a** **L2a** | 31 min | 4.4M | 36k | $0 local (hosted ≈ $0.73) |
+| Qwen3.8-Flash-Next DSLab 192p | Claude Code | 2/2 | 0 | **L1a** **L2a** | 38 min | 12.0M | 53k | $0 local (hosted ≈ $1.94) |
+| Qwen3.8-Flash-Next DSLab 192, Q4 MTP head | Claude Code | 2/2 | 0 | **L2a** **L3a**² | 133 min | 33.2M | 140k | $0 local (hosted ≈ $5.38) |
+| Qwen3.8-Flash-Next 2-bit, 192 experts | Claude Code | 2/2 | 0 | **L1a** **L2a** | 38 min | 13.7M | 65k | $0 local (hosted ≈ $2.22) |
+| Qwen3.8-Flash-Next 2-bit, 280 experts | Claude Code | 2/2 | 0 | **L1a** **L2a** | 84 min | 12.8M | 133k | $0 local (hosted ≈ $2.11) |
+| Qwen3.8-Flash-Next DSLab 192, MTP + n-gram | Claude Code | 1/1 | 0 | **L1a** | 16 min | 0.9M | 43k | $0 local (hosted ≈ $0.17) |
+| Qwen3.8-Flash-Next DSLab 192, V cache q5_1 | Claude Code | 1/1 | 0 | **L1a** | 8 min | 1.1M | 15k | $0 local (hosted ≈ $0.18) |
+| Flint Q4_K_M | Claude Code | 1/1 | 0 | **L1a** | 11 min | 1.6M | 28k | $0 local |
+| Muse Glimmer 30B Q4_K_XL + DFlash | Claude Code | 1/1 | 0 | **L1a** | 11 min | 2.0M | 18k | $0 local |
+| Nemotron 3.5 Lightning 30B-A3B UD-Q4_K_XL | Claude Code | 1/1 | 0 | **L1a** | 12 min | 5.6M | 52k | $0 local |
+| Ornith-1.5-35B-A3B Q4_K_M | Claude Code | 1/1 | 0 | **L1a** | 13 min | 1.7M | 46k | $0 local |
 
 *Solved* means all hidden acceptance tests (fail→pass) and regression tests (pass→pass) pass. A run stopped at
 the time limit is graded on whatever its working tree held at that moment; *at limit* counts those.
@@ -64,6 +84,9 @@ It is an estimate for comparison, not what was paid; most runs used subscription
 The local rows ran on October 23 with the same briefs, sandbox and hidden tests, on the owners' own hardware, so they
 cost nothing per token; *hosted* is what the same tokens would cost on QwenCloud's hosted API ([Round 4](#round-4-local-models)).
 NVFP4, IQ4_XS and DSLab K224 are different compressed builds of the same model ([what the names mean](#local-builds-what-the-names-mean)).
+The October 24–25 rows are described in [Smaller builds and small models](#smaller-builds-and-small-models-on-the-home-pc).
+For a row with a repeated task, its first run counts. ¹ In-sample: K192p-implant16's experts were selected on an L1b
+session. ² Stopped by the operator at 105 min after the agent had finished; graded on the tree at that moment.
 
 **How the runs were actually paid.** Almost everything ran on flat-rate coding subscriptions, where a run costs
 nothing extra until the plan's rolling limit is reached:
@@ -152,6 +175,50 @@ fit the machine.
   ([prices.json](prices.json)); the local runs paid nothing per token. The repair row counts Qwen's tokens only.
 - The full request/response stream of every run was recorded (`BENCH_RECORD=1`, `bin/traffic-summary.py`); like other
   transcripts, it is not published.
+
+### Smaller builds and small models on the home PC
+
+October 24–25, on the same i7 PC (2× RTX 4060 Ti 16 GB), all with limits ×5, Claude Code at xhigh, llama.cpp. Two
+lines of work: Qwen3.8-Flash-Next cut further so that it fits the GPUs, and small open models that fit entirely in
+VRAM. Per-run numbers are in the [main table](#results-baseline-round-1-plus-local-models-from-round-4) and in section
+05d of the [report](reports/summary.html).
+
+| Build | What it is |
+|---|---|
+| DSLab 192 | 192 of DSLab's 224 experts. Three server settings: MTP head + n-gram drafts; full MTP head with V cache q5_1; Q4 MTP head with nothing spilled to RAM |
+| DSLab 192p | 192 experts chosen inside the 224 with protection for decision tokens, Q4 MTP head |
+| K224-implant16 | DSLab 224 with 16 experts per layer replaced by session-ranked ones ([data/expert-sets/qwen38fn-224-implant16.json](data/expert-sets/qwen38fn-224-implant16.json)); 3.5-bit GGUF, implants requantized |
+| K192p-implant16 | DSLab 192p with 16 experts per layer implanted the same way; Q4 MTP head + n-gram drafts, 190K context. On Hugging Face: [oisee/Qwen3.8-Flash-Next-GSQ-RCO-Coder-192E-implant16-GGUF](https://huggingface.co/oisee/Qwen3.8-Flash-Next-GSQ-RCO-Coder-192E-implant16-GGUF) |
+| 2-bit, 192 / 280 experts | cuts from DSLab's IQ2_XS 512-expert build, MTP + n-gram |
+| K224 variants | the K224 build above with other server settings: MTP + n-gram drafts; the same at temperature 0; n-gram only at temperature 0.6 |
+| Qwen3.8-27B | the dense 27B model, unsloth UD-Q4_K_XL, with an MTP head |
+| Small models | Q4, 131K context, vendor sampling, all in VRAM: [Ornith-1.5-35B-A3B](https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B-GGUF) Q4_K_M (MTP), [Flint](https://huggingface.co/ggml-org/Flint-GGUF) Q4_K_M (no speculation), [NVIDIA Nemotron 3.5 Lightning 30B-A3B](https://huggingface.co/unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF) UD-Q4_K_XL (MTP), [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF) KQuant-Dynamic-Q4_K_XL (DFlash). Per-model server flags will be published separately |
+
+- **K192p-implant16** solved L1a (5.7 and 5.2 min), L2a (49 and 35 min), L1b (57 min) and L3b (60 min). L3b was
+  not solved by any local build before: K224's run was stopped at 94 min, and the NVFP4 build failed it. **L1b is in-sample**: its experts were selected on an L1b session.
+  **L2b was stopped by the operator** at 49.5 min after the model looped in its reasoning with no edits. It is shown as
+  stopped, not as a failure. L3a was not run. Its second L2a run is flagged `leak_suspect` by the URL audit. That is a
+  false positive: the URLs come from the repository's own `ANORMALIES.md`, and the agent made no web calls.
+- **Time to first green.** On L2a the fix was in place after 11.9 min (K224-implant16), 10.8 min (DSLab 192p) and
+  10.9 min (K192p-implant16). The rest of each run, 12, 21 and 38 min, went into the agent's own tests, docs and
+  checks, and every tree stayed green to the end. On L1a the first green came at 4.1–4.4 min.
+  [data/first-green.csv](data/first-green.csv) has the details. These were reconstructed from the recorded traffic:
+  every edit was replayed and every checkpoint graded with the bench's grader. New runs get it from per-request
+  snapshots (`bin/first-green.py`).
+- **Fast decoding is not fast solving.** Median decode speeds and L1a times:
+  - Nemotron: 78.7 tokens/s, 12.3 min, 86 requests;
+  - Ornith: 68.7 tokens/s, 12.9 min;
+  - Flint: 50.9 tokens/s, 11.4 min;
+  - Muse: 26.9 tokens/s, 11.4 min;
+  - K192p-implant16: about 30 tokens/s, 5.7 and 5.2 min.
+
+  [data/decode-speed.csv](data/decode-speed.csv) has the numbers. They come from the llama.cpp server's own timing
+  lines.
+- **Claude Code sends system messages in the middle of the conversation.** Ornith and gpt-oss drop them with their
+  vendor chat templates; Devstral and Muse were served with patched templates. Devstral Small 2's first L1a run is
+  not in the table: its tool calls came out as plain text the server did not parse. That is a template problem, a
+  rerun is pending, and the run says nothing about the model.
+- **At temperature 0** the K224 build failed L2a and L2b, which it solved with default sampling (0.6).
 
 ## The tasks
 

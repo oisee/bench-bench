@@ -48,6 +48,46 @@ executors:
   # ISTA-DASLab GSQ-RCO-Coder (256/512 experts, ~3.5 bpw) cut to 224 by cnm, on i7 (~35 tok/s decode):
   #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 bin/bench.sh custom-qwen38fn-k224-i7-claude
   - {id: custom-qwen38fn-k224-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab-k224, harness: claude, effort: xhigh}
+  # K224 variants (same cut, other server settings): MTP head + n-gram drafts; the same at temperature 0; n-gram only at temperature 0.6:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-k224-mtp-ng-i7-claude
+  - {id: custom-qwen38fn-k224-mtp-ng-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab-k224-mtp-ng, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-k224-mtp-ng-t0-i7-claude
+  - {id: custom-qwen38fn-k224-mtp-ng-t0-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab-k224-mtp-ng-t0, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-k224-ng-t06-i7-claude
+  - {id: custom-qwen38fn-k224-ng-t06-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab-k224-ng-t06, harness: claude, effort: xhigh}
+  # K224 with 16 experts per layer replaced by session-ranked ones (data/expert-sets/qwen38fn-224-implant16.json), 3.5-bit GGUF:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-implant16-i7-claude
+  - {id: custom-qwen38fn-implant16-i7-claude, provider: custom, model: qwen3.8-flash-next-k224-implant16, harness: claude, effort: xhigh}
+  # DSLab cut to 192 experts (a subset of the 224): MTP + n-gram; full MTP head with V cache q5_1 (q51); Q4 MTP head, nothing
+  # spilled to RAM (q4h); and 192p = 192 chosen inside the 224 with protection for decision tokens, Q4 MTP head:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-dslab192-mtp-i7-claude
+  - {id: custom-qwen38fn-dslab192-mtp-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab192-mtp-ng, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-dslab192-q51-i7-claude
+  - {id: custom-qwen38fn-dslab192-q51-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab192-mtp-q51, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-dslab192-q4h-i7-claude
+  - {id: custom-qwen38fn-dslab192-q4h-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab192-q4h, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-dslab192p-i7-claude
+  - {id: custom-qwen38fn-dslab192p-i7-claude, provider: custom, model: qwen3.8-flash-next-dslab192p-q4h, harness: claude, effort: xhigh}
+  # K192p-implant16 (HF: oisee/Qwen3.8-Flash-Next-GSQ-RCO-Coder-192E-implant16-GGUF), MTP Q4 head + n-gram:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-k192pimp16-i7-claude
+  - {id: custom-qwen38fn-k192pimp16-i7-claude, provider: custom, model: qwen3.8-flash-next-k192p-implant16, harness: claude, effort: xhigh}
+  # 2-bit cuts from DSLab's IQ2_XS 512-expert build: 192 and 280 experts, MTP + n-gram:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-iq2-dslab192-mtp-i7-claude
+  - {id: custom-qwen38fn-iq2-dslab192-mtp-i7-claude, provider: custom, model: qwen3.8-flash-next-iq2-dslab192-mtp, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38fn-iq2-dslab280-mtp-i7-claude
+  - {id: custom-qwen38fn-iq2-dslab280-mtp-i7-claude, provider: custom, model: qwen3.8-flash-next-iq2-dslab280-mtp, harness: claude, effort: xhigh}
+  # Qwen3.8-27B dense, unsloth UD-Q4_K_XL with an MTP head:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=190000 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-qwen38-27b-mtp-i7-claude
+  - {id: custom-qwen38-27b-mtp-i7-claude, provider: custom, model: qwen3.8-27b-q4kxl-mtp, harness: claude, effort: xhigh}
+  # Candidate small local models on i7, all in VRAM; llama.cpp, Q4, 131K context, vendor sampling:
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=131072 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-cand-ornith-i7-claude
+  - {id: custom-cand-ornith-i7-claude, provider: custom, model: cand-ornith, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=131072 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-cand-flint-i7-claude
+  - {id: custom-cand-flint-i7-claude, provider: custom, model: cand-flint, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=131072 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-cand-nemotron-i7-claude
+  - {id: custom-cand-nemotron-i7-claude, provider: custom, model: cand-nemotron, harness: claude, effort: xhigh}
+  #   CUSTOM_BASE_URL=http://192.168.8.107:8081/v1 CUSTOM_CONTEXT_WINDOW=131072 BENCH_TIME_SCALE=5 BENCH_RECORD=1 bin/bench.sh custom-cand-muse-i7-claude
+  - {id: custom-cand-muse-i7-claude, provider: custom, model: cand-muse, harness: claude, effort: xhigh}
 
   # --- Control (Anthropic subscription) ---
   - {id: ant-opus-claude,   provider: anthropic, model: opus,         harness: claude, effort: high}

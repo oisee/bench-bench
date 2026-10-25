@@ -1,0 +1,94 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..de269c7 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -7,9 +7,9 @@
+ // does not either.
+ //
+ // This function existed **twice**, character for character, in
+-// tools/duckdb-client.mjs and tools/hana-client.mjs, and not at all in the
+-// two SQLite clients. So the same ABAP INSERT stored three characters on
+-// DuckDB and ten on the engine the deployed showcase runs (measured
++// tools/duckdb-client.mjs and tools/hana-client.mjs, and not at all in
++// the two SQLite clients. So the same ABAP INSERT stored three characters
++// on DuckDB and ten on the engine the deployed showcase runs (measured
+ // 2026-09-19), and the system's own behaviour depended on `STG_DB`.
+ //
+ // SQLite got away with it because its columns are declared `COLLATE RTRIM`,
+@@ -24,9 +24,74 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  The scan is a single left-to-right pass over the string -- it walks the
++ *  characters, never recurses. The previous regex `/'((?:[^']|'')*)'/g`
++ *  did the same rule with the same result, but the engine's matcher walks
++ *  that nested quantifier recursively, and a literal near 10 million
++ *  characters overflowed the call stack. This one does not climb at all, so
++ *  a 15-million-character literal (a `TEXT`/`NCLOB` blob handed over in one
++ *  parameter) comes back in one pass instead of a `RangeError`. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const QUOTE = 0x27; // '
++  const SPACE = 0x20; // (ASCII space)
++  const parts = [];
++  let i = 0;
++  const n = sql.length;
++  while (i < n) {
++    // Copy the outside run up to the next quote unchanged.
++    let q = sql.indexOf("'", i);
++    if (q === -1) {
++      parts.push(sql.slice(i));
++      break;
++    }
++    parts.push(sql.slice(i, q));
++
++    // Walk the literal's content, honouring doubled-quote escapes, exactly as
++    // the regex `/'((?:[^']|'')*)'/g` did: greedily consume the run, and a
++    // lone quote closes it. This is done iteratively so a very long content
++    // never overflows the stack. A double quote is just a content character
++    // here -- it never changes how the single-quote pairs are recognised.
++    let j = q + 1;
++    let lastEscape = -1; // start index of the most recent '' pair consumed
++    while (j < n) {
++      if (sql.charCodeAt(j) === QUOTE) {
++        if (j + 1 < n && sql.charCodeAt(j + 1) === QUOTE) {
++          lastEscape = j; // '' is an escaped quote, keep both characters
++          j += 2;
++        } else {
++          break; // a lone quote closes the literal
++        }
++      } else {
++        j += 1;
++      }
++    }
++
++    let closePos;
++    if (j < n) {
++      closePos = j; // a lone quote closes the literal
++    } else if (lastEscape !== -1) {
++      // The run ran off the end of the string on escaped pairs alone, with no
++      // lone close. The regex does not call this unterminated -- it backtracks
++      // the last escaped pair by one step and closes on its opening quote,
++      // leaving the second half of that pair as the start of the next token.
++      closePos = lastEscape;
++    } else {
++      // An opening quote with no matching close is not a literal: the regex
++      // matched nothing there and left it (and the rest) untouched.
++      parts.push(sql.slice(q));
++      break;
++    }
++
++    // Drop the ordinary spaces that trail the content and sit just before the
++    // closing quote; everything before them is data.
++    let end = closePos;
++    while (end > q + 1 && sql.charCodeAt(end - 1) === SPACE) end -= 1;
++    parts.push("'" + sql.slice(q + 1, end) + "'");
++    i = closePos + 1;
++  }
++  return parts.join("");
+ }
+ 
+ /**

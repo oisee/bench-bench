@@ -1,0 +1,30 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 1425,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "custom-qwen38fn-k224-mtp-ng-t0-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-dslab-k224-mtp-ng-t0",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 4727,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

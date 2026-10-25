@@ -1,0 +1,7 @@
+run_id,task,executor,first_green_s,first_green_request,requests,duration_s,polish_s,stayed_green,method
+L2a-osg693/custom-qwen38fn-implant16-i7-claude-20261025-061424,L2a-osg693,custom-qwen38fn-implant16-i7-claude,711,27,53,1435,724,True,reconstruction
+L2a-osg693/custom-qwen38fn-dslab192p-i7-claude-20261025-071254,L2a-osg693,custom-qwen38fn-dslab192p-i7-claude,645,61,118,1915,1270,True,reconstruction
+L2a-osg693/custom-qwen38fn-k192pimp16-i7-claude-20261025-110924,L2a-osg693,custom-qwen38fn-k192pimp16-i7-claude,653,46,160,2919,2266,True,reconstruction
+L1a-osg678/custom-qwen38fn-implant16-i7-claude-20261025-060658,L1a-osg678,custom-qwen38fn-implant16-i7-claude,263,5,15,438,175,True,reconstruction
+L1a-osg678/custom-qwen38fn-dslab192p-i7-claude-20261025-070657,L1a-osg678,custom-qwen38fn-dslab192p-i7-claude,247,8,18,350,103,True,reconstruction
+L1a-osg678/custom-qwen38fn-k192pimp16-i7-claude-20261025-110332,L1a-osg678,custom-qwen38fn-k192pimp16-i7-claude,251,12,20,343,92,True,reconstruction

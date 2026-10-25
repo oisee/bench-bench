@@ -1,0 +1,88 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..90c8542 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,37 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  // The same rule, several times in one statement, and at the sizes the
++  // regex form could not reach: it recursed once per character of a literal
++  // and answered "Maximum call stack size exceeded" at fifteen million.
++  // These fail on a regex that recurses and pass on one that scans.
++  it("each literal in a multi-literal statement is trimmed at its own end", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("INSERT INTO t VALUES ('a  ', 'b  ')")).to.equal("INSERT INTO t VALUES ('a', 'b')");
++  });
++
++  it("empty and space-only literals, and blanks that are not ordinary spaces", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    expect(trimLiterals("VALUES ('', ' ')")).to.equal("VALUES ('', '')");
++    expect(trimLiterals("VALUES ('a\t ')")).to.equal("VALUES ('a\t')");
++    expect(trimLiterals("VALUES ('a\n  ')")).to.equal("VALUES ('a\n')");
++  });
++
++  it("a double quote is just a character, not a second kind of literal", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    // a single-quote pair inside a double-quoted identifier is still a literal
++    expect(trimLiterals('VALUES ("a\'b  \'c")')).to.equal('VALUES ("a\'b\'c")');
++    // an unpaired single quote opens nothing, so its blanks are not trailing and stay
++    expect(trimLiterals('VALUES ("it\'s  ")')).to.equal('VALUES ("it\'s  ")');
++  });
++
++  it("a fifteen-million-character literal completes without a stack overflow", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const body = "x".repeat(15_000_000);
++    expect(trimLiterals("INSERT INTO t VALUES ('" + body + "  ')")).to.equal("INSERT INTO t VALUES ('" + body + "')");
++    // the same length with escaped quotes inside, so the pairing is exercised too
++    const half = "a".repeat(7_500_000);
++    expect(trimLiterals("INSERT INTO t VALUES ('" + half + "''" + half + "  ')")).to.equal("INSERT INTO t VALUES ('" + half + "''" + half + "')");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..6656c3b 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,39 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Scanned, not matched. The regex form worked until a literal was about
++ *  fifteen million characters long and then answered
++ *  `RangeError: Maximum call stack size exceeded`: V8 recurses once per
++ *  repetition of a quantified alternation, so `(?:[^']|'')*` on a long
++ *  literal is fifteen million stack frames. The loop below is the same
++ *  parse — greedy left-to-right pairing of `''`, the first unpaired quote
++ *  closing the literal — without the recursion, and it agrees with the
++ *  regex on every quote-balanced fragment. A fragment that is not closed
++ *  is left as it was, as the regex would have matched nothing on it. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const parts = [];
++  let i = 0;
++  while (i < sql.length) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) { parts.push(sql.slice(i)); break; }
++    if (open > i) parts.push(sql.slice(i, open));
++    let j = open + 1;
++    while (j < sql.length) {
++      if (sql[j] === "'") {
++        if (j + 1 < sql.length && sql[j + 1] === "'") { j += 2; continue; } // an escaped quote, part of the content
++        break; // the closing quote
++      }
++      j++;
++    }
++    if (j >= sql.length) { parts.push(sql.slice(open)); break; } // no closing quote: nothing to trim
++    let end = j;
++    while (end > open + 1 && sql[end - 1] === " ") end--; // the trailing blanks, and only ordinary spaces
++    parts.push("'", sql.slice(open + 1, end), "'");
++    i = j + 1;
++  }
++  return parts.join("");
+ }
+ 
+ /**

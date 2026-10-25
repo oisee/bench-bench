@@ -1,0 +1,25 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "npx mocha test/write-boundary.mjs",
+      "rc": 0
+    }
+  ],
+  "p2p": [],
+  "patch_lines": 16,
+  "task": "L1a-osg678",
+  "level": "L1",
+  "executor": "custom-cand-nemotron-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "cand-nemotron",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 738,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

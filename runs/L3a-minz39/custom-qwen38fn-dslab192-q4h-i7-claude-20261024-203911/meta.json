@@ -1,0 +1,16 @@
+{
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-dslab192-q4h",
+  "effort": "xhigh",
+  "round": "1",
+  "harness_version": "",
+  "started_at": "2026-10-24T20:39:12+00:00",
+  "finished_at": "2026-10-24T22:24:07+00:00",
+  "protocol": "time-scaled-v1",
+  "time_scale": "5",
+  "time_limit_s": 18000,
+  "aborted": true,
+  "aborted_by": "operator",
+  "aborted_at": "2026-10-24T22:24:07+00:00"
+}

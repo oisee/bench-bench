@@ -1,0 +1,46 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..cddac3a 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,39 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Scanned by hand, not with a regex: the natural one,
++ *  `/'((?:[^']|'')*)'/g`, makes V8 backtrack the alternation recursively,
++ *  and a literal of ~15 MB blows the stack (RangeError, measured
++ *  2026-10-25). The loop below is the same left-to-right, non-overlapping
++ *  match: a literal runs from a `'` to the first `'` that is not the first
++ *  of a doubled pair; when the input ends inside one, the match ends at the
++ *  first quote of the last doubled pair, which is where the backtracking
++ *  regex landed. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  let out = "";
++  let i = 0;
++  for (;;) {
++    const open = sql.indexOf("'", i);
++    if (open === -1) { out += sql.slice(i); break; }
++    out += sql.slice(i, open);
++    let close = -1;
++    let lastPair = -1;
++    for (let j = open + 1; j < sql.length; j++) {
++      if (sql[j] !== "'") continue;
++      if (sql[j + 1] === "'") { lastPair = j; j++; continue; }
++      close = j;
++      break;
++    }
++    if (close === -1 && lastPair !== -1) close = lastPair;
++    if (close === -1) { out += sql.slice(open); break; } // unbalanced: leave the rest
++    let end = close;
++    while (end > open + 1 && sql[end - 1] === " ") end--;
++    out += "'" + sql.slice(open + 1, end) + "'";
++    i = close + 1;
++  }
++  return out;
+ }
+ 
+ /**

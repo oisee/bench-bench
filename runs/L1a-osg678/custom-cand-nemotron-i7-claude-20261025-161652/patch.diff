@@ -1,0 +1,16 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..eb34a43 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,10 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  return sql.replace(/'[^']*(?:''[^']*)*'/g, (m) => {
++    const inner = m.slice(1, -1);
++    return "'" + inner.replace(/ +$/, "") + "'";
++  });
+ }
+ 
+ /**

@@ -1,0 +1,34 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run TestLogicalShortCircuit)",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/nanz -run \"^(TestParse|TestParseRoundtrip|TestOperatorOverloading)$\")",
+      "rc": 0
+    },
+    {
+      "cmd": "(cd minzc && go test -count=1 ./pkg/hir)",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 787,
+  "task": "L3a-minz39",
+  "level": "L3",
+  "executor": "custom-qwen38-27b-mtp-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-27b-q4kxl-mtp",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 7908,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

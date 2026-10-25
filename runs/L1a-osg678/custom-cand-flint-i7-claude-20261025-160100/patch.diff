@@ -1,0 +1,69 @@
+diff --git a/test/write-boundary.mjs b/test/write-boundary.mjs
+index 11d559b..603f56f 100644
+--- a/test/write-boundary.mjs
++++ b/test/write-boundary.mjs
+@@ -98,4 +98,11 @@ describe("the write boundary: a padded CHAR stores the same on every engine", fu
+     const {trimLiterals} = await import("../tools/sql-literals.mjs");
+     expect(trimLiterals('SELECT "a b " FROM t WHERE k = 1')).to.equal('SELECT "a b " FROM t WHERE k = 1');
+   });
++
++  it("and a very large literal is trimmed without a stack overflow", async () => {
++    const {trimLiterals} = await import("../tools/sql-literals.mjs");
++    const big = "INSERT INTO t VALUES ('" + "a".repeat(15000000) + "   ')";  // a 15M-character literal, padded like a CHAR
++    expect(() => trimLiterals(big)).to.not.throw();
++    expect(trimLiterals(big)).to.equal("INSERT INTO t VALUES ('" + "a".repeat(15000000) + "')");
++  });
+ });
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..5c8ef32 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,46 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  The scan is a hand-rolled quote walk, not a regular expression. The old
++ *  pattern (`/'((?:[^']|'')*)'/`) backtracks through an alternation on every
++ *  literal, and on a literal of a few million characters the backtracking
++ *  stack runs out: `RangeError: Maximum call stack size exceeded` on input
++ *  a real CHAR value can produce (a 15M-character literal was enough). The
++ *  walk is linear in the statement and never nests, so size is not the
++ *  problem and a long literal simply takes longer rather than failing. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  const out = [];
++  let i = 0;
++  let inLiteral = false;
++  let contentStart = -1;
++  let emitted = 0;
++
++  while (i < n) {
++    if (sql[i] === "'") {
++      if (!inLiteral) {
++        inLiteral = true;
++        contentStart = i + 1;
++        i += 1;
++        continue;
++      }
++      if (i + 1 < n && sql[i + 1] === "'") {
++        i += 2;
++        continue;
++      }
++      out.push(sql.slice(emitted, contentStart - 1), "'", sql.slice(contentStart, i).replace(/ +$/, ""), "'");
++      emitted = i + 1;
++      inLiteral = false;
++      i += 1;
++      continue;
++    }
++    i += 1;
++  }
++
++  out.push(sql.slice(emitted));
++  return out.join("");
+ }
+ 
+ /**

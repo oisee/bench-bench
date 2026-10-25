@@ -1,0 +1,64 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..713c033 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,57 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  A scan, not a regex: the quote-aware pattern needs a capture group, and
++ *  the capture rules V8's backtracking engine in, which recurses per
++ *  repetition of the group -- so a literal of a few million characters (a
++ *  padded CLOB is one) overflows the stack. The scan is the same rule,
++ *  once per character: a quote opens, a quote closes, and only a doubled
++ *  quote is data. Where the statement ends mid-literal the regex would have
++ *  matched up to the first quote of the last doubled pair, and the scan
++ *  does the same; with no doubled pair at all there is no match at all. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  const parts = [];
++  let start = 0;
++  let i = 0;
++  while (i < n) {
++    if (sql.charCodeAt(i) !== 0x27) {
++      i++;
++      continue;
++    }
++    let p = i + 1;
++    let lastPair = -1;
++    let closing = -1;
++    while (p < n) {
++      if (sql.charCodeAt(p) !== 0x27) {
++        p++;
++        continue;
++      }
++      if (p + 1 < n && sql.charCodeAt(p + 1) === 0x27) {
++        lastPair = p;
++        p += 2;
++        continue;
++      }
++      closing = p;
++      break;
++    }
++    if (closing === -1) {
++      if (lastPair === -1) {
++        i++;
++        continue;
++      }
++      closing = lastPair;
++    }
++    let end = closing;
++    while (end > i + 1 && sql.charCodeAt(end - 1) === 0x20) end--;
++    parts.push(sql.slice(start, i), sql.slice(i, end), "'");
++    i = closing + 1;
++    start = i;
++  }
++  parts.push(sql.slice(start));
++  return parts.join("");
+ }
+ 
+ /**

@@ -1,0 +1,31 @@
+{
+  "status": "FAILED",
+  "f2p": [
+    {
+      "cmd": "go test -count=1 ./hir/abap/",
+      "rc": 1
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "go test -count=1 ./hir/",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 0,
+  "task": "L2b-abapiti87",
+  "level": "L2",
+  "executor": "custom-qwen38fn-k192pimp16-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-k192p-implant16",
+  "effort": "xhigh",
+  "agent_exit": 143,
+  "duration_s": 2969,
+  "stop": "OPERATOR",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0,
+  "operator_note": "stopped by the operator at 49.5 min after a reasoning loop; 0 edits"
+}

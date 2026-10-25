@@ -1,0 +1,53 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..9b53c07 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -26,7 +26,47 @@
+  *  touched: a column name, a keyword and the spacing of the statement mean
+  *  what they meant. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  if (!sql) return sql;
++  const len = sql.length;
++  const parts = [];
++  let i = 0;
++  while (i < len) {
++    const idx = sql.indexOf("'", i);
++    if (idx === -1) {
++      parts.push(sql.slice(i));
++      break;
++    }
++    if (idx > i) {
++      parts.push(sql.slice(i, idx));
++    }
++    const start = idx;
++    let j = idx + 1;
++    // scan for closing quote, handling '' escapes
++    while (j < len) {
++      if (sql[j] === "'") {
++        if (j + 1 < len && sql[j + 1] === "'") {
++          j += 2;
++          continue;
++        }
++        // closing quote found
++        let trimEnd = j;
++        while (trimEnd > start + 1 && sql[trimEnd - 1] === ' ') {
++          trimEnd--;
++        }
++        parts.push(sql.slice(start, trimEnd));
++        parts.push("'");
++        i = j + 1;
++        break;
++      }
++      j++;
++    }
++    if (j >= len) {
++      // unclosed literal – copy remainder unchanged
++      parts.push(sql.slice(start));
++      break;
++    }
++  }
++  return parts.join('');
+ }
+ 
+ /**

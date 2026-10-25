@@ -1,0 +1,39 @@
+{
+  "status": "RESOLVED",
+  "f2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap -run TestParseI8)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs --class zcl_gogen_t_c2i8",
+      "rc": 0
+    }
+  ],
+  "p2p": [
+    {
+      "cmd": "(cd tools/gogen/go && go test -count=1 ./abap)",
+      "rc": 0
+    },
+    {
+      "cmd": "node tools/gogen/semantics.mjs",
+      "rc": 0
+    }
+  ],
+  "patch_lines": 332,
+  "grade_fix": "l2a-hidden-test-name-v1",
+  "task": "L2a-osg693",
+  "level": "L2",
+  "executor": "custom-qwen38fn-dslab192p-i7-claude",
+  "harness": "claude",
+  "provider": "custom",
+  "model": "qwen3.8-flash-next-dslab192p-q4h",
+  "effort": "xhigh",
+  "agent_exit": 0,
+  "duration_s": 1915,
+  "stop": "DONE",
+  "leak_suspect": false,
+  "harness_version": "",
+  "protocol": "time-scaled-v1",
+  "internal_review_rounds": 0
+}

@@ -1,0 +1,6 @@
+executor,tg_median,n_segments
+custom-cand-ornith-i7-claude,68.70,218
+custom-cand-flint-i7-claude,50.92,173
+custom-cand-nemotron-i7-claude,78.66,164
+custom-cand-muse-i7-claude,26.91,171
+custom-qwen38fn-k192pimp16-i7-claude,30.28,3802

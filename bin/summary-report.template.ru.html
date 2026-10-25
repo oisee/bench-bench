@@ -107,6 +107,12 @@ tr.group-gap td { height: 8px }
 .rseg.pass { background: var(--good-tint); box-shadow: inset 0 0 0 1.5px var(--good) }
 .rseg.to { background: repeating-linear-gradient(135deg, var(--good-tint) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--good) }
 .rseg.fail { background: var(--bad-tint); box-shadow: inset 0 0 0 1.5px var(--bad) }
+.rseg.stop, .cell.stop { background: repeating-linear-gradient(45deg, var(--none) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.rseg.polish { background: repeating-linear-gradient(135deg, var(--none) 0 4px, var(--panel) 4px 8px); box-shadow: inset 0 0 0 1.5px var(--ink-3); color: var(--ink-2) }
+.sw-stop { background: repeating-linear-gradient(45deg, var(--none) 0 3px, var(--panel) 3px 6px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.sw-polish { background: repeating-linear-gradient(135deg, var(--none) 0 3px, var(--panel) 3px 6px); box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+.matrix tr.grp td { font: 600 11.5px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); text-align: left; padding: 14px 0 4px }
+.cell sup { font-size: 9px; margin-left: 1px; color: var(--ink-2) }
 @media (max-width: 640px) { .rank-row { grid-template-columns: 18px minmax(0, 1fr) 96px } .rank-row .rtrack { grid-column: 1 / -1; order: 3 } }
 
 /* svg charts */
@@ -201,12 +207,13 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
 
   <section>
     <div class="sec-head"><span class="n">01</span><h2>Полная сетка прогонов</h2>
-      <p>Каждая клетка — один прогон одной задачи. Число — время в секундах. Наведите на клетку, чтобы увидеть результаты тестов и детали. L3 запускали только для финалистов. Строка с пометкой <i>локально · раунд 4</i> — Qwen3.8-Flash-Next на домашней видеокарте, прогон 23 октября с теми же брифами, лимитами и скрытыми тестами (раздел 05c). Строка с пометкой <i>локально i7 · лимиты ×10</i> — та же модель (4-битный GGUF в llama.cpp) на гораздо более простой домашней машине: обычный процессор и две игровые видеокарты по 16 GB. Она примерно в десять раз медленнее, поэтому лимиты увеличены ×10.</p></div>
+      <p>Каждая клетка — один прогон одной задачи. Число — время в минутах. Строки сгруппированы: фронтирные модели через облачный API, открытые модели через хостинг-API и локальные прогоны на домашнем железе. Наведите на клетку, чтобы увидеть результаты тестов, число запросов и детали. L3 запускали только для финалистов. Строка с пометкой <i>локально · раунд 4</i> — Qwen3.8-Flash-Next на домашней видеокарте, прогон 23 октября с теми же брифами, лимитами и скрытыми тестами (раздел 05c). Строка с пометкой <i>локально i7 · лимиты ×10</i> — та же модель (4-битный GGUF в llama.cpp) на гораздо более простой домашней машине: обычный процессор и две игровые видеокарты по 16 GB. Она примерно в десять раз медленнее, поэтому лимиты увеличены ×10. Строки с пометкой <i>локально i7 · лимиты ×5</i> шли на том же ПК со сборками, которые лучше помещаются в его видеокарты, с лимитами ×5 (раздел 05d).</p></div>
     <div class="legend">
       <span><i class="sw-pass"></i>решено</span>
       <span><i class="sw-to"></i>решено, но на пределе времени</span>
       <span><i class="sw-veto"></i>тесты прошли, жюри отклонило</span>
       <span><i class="sw-fail"></i>не решено</span>
+      <span><i class="sw-stop"></i>остановлено оператором</span>
       <span><i class="sw-none"></i>не запускалось</span>
     </div>
     <div class="scroll"><table class="matrix" id="matrix"></table></div>
@@ -315,6 +322,26 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--rule)
     </ul>
   </section>
 
+
+  <section id="r4b-sec">
+    <div class="sec-head"><span class="n">05d</span><h2>Сборки поменьше и небольшие модели на домашнем ПК</h2>
+      <p>24–25 октября, на домашнем ПК i7 из раздела 05c (две игровые видеокарты по 16 GB), все прогоны с лимитами ×5, Claude Code на xhigh, те же брифы и скрытые тесты. Два направления: Qwen3.8-Flash-Next, урезанная до меньшего числа экспертов, чтобы поместиться в видеокарты (DSLab 192/224 и версии с имплантированными экспертами по статистике наших сессий), и небольшие открытые модели, которые целиком помещаются в VRAM. Лучшая нарезка, <b>K192p-implant16</b>, решила L1a, L2a, L1b и L3b; L3b здесь не решила больше ни одна локальная сборка.</p></div>
+    <div class="scroll"><table class="tok" id="r4b"></table></div>
+    <ul class="small" style="margin:0;padding-left:20px;display:grid;gap:6px;max-width:72ch" id="r4b-notes"></ul>
+
+    <div class="chart" id="fg-chart"><h3>Время до первого зелёного и доводка</h3>
+      <p class="small muted">Каждая полоса — один решённый прогон. Зелёное: от старта до момента, когда рабочее дерево впервые прошло все скрытые тесты (сам агент об этом не знал). Штриховка: остаток сессии — свои тесты, документация и проверки. Восстановлено по записанному трафику: каждая правка воспроизведена, каждая контрольная точка прогнана штатным грейдером бенча. ✕ отметил бы прогон, у которого дерево потом снова сломалось; таких нет.</p>
+      <div class="legend"><span><i class="sw-pass"></i>до первого зелёного</span><span><i class="sw-polish"></i>после первого зелёного</span></div>
+      <div class="rank" id="fg"></div></div>
+
+    <div class="chart"><h3>Быстрое декодирование — не быстрое решение</h3>
+      <p class="small muted">x: медианная скорость декодирования сервера llama.cpp (токенов/с); y: минуты до решённого прогона. Одна точка — один решённый прогон; повторы одной модели — отдельные точки.</p>
+      <div class="scroll"><svg id="tgsc" role="img" aria-label="Скорость декодирования и время решения"></svg></div></div>
+
+    <div class="chart"><h3>Много мелких шагов или мало длинных</h3>
+      <p class="small muted">x: число запросов к модели (шагов агента) за прогон; y: минуты. Точки слева вверху долго думают над каждым шагом; точки справа делают много коротких шагов. Синие: небольшие модели-кандидаты и K192p-implant16; серые: остальные локальные сборки (имя во всплывающей подсказке).</p>
+      <div class="scroll"><svg id="reqsc" role="img" aria-label="Запросы и минуты"></svg></div></div>
+  </section>
   <section>
     <div class="sec-head"><span class="n">06</span><h2>Скрининг критиков: кто найдёт баг, не видя тестов</h2>
       <p>Каждый критик получает готовый патч, бриф и весь репозиторий, но не результаты скрытых тестов. Он должен сам решить, корректен ли патч. Скрининг завершён.</p>
@@ -381,17 +408,27 @@ const cell = (ex, t) => r1.find(r => r.executor === ex && r.task === t);
 // Round 4 (local models): same tasks and grading, shown beside round 1 in the grid, bars and speed chart only.
 // time-scaled-v1 runs (slower machine, limits ×N) are included; the critic-repair attempt is not.
 const r4base = D.runs.filter(r => r.round === 4 && r.protocol !== "critic-repair-v1");
+// pass / to (solved at the limit) / veto (tests passed, jury rejected) / fail / stop (stopped by the operator, not solved:
+// shown, but not counted as a failure). A run stopped by the operator whose tree passed counts as solved.
+const kindOf = r => r.stop === "OPERATOR" && r.status !== "RESOLVED" ? "stop" : !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
+// one row per local executor: its first run of each task counts, repeats are listed in the cell's tooltip
 const local = [...new Set(r4base.map(r => r.executor))].map(id => {
-  const rs = r4base.filter(r => r.executor === id), ok = rs.filter(r => r.effective);
-  return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, n: rs.length, solved: ok.length, local: true,
+  const all = r4base.filter(r => r.executor === id);
+  const rs = TASKS.map(t => all.find(r => r.task === t)).filter(Boolean);
+  const counted = rs.filter(r => kindOf(r) !== "stop"), ok = counted.filter(r => r.effective);
+  return { id, model: rs[0].model.replace(" (local)", ""), harness: rs[0].harness, rs, all, n: counted.length, solved: ok.length, local: true,
     strict: ok.filter(r => r.stop !== "TIMEOUT").length, time: rs.reduce((a, r) => a + (r.dur || 0), 0) };
 });
 const byRank = (a, b) => b.solved - a.solved || (b.solved / b.n) - (a.solved / a.n) || a.time - b.time;
 const gridExecs = [...execs, ...local].sort(byRank);
 const LOCAL_TAG = "локально · раунд 4";
-const LOCAL_TAGS = {"custom-qwen38fn-k224-i7-claude": "локально i7 · лимиты ×5", "custom-qwen38fn-iq4-i7-claude": "локально i7 · лимиты ×10"};
-const SCALE = {"custom-qwen38fn-iq4-i7-claude": 10, "custom-qwen38fn-k224-i7-claude": 5};
-const tagOf = id => LOCAL_TAGS[id] || LOCAL_TAG;
+// i7 runs (the home PC) have their time limits scaled: ×5, except the first IQ4_XS run at ×10
+const scaleOf = id => id === "custom-qwen38fn-iq4-i7-claude" ? 10 : /-i7-/.test(id) ? 5 : 1;
+const tagOf = id => /-i7-/.test(id) ? `локально i7 · лимиты ×${scaleOf(id)}` : LOCAL_TAG;
+const GROUPS = [["frontier", "Фронтирные модели, облачный API"], ["hosted", "Открытые модели, хостинг-API"], ["local", "Локально, на домашнем железе"]];
+const groupOf = e => e.local ? "local" : /^(ant|az|oai)-/.test(e.id) ? "frontier" : "hosted";
+const fmtM = s => s == null ? "—" : s < 600 ? (s / 60).toFixed(1).replace(".", ",") : String(Math.round(s / 60));
+const short = m => m.replace(/ \(i7\)$/, "").replace(/^Qwen3\.8-Flash-Next /, "");
 
 /* tooltip */
 const tip = document.getElementById("tip");
@@ -482,18 +519,25 @@ document.getElementById("facts").innerHTML = [
 /* matrix */
 {
   let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="lvl">${t}</th>`).join("")}<th style="text-align:right">решено</th></tr></thead><tbody>`;
-  for (const e of gridExecs) {
-    h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</td>`;
-    for (const t of TASKS) {
-      const r = e.rs.find(q => q.task === t);
-      if (!r) { h += `<td class="cell none">—</td>`; continue; }
-      const cls = !r.effective ? (r.status === "RESOLVED" ? "veto" : "fail") : r.stop === "TIMEOUT" ? "to" : "pass";
-      const word = {pass:"решено", to:"решено на пределе", fail:"не решено", veto:"тесты прошли, жюри отклонило"}[cls];
-      const glyph = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!"}[cls];
-      const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${word}<br>время ${fmtS(r.dur)} из ${fmtS(LIMIT[t] * (SCALE[e.id] || 1))}<br>приёмочные тесты ${r.f2p}, регрессия ${r.p2p}<br>патч ${r.lines ?? "—"} строк`;
-      h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${glyph}<small>${Math.round(r.dur)}</small></td>`;
+  const WORD = {pass:"решено", to:"решено на пределе", fail:"не решено", veto:"тесты прошли, жюри отклонило", stop:"stopped by the operator, не решено"};
+  const GLYPH = {pass:"✓", to:"✓ ⏱", fail:"✗", veto:"!", stop:"■"};
+  for (const [g, glabel] of GROUPS) {
+    const rows = gridExecs.filter(e => groupOf(e) === g);
+    if (!rows.length) continue;
+    h += `<tr class="grp"><td colspan="${TASKS.length + 2}">${glabel}</td></tr>`;
+    for (const e of rows) {
+      h += `<tr${e.local ? ' class="local"' : ""}><td class="who">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</td>`;
+      for (const t of TASKS) {
+        const r = e.rs.find(q => q.task === t);
+        if (!r) { h += `<td class="cell none">—</td>`; continue; }
+        const cls = kindOf(r), reps = (e.all || [r]).filter(q => q.task === t);
+        const word = WORD[cls] + (r.stop === "OPERATOR" && cls !== "stop" ? " (остановлено оператором после завершения)" : "");
+        const more = reps.length > 1 ? `<br>${reps.length} прогона: ${reps.map(q => `${fmtM(q.dur)} мин ${GLYPH[kindOf(q)]}`).join(", ")} (показан первый)` : "";
+        const t2 = `<b>${esc(e.model)} · ${HN[e.harness]} · ${t}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${word}<br>время ${fmtS(r.dur)} из ${fmtS(LIMIT[t] * scaleOf(e.id))}<br>запросов ${r.calls ?? "—"}<br>приёмочные тесты ${r.f2p}, регрессия ${r.p2p}<br>патч ${r.lines ?? "—"} строк${more}`;
+        h += `<td class="cell ${cls}" tabindex="0" data-tip="${esc(t2)}">${GLYPH[cls]}${reps.length > 1 ? `<sup>×${reps.length}</sup>` : ""}<small>${fmtM(r.dur)}</small></td>`;
+      }
+      h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
     }
-    h += `<td class="score">${e.solved}/${e.n}</td></tr>`;
   }
   document.getElementById("matrix").innerHTML = h + "</tbody>";
 }
@@ -509,16 +553,16 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
 
 /* ranking: stacked time per task */
 {
-  const W = {pass: "решено вовремя", to: "решено на пределе", fail: "не решено"};
+  const W = {pass: "решено вовремя", to: "решено на пределе", fail: "не решено", stop: "остановлено оператором"};
   const total = e => e.rs.reduce((a, r) => a + (r.dur || 0), 0);
   const maxT = Math.max(...gridExecs.map(total));
   const draw = rel => {
     document.getElementById("rank").innerHTML = gridExecs.map((e, i) => {
       const T = total(e);
       const segs = TASKS.map(t => e.rs.find(r => r.task === t)).filter(Boolean).map(r => {
-        const cls = !r.effective ? "fail" : r.stop === "TIMEOUT" ? "to" : "pass";
+        const cls = {veto: "fail"}[kindOf(r)] || kindOf(r);
         const f = (r.dur || 0) / (rel ? T : maxT);
-        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% от времени агента<br>лимит ${fmtS(LIMIT[r.task] * (SCALE[e.id] || 1))}`;
+        const tip = `<b>${esc(e.model)} · ${HN[e.harness]} · ${r.task}</b>${e.local ? ` · ${tagOf(e.id)}` : ""}<br>${W[cls]}<br>${fmtS(r.dur)} · ${Math.round(100 * r.dur / T)}% от времени агента<br>лимит ${fmtS(LIMIT[r.task] * (scaleOf(e.id)))}`;
         return `<div class="rseg ${cls}" style="flex:0 0 calc(${(100 * f).toFixed(3)}% - 2px)" tabindex="0" data-tip="${esc(tip)}">${f * 100 > (rel ? 9 : 4.5) ? r.task : ""}</div>`;
       }).join("");
       return `<div class="rank-row"><span class="no">${i + 1}</span><span class="lab">${esc(e.model)}<span class="h">${HN[e.harness]}</span>${e.local ? `<span class="tag">${tagOf(e.id)}</span>` : ""}</span><div class="rtrack">${segs}</div><span class="val">${e.solved}/${e.n} · ${fmtS(T)}</span></div>`;
@@ -545,7 +589,7 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
     s += `<line class="lim" x1="${x(LIMIT[t])}" x2="${x(LIMIT[t])}" y1="${cy - rowH / 2 + 4}" y2="${cy + rowH / 2 - 6}"/>`;
     for (const r of [...r1, ...r4base].filter(r => r.task === t)) {
       const c = `var(--${r.harness})`, ok = r.effective;
-      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${tagOf(r.executor)}` : ""}<br>${ok ? "решено" : "не решено"}${r.stop === "TIMEOUT" ? " (на пределе)" : ""}<br>${fmtS(r.dur)}`;
+      const tt = `<b>${esc(r.model)} · ${HN[r.harness]} · ${t}</b>${r.round === 4 ? ` · ${tagOf(r.executor)}` : ""}<br>${kindOf(r) === "stop" ? "остановлено оператором" : ok ? "решено" : "не решено"}${r.stop === "TIMEOUT" ? " (на пределе)" : ""}<br>${fmtS(r.dur)}`;
       s += `<circle cx="${x(r.dur)}" cy="${cy + off[r.harness]}" r="5.5" fill="${ok ? c : "var(--panel)"}" stroke="${ok ? "var(--panel)" : c}" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/>`;
     }
   });
@@ -605,17 +649,94 @@ document.getElementById("bars").innerHTML = gridExecs.map(e => {
 
 /* round 4: local models */
 {
-  const r4 = D.runs.filter(r => r.round === 4).sort((a, b) => a.task.localeCompare(b.task) || (a.protocol ? 1 : 0) - (b.protocol ? 1 : 0));
+  const R4_05C = ["custom-qwen38fn-claude", "custom-qwen38fn-iq4-i7-claude", "custom-qwen38fn-k224-i7-claude"];
+  const r4 = D.runs.filter(r => r.round === 4 && R4_05C.includes(r.executor)).sort((a, b) => a.task.localeCompare(b.task) || (a.protocol ? 1 : 0) - (b.protocol ? 1 : 0));
   const st = r => r ? `${r.effective ? "✓" : "✗"} ${fmtS(r.dur)}${r.stop === "TIMEOUT" ? " (на пределе)" : ""}` : "—";
   let h = `<thead><tr><th>Модель</th><th>задача</th><th>результат</th><th>запросов</th><th>токены вход / выход</th><th>цена при хостинге</th><th>та же задача, раунд 1 в Claude Code</th></tr></thead><tbody>`;
   for (const r of r4) {
     const others = r1.filter(q => q.task === r.task && q.harness === "claude").map(q => `${esc(q.model)} ${st(q)}`).join(" · ");
     const mname = esc(r.model.replace("(local)", "(локально)"));
     const lab = r.protocol === "critic-repair-v1" ? `${mname} + критик Sol, 2-я попытка`
-      : r.protocol === "time-scaled-v1" ? `${mname}, лимит времени ×${SCALE[r.executor] || 10}` : mname;
+      : r.protocol === "time-scaled-v1" ? `${mname}, лимит времени ×${scaleOf(r.executor)}` : mname;
     h += `<tr><td>${lab}<span class="h">${HN[r.harness]}</span></td><td>${r.task}</td><td>${st(r)}</td><td>${r.calls ?? "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${r.cost != null ? "$" + r.cost.toFixed(2) : "—"}</td><td>${others || "—"}</td></tr>`;
   }
   document.getElementById("r4").innerHTML = h + "</tbody>";
+}
+
+/* 05d: сборки поменьше и небольшие модели на i7 */
+{
+  const NEW = local.filter(e => /-i7-/.test(e.id) && !["custom-qwen38fn-iq4-i7-claude", "custom-qwen38fn-k224-i7-claude"].includes(e.id));
+  const runs = r4base.filter(r => NEW.some(e => e.id === r.executor)).sort((a, b) => a.model.localeCompare(b.model) || a.task.localeCompare(b.task) || a.run.localeCompare(b.run));
+  const st = r => ({pass: "✓ решено", to: "✓ на пределе", fail: "✗ не решено", veto: "! отклонено", stop: "■ остановлено"}[kindOf(r)]) + (r.stop === "OPERATOR" && kindOf(r) !== "stop" ? " (остановлено оператором)" : "");
+  const price = r => r.cost != null ? `$0 локально <span class="muted">(в хостинге ≈ $${r.cost.toFixed(2)})</span>` : "$0 локально";
+  let h = `<thead><tr><th>Модель</th><th>задача</th><th>результат</th><th>минуты</th><th>запросы</th><th>декод., ток/с</th><th>токены вход / выход</th><th>стоимость API</th></tr></thead><tbody>`;
+  for (const r of runs)
+    h += `<tr><td>${esc(short(r.model))}</td><td>${r.task}</td><td>${st(r)}</td><td>${fmtM(r.dur)}</td><td>${r.calls ?? "—"}</td><td>${D.decode[r.executor] ? D.decode[r.executor].toFixed(0) : "—"}</td><td>${(r.tin / 1e6).toFixed(1)}M / ${Math.round(r.tout / 1e3)}k</td><td>${price(r)}</td></tr>`;
+  document.getElementById("r4b").innerHTML = h + "</tbody>";
+  document.getElementById("r4b-notes").innerHTML = [
+    `<b>K192p-implant16</b> (на Hugging Face: <code>oisee/Qwen3.8-Flash-Next-GSQ-RCO-Coder-192E-implant16-GGUF</code>): 192 эксперта, выбранные внутри 224 DSLab с защитой токенов решений, плюс по 16 экспертов на слой, имплантированных по статистике наших сессий; подаётся с Q4-головой MTP и n-gram-черновиками на контексте 190K. Решила L1a и L2a по два раза, L1b и L3b. <b>L1b — in-sample:</b> эксперты отбирались по сессии L1b. <b>L2b остановлен оператором</b> на 49,5 мин: модель зациклилась в рассуждениях, не сделав ни одной правки; показан как остановленный, а не как провал. L3a не запускался.`,
+    `Второй прогон K192p-implant16 на L2a помечен <code>leak_suspect</code> аудитом URL. Это ложное срабатывание: ссылки взяты из собственного <code>ANORMALIES.md</code> репозитория, в сеть агент не ходил.`,
+    `<b>Небольшие модели, целиком в VRAM</b> (llama.cpp, Q4, контекст 131K, сэмплинг по рекомендации авторов; флаги сервера по каждой модели опубликуем отдельно): Ornith-1.5-35B-A3B Q4_K_M (<code>ornith-ai/Ornith-1.5-35B-A3B-GGUF</code>, MTP), Flint Q4_K_M (<code>ggml-org/Flint-GGUF</code>, без спекуляции), NVIDIA Nemotron 3.5 Lightning 30B-A3B UD-Q4_K_XL (<code>unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF</code>, MTP), Muse Glimmer 30B KQuant-Dynamic-Q4_K_XL с DFlash (<code>meta-models/Muse-Glimmer-30B-GGUF</code>). Все четыре решили L1a за 11–13 минут; дальше L2a.`,
+    `<b>Оговорка про харнесс для небольших моделей:</b> Claude Code посылает системные сообщения посреди диалога. Ornith и gpt-oss с родными шаблонами чата их отбрасывают; Devstral и Muse шли с исправленными шаблонами. Первый прогон Devstral Small 2 на L1a не показан: вызовы инструментов пришли обычным текстом, сервер их не распознал (проблема шаблона, будет перезапуск), так что о модели он ничего не говорит.`,
+    `<b>Варианты K224</b> — это нарезка K224 из 05c с другими настройками сервера: голова MTP + n-gram-черновики, то же при температуре 0 и только n-gram при температуре 0,6. При температуре 0 модель провалила L2a и L2b, которые со стандартным сэмплингом решала.`,
+    `<b>DSLab 192 с Q4-головой MTP, L3a</b> остановлен оператором на 105 мин, когда агент уже закончил код, тесты и документацию и гонял свою сверку по всему корпусу; на момент остановки дерево проходило все скрытые тесты.`,
+    `<b>Стоимость API.</b> За токены ничего не платили. Для сборок Qwen3.8-Flash-Next в скобках — сколько те же токены стоили бы в хостинге QwenCloud (<code>qwen3.8-flash</code>); для небольших моделей хостинговой цены здесь нет.`,
+  ].map(x => `<li>${x}</li>`).join("");
+
+  // time to first green vs polish
+  const fgs = D.first_green.map(f => ({ f, r: D.runs.find(r => r.run === f.run) })).filter(x => x.r)
+    .sort((a, b) => a.r.task.localeCompare(b.r.task) || a.f.dur - b.f.dur);
+  const maxD = Math.max(...fgs.map(x => x.f.dur));
+  document.getElementById("fg").innerHTML = fgs.map(({ f, r }) => {
+    const a = f.fg / maxD, b = (f.dur - f.fg) / maxD;
+    const tt = `<b>${esc(short(r.model))} · ${r.task}</b><br>первый зелёный на ${fmtM(f.fg)} мин, на запросе ${f.req} из ${f.reqs}<br>потом ещё ${fmtM(f.dur - f.fg)} мин (${Math.round(100 * (f.dur - f.fg) / f.dur)}% сессии)<br>${f.stayed ? "оставался зелёным до конца" : "потом снова сломался"}`;
+    return `<div class="rank-row"><span class="no">${r.task}</span><span class="lab">${esc(short(r.model))}</span><div class="rtrack" tabindex="0" data-tip="${esc(tt)}"><div class="rseg pass" style="flex:0 0 calc(${(100 * a).toFixed(2)}% - 2px)">${a > .08 ? fmtM(f.fg) : ""}</div><div class="rseg polish" style="flex:0 0 calc(${(100 * b).toFixed(2)}% - 2px)">${b > .08 ? "+" + fmtM(f.dur - f.fg) : ""}</div></div><span class="val">${fmtM(f.fg)} / ${fmtM(f.dur)} мин${f.stayed ? "" : " ✕"}</span></div>`;
+  }).join("");
+
+  // scatter helper, faceted by task (panels with 3+ dots). Highlighted runs: blue dot + direct label; the rest: small
+  // gray dots, named in the tooltip only (selective labels keep the panel readable)
+  const scatter = (id, pts, xLab, xOf, xTicks, hi) => {
+    const tasks = [...new Set(pts.map(p => p.r.task))].sort().filter(t => pts.filter(p => p.r.task === t).length >= 3);
+    const W = 760, Lm = 46, Rm = 40, panelH = 250, B = 44, gap = 26, H = tasks.length * (panelH + gap) + 10;
+    const xmax = Math.max(...pts.map(xOf)) * 1.12;
+    const X = v => Lm + v / xmax * (W - Lm - Rm);
+    let g = "";
+    tasks.forEach((t, i) => {
+      const ps = pts.filter(p => p.r.task === t), y0 = i * (panelH + gap) + 16;
+      const ymax = Math.max(...ps.map(p => p.r.dur / 60)) * 1.15;
+      const Y = v => y0 + (1 - v / ymax) * (panelH - B);
+      const ystep = ymax > 40 ? 10 : 5;
+      for (let v = 0; v <= ymax; v += ystep) g += `<line class="grid" x1="${Lm}" x2="${W - Rm}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${Lm - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+      for (const v of xTicks.filter(v => v <= xmax)) g += `<text x="${X(v)}" y="${Y(0) + 16}" text-anchor="middle">${v}</text>`;
+      g += `<line class="axis" x1="${Lm}" x2="${W - Rm}" y1="${Y(0)}" y2="${Y(0)}"/><text x="0" y="${y0 - 2}" style="font-weight:600;fill:var(--ink)">${t}</text><text x="${Lm}" y="${y0 - 2}">минуты</text><text x="${W - Rm}" y="${Y(0) + 34}" text-anchor="end">${xLab} →</text>`;
+      const dots = ps.map(p => ({ p, cx: X(xOf(p)), cy: Y(p.r.dur / 60), on: hi(p.r) }));
+      for (const d of dots.filter(d => !d.on)) {
+        const tt = `<b>${esc(short(d.p.r.model))} · ${t}</b><br>${fmtM(d.p.r.dur)} мин · запросов ${d.p.r.calls ?? "—"}`;
+        g += `<circle cx="${d.cx}" cy="${d.cy}" r="4.5" fill="var(--ink-3)" stroke="var(--panel)" stroke-width="1.5" tabindex="0" data-tip="${esc(tt)}"/>`;
+      }
+      const boxes = dots.map(d => ({ x0: d.cx - 7, x1: d.cx + 7, y0: d.cy - 7, y1: d.cy + 7 }));
+      for (const d of dots.filter(d => d.on).sort((a, b) => a.cx - b.cx)) {
+        const lab = short(d.p.r.model).replace(/ (Q4_K_M|UD-Q4_K_XL)$/, ""), w = lab.length * 6.7;
+        const cand = [[10, 4, "start"], [-10, 4, "end"], [0, -11, "middle"], [0, 19, "middle"], [10, -9, "start"], [10, 17, "start"],
+                      [-10, -9, "end"], [-10, 17, "end"], [0, -24, "middle"], [0, 32, "middle"]];
+        let best = cand[0];
+        for (const c of cand) {
+          const x0 = c[2] === "start" ? d.cx + c[0] : c[2] === "end" ? d.cx + c[0] - w : d.cx - w / 2, b = { x0, x1: x0 + w, y0: d.cy + c[1] - 10, y1: d.cy + c[1] + 2 };
+          if (b.x0 < Lm || b.x1 > W) continue;
+          if (!boxes.some(o => o.x0 < b.x1 && b.x0 < o.x1 && o.y0 < b.y1 && b.y0 < o.y1)) { best = c; break; }
+        }
+        const x0 = best[2] === "start" ? d.cx + best[0] : best[2] === "end" ? d.cx + best[0] - w : d.cx - w / 2;
+        boxes.push({ x0, x1: x0 + w, y0: d.cy + best[1] - 10, y1: d.cy + best[1] + 2 });
+        const tt = `<b>${esc(short(d.p.r.model))} · ${t}</b><br>${fmtM(d.p.r.dur)} мин · запросов ${d.p.r.calls ?? "—"}${D.decode[d.p.r.executor] ? ` · декодирование ${D.decode[d.p.r.executor].toFixed(1)} ток/с` : ""}`;
+        g += `<circle cx="${d.cx}" cy="${d.cy}" r="6" fill="var(--claude)" stroke="var(--panel)" stroke-width="2" tabindex="0" data-tip="${esc(tt)}"/><text x="${d.cx + best[0]}" y="${d.cy + best[1]}" text-anchor="${best[2]}" style="font-size:11px">${esc(lab)}</text>`;
+      }
+    });
+    const el = document.getElementById(id); el.setAttribute("viewBox", `0 0 ${W} ${H}`); el.style.minWidth = "560px"; el.innerHTML = g;
+  };
+  const hiRun = r => /^custom-cand-/.test(r.executor) || r.executor === "custom-qwen38fn-k192pimp16-i7-claude";
+  const solved = r4base.filter(r => /-i7-/.test(r.executor) && kindOf(r) === "pass");
+  scatter("tgsc", solved.filter(r => D.decode[r.executor]).map(r => ({ r })), "декодирование, токенов/с", p => D.decode[p.r.executor], [0, 20, 40, 60, 80, 100], () => true);
+  scatter("reqsc", solved.filter(r => ["L1a", "L2a"].includes(r.task) && r.calls).map(r => ({ r })), "запросы", p => p.r.calls, [0, 25, 50, 75, 100, 125, 150, 175], hiRun);
 }
 
 /* critic screening */

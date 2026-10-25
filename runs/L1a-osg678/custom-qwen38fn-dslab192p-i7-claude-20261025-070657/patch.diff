@@ -1,0 +1,65 @@
+diff --git a/tools/sql-literals.mjs b/tools/sql-literals.mjs
+index 70787f8..b8e5af5 100644
+--- a/tools/sql-literals.mjs
++++ b/tools/sql-literals.mjs
+@@ -24,9 +24,58 @@
+  *
+  *  An escaped quote (`''`) is left alone, and nothing outside a literal is
+  *  touched: a column name, a keyword and the spacing of the statement mean
+- *  what they meant. */
++ *  what they meant.
++ *
++ *  Scanned by hand, not by regex. The old one -- `/'((?:[^']|'')*)'/g` --
++ *  was right and overflowed the stack on a literal of 15 million characters,
++ *  because V8 backtracks that group recursively, one frame per consumed
++ *  character; a media-sized INSERT or a packed table row hit it as a
++ *  `RangeError: Maximum call stack size exceeded`. The scanner below walks
++ *  the string once and follows the same pairing rule the regex used: inside
++ *  a literal a quote is doubled, the closing quote is the first lone quote,
++ *  and when the statement ends with no lone quote the last pair backs off
++ *  and its first quote closes the literal -- which is what the engine's
++ *  backtracking produced. Only ASCII blanks are trimmed; tabs and newlines
++ *  in the literal are data. */
+ export function trimLiterals(sql) {
+-  return sql.replace(/'((?:[^']|'')*)'/g, (m, inner) => "'" + inner.replace(/ +$/, "") + "'");
++  const n = sql.length;
++  if (!sql.includes("'")) return sql;
++  let pieces = null; // filled only once something is actually trimmed
++  let emitted = 0; // how far the original has been emitted into `pieces`
++  let i = 0;
++  while (i < n) {
++    const open = sql.indexOf("'", i);
++    if (open < 0) break;
++    let close = -1; // the closing quote, or -1: no literal starts here
++    let lastPair = -1; // start of the last doubled pair, for the back-off
++    for (let j = open + 1; j < n; j++) {
++      if (sql.charCodeAt(j) === 39) {
++        if (j + 1 < n && sql.charCodeAt(j + 1) === 39) {
++          lastPair = j;
++          j++; // consume the pair; the loop steps past it
++          continue;
++        }
++        close = j;
++        break;
++      }
++    }
++    if (close < 0) close = lastPair; // ran out of string: the last pair backs off
++    if (close < 0) {
++      i = open + 1; // no quote left to close this one -- leave it alone
++      continue;
++    }
++    let end = close;
++    while (end > open + 1 && sql.charCodeAt(end - 1) === 32) end--;
++    if (end !== close) {
++      pieces ??= [];
++      pieces.push(sql.slice(emitted, end));
++      emitted = close; // the removed blanks are skipped
++    }
++    i = close + 1;
++  }
++  if (pieces === null) return sql;
++  pieces.push(sql.slice(emitted));
++  return pieces.join("");
+ }
+ 
+ /**
