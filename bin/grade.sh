@@ -36,13 +36,29 @@ if [ -n "${HIDDEN_DIR:-}" ]; then
   # osg-abap's own cache (git-ignored, links to its node_modules) is the agent tool's, not the answer: the grader
   # rebuilds from pristine sources, so drop it from the grade copy.
   find "$G" -path "$G/.git" -prune -o -type d -name .osg-abap-cache -prune -exec rm -rf {} +   # wherever osg-abap ran
-  # The task trees have no symlinks of their own. One in the candidate tree could point into the hidden part copied
-  # below (e.g. the answer file -> .grader/pristine/...), so the tree is rejected unseen: FAILED, tests not run.
-  link="$(find "$G" -path "$G/.git" -prune -o -type l -print | head -1)"
-  [ -n "$link" ] && REJECT="symlink in the candidate tree: ${link#$G/}"
   case "$HIDDEN_DIR" in /*|*..*) infra_exit "HIDDEN_DIR must be a relative path inside the package: $HIDDEN_DIR" ;; esac
   [ -d "${HIDDEN_ROOT:-}/$HIDDEN_DIR" ] || infra_exit "hidden directory missing: ${HIDDEN_ROOT:-}/$HIDDEN_DIR"
   rm -rf "$G/$(basename "$HIDDEN_DIR")" && cp -a "$HIDDEN_ROOT/$HIDDEN_DIR" "$G/" || infra_exit "cannot copy $HIDDEN_DIR"
+  # A symlink left by the agent could lead into the hidden part now in place (e.g. the answer file ->
+  # .grader/pristine/...) or out of the tree. Such a tree is rejected unseen: FAILED, tests not run. Links that stay
+  # inside the tree (npm's node_modules/.bin, for one) are harmless: the grader reads only the target method body.
+  link="$(python3 -I - "$G" "$(basename "$HIDDEN_DIR")" <<'PY'
+import os, sys
+g, hidden = os.path.realpath(sys.argv[1]), sys.argv[2]
+for root, dirs, files in os.walk(g):
+    if root == g and '.git' in dirs:
+        dirs.remove('.git')
+    if root == g and hidden in dirs:
+        dirs.remove(hidden)                      # the trusted overlay itself
+    for n in dirs + files:
+        p = os.path.join(root, n)
+        if os.path.islink(p):
+            t = os.path.realpath(p)
+            if os.path.commonpath([t, g]) != g or os.path.commonpath([t, os.path.join(g, hidden)]) == os.path.join(g, hidden):
+                print(os.path.relpath(p, g)); sys.exit(0)
+PY
+)"
+  [ -n "$link" ] && REJECT="symlink into the hidden part or out of the tree: $link"
 fi
 
 # L2a's upstream TestParseI8 name is a natural choice for an agent-written

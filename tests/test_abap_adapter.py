@@ -183,12 +183,34 @@ class GradeHiddenDir(unittest.TestCase):
         res, r = self.grade()
         self.assertEqual(res['status'], 'RESOLVED', r.stderr)
 
+    def test_in_tree_symlinks_are_fine(self):                    # npm install leaves node_modules/.bin links
+        os.makedirs(os.path.join(self.work, 'node_modules', 'eslint', 'bin'))
+        open(os.path.join(self.work, 'node_modules', 'eslint', 'bin', 'eslint.js'), 'w').write('x')
+        os.makedirs(os.path.join(self.work, 'node_modules', '.bin'))
+        os.symlink('../eslint/bin/eslint.js', os.path.join(self.work, 'node_modules', '.bin', 'eslint'))
+        open(os.path.join(self.work, 'answer'), 'w').write('42\n')
+        res, r = self.grade()
+        self.assertEqual(res['status'], 'RESOLVED', r.stderr)
+
+    def test_symlink_out_of_the_tree_rejected(self):
+        os.symlink('/etc/hostname', os.path.join(self.work, 'peek'))
+        res, r = self.grade()
+        self.assertIn('out of the tree', res.get('rejected', ''))
+
+    def test_chained_symlink_into_hidden_rejected(self):          # a -> b -> .grader/oracle
+        os.symlink('.grader/oracle', os.path.join(self.work, 'b'))
+        os.remove(os.path.join(self.work, 'answer'))
+        os.symlink('b', os.path.join(self.work, 'answer'))
+        res, r = self.grade()
+        self.assertEqual(res['status'], 'FAILED')
+        self.assertIn('hidden part', res.get('rejected', ''))
+
     def test_symlink_rejected(self):
         os.remove(os.path.join(self.work, 'answer'))
         os.symlink('.grader/oracle', os.path.join(self.work, 'answer'))           # would read the hidden answer
         res, r = self.grade()
         self.assertEqual(res['status'], 'FAILED')
-        self.assertIn('symlink', res.get('rejected', ''))
+        self.assertIn('hidden part', res.get('rejected', ''))
         self.assertEqual(res['f2p'], [])
 
 if __name__ == '__main__':
