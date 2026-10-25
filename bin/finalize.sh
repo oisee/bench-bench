@@ -45,6 +45,9 @@ if secret:
     audit=os.path.join(run,"secret-audit.txt")
     if os.path.exists(audit) and "masked\tpatch.diff" in open(audit).read().splitlines():
         r["patch_masked"]=True   # the published patch differs from the graded tree where a secret was masked
+for k in ("net_policy", "abap_package", "abap_tier"):
+    if meta.get(k):
+        r[k]=meta[k]
 if meta.get("protocol"):
     r.update(protocol=meta["protocol"],internal_review_rounds=meta.get("internal_review_rounds",0))
 json.dump(r,open(os.path.join(run,"result.json"),"w"),indent=2)
