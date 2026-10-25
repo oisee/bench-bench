@@ -135,8 +135,9 @@ class SandboxNoWeb(unittest.TestCase):
         open(p, 'w').write('#!/bin/sh\n' + script)
         os.chmod(p, 0o755)
 
-    def sandbox(self, harness, provider, model='m'):
+    def sandbox(self, harness, provider, model='m', **extra):
         env = dict(os.environ, BENCH_NO_WEB='1', CUSTOM_BASE_URL='http://127.0.0.1:9/v1')
+        env.update(extra)
         env['PATH'] = self.fake + ':' + env['PATH']
         r = subprocess.run([str(BIN / 'sandbox.sh'), '--run', self.run_dir, '--harness', harness, '--provider', provider,
                             '--model', model, '--effort', 'high', '--', '-p', 'hi'], env=env, capture_output=True, text=True, timeout=120)
@@ -145,11 +146,18 @@ class SandboxNoWeb(unittest.TestCase):
             self.skipTest('sandbox did not start here: ' + r.stderr[-300:])
         return open(out).read()
 
-    def test_claude_web_tools_off(self):
+    def test_claude_web_tools_off_without_egress_filter(self):
         self.fake_harness('claude', 'echo "$@" > /work/probe.txt; cat "$HOME/.claude/settings.json" >> /work/probe.txt\n')
-        out = self.sandbox('claude', 'custom')
+        out = self.sandbox('claude', 'custom', BENCH_EGRESS='off')
         self.assertIn('--disallowedTools WebFetch,WebSearch', out)
         self.assertIn('"deny": ["WebFetch", "WebSearch"]', out)
+
+    def test_claude_webfetch_kept_behind_egress_filter(self):     # it can only reach the allowlist; WebSearch never
+        self.fake_harness('claude', 'echo "$@" > /work/probe.txt; cat "$HOME/.claude/settings.json" >> /work/probe.txt\n')
+        out = self.sandbox('claude', 'custom')
+        self.assertIn('--disallowedTools WebSearch', out)
+        self.assertNotIn('WebFetch,', out)
+        self.assertIn('"skipWebFetchPreflight": true', out)
 
     def test_codex_web_search_disabled_at_top_level(self):
         self.fake_harness('codex', 'cat "$HOME/.codex/config.toml" > /work/probe.txt\n')
@@ -163,6 +171,39 @@ class SandboxNoWeb(unittest.TestCase):
         for line in out.splitlines():
             self.assertTrue(line.startswith('0.0.0.0') or line.startswith('::'), line)
         self.assertEqual(len(out.splitlines()), 4)
+
+
+class Egress(SandboxNoWeb):
+    """The egress allowlist: own network namespace, out only through bin/egress-proxy.py."""
+
+    def test_allowlist(self):
+        import socketserver, http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200); self.end_headers(); self.wfile.write(b'ok')
+
+            def log_message(self, *a):
+                pass
+        srv = socketserver.TCPServer(('127.0.0.1', 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        port = srv.server_address[1]
+        try:
+            self.fake_harness('pi', 'c() { curl -s -o /dev/null -w "%%{http_code}" --max-time 15 "$@"; }\n'
+                                    '{ echo "docs=$(c http://help.sap.com/)"; echo "code=$(c https://raw.githubusercontent.com/x)";\n'
+                                    '  echo "direct=$(c --noproxy "*" http://1.1.1.1/)"; echo "local=$(c http://127.0.0.1:%d/)"; } > /work/probe.txt\n' % port)
+            out = dict(l.split('=', 1) for l in self.sandbox('pi', 'custom', CUSTOM_BASE_URL='http://127.0.0.1:%d/v1' % port).split())
+        finally:
+            srv.shutdown()
+        self.assertEqual(out['code'], '000')            # proxy refuses CONNECT to a code host
+        self.assertEqual(out['direct'], '000')          # no route out without the proxy
+        self.assertEqual(out['local'], '200')           # the model endpoint on the host's loopback is relayed
+        log = [json.loads(l) for l in open(os.path.join(self.run_dir, 'net', 'egress.log'))]
+        self.assertIn(('raw.githubusercontent.com', False), [(e['host'], e['allowed']) for e in log])
+        self.assertIn(('help.sap.com', True), [(e['host'], e['allowed']) for e in log])
+        audit = json.loads(subprocess.run([sys.executable, '-I', str(BIN / 'net-audit.py'), self.run_dir], capture_output=True,
+                                          text=True).stdout)
+        self.assertIn('raw.githubusercontent.com', audit['egress_denied'])
 
 
 if __name__ == '__main__':

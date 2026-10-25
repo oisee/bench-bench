@@ -110,9 +110,24 @@ def pi(run, out):
                 out.append(dict(kind='cmd', tool='pi', what=short(line), fetched=None, result='', text=line))
 
 
+def egress(run, out):
+    """Every connection the sandbox's egress proxy saw (RUN/net/egress.log): denied ones are attempts that failed."""
+    p = os.path.join(run, 'net', 'egress.log')
+    if not os.path.exists(p):
+        return
+    for line in open(p):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        out.append(dict(kind='egress', tool='proxy', what='%s:%s %s' % (e['host'], e['port'], 'allowed' if e['allowed'] else 'denied'),
+                        fetched=False, result='', text='', host=e['host'], allowed=e['allowed']))
+
+
 def audit(run, full=False):
     calls = []
     blocked = blocked_hosts(run)
+    egress(run, calls)
     claude(run, calls, blocked)
     codex(run, calls, blocked)
     pi(run, calls)
@@ -120,6 +135,7 @@ def audit(run, full=False):
         for c in calls:
             c.pop('text', None)
     return dict(web_tool_calls=sum(c['kind'] == 'web' for c in calls), net_commands=sum(c['kind'] == 'cmd' for c in calls),
+                egress_denied=sorted({c['host'] for c in calls if c['kind'] == 'egress' and not c['allowed']}),
                 fetched=[c for c in calls if c['fetched']], attempts=calls)
 
 

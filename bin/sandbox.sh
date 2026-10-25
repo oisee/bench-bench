@@ -202,18 +202,25 @@ esac
 # gets WebFetch/WebSearch disallowed on the command line and denied in its settings; Codex gets its built-in web search
 # (which runs on the provider's side, outside this sandbox) disabled. Code hosts and search engines are also
 # unresolvable below. bin/net-audit.py checks every run for what was still attempted.
+# With the egress allowlist on (BENCH_EGRESS=allowlist, the default under BENCH_NO_WEB), WebFetch stays: it can only
+# reach the allowlisted documentation hosts. WebSearch never: its results come from the provider, past any proxy.
+EGRESS_ON=0; [ "${BENCH_NO_WEB:-0}" = 1 ] && [ "${BENCH_EGRESS:-allowlist}" = allowlist ] && EGRESS_ON=1
 if [ "${BENCH_NO_WEB:-0}" = 1 ]; then
+  WEB_DENY="WebFetch,WebSearch"; [ $EGRESS_ON = 1 ] && WEB_DENY="WebSearch"
   case "$HARNESS" in
     claude)
-      CMD+=(--disallowedTools "WebFetch,WebSearch")
-      python3 -I - "$H/.claude/settings.json" <<'EOF2'
+      CMD+=(--disallowedTools "$WEB_DENY")
+      python3 -I - "$H/.claude/settings.json" "$WEB_DENY" <<'EOF2'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p))
 deny=d.setdefault("permissions",{}).setdefault("deny",[])
-for t in ("WebFetch","WebSearch"):
+for t in sys.argv[2].split(","):
     if t not in deny: deny.append(t)
+if "WebFetch" not in sys.argv[2]:
+    d["skipWebFetchPreflight"]=True   # the domain check would call out to the vendor, which the allowlist blocks
 json.dump(d,open(p,"w"))
 EOF2
+      ENVV+=(--setenv CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1)
       ;;
     codex) sed -i '1i web_search = "disabled"' "$H/.codex/config.toml" ;;   # top level, before any [table]
   esac
@@ -249,11 +256,56 @@ EOF
 meta harness="$HARNESS" provider="$PROVIDER" model="$MODEL" effort="$EFFORT" round="${BENCH_ROUND:-1}" \
      harness_version="$("${CMD[0]}" --version 2>/dev/null | head -1)" started_at="$(date -Is)"
 
+# Egress allowlist: the sandbox gets its own network namespace (loopback only). A forwarder inside turns
+# 127.0.0.1:3128 into the way out: bin/egress-proxy.py on a unix socket outside, which allows only the model endpoint
+# and the documentation hosts and logs every attempt (RUN/net/egress.log). A local endpoint (the recording or key
+# proxy on 127.0.0.1:PORT) is relayed to the same port inside. RUN/net keeps the allowlist, the log and the proxy's output.
+NETARGS=()
+if [ $EGRESS_ON = 1 ]; then
+  NETLOG="$RUN/net"; rm -rf "$NETLOG"; mkdir -p "$NETLOG"
+  NET="$(mktemp -d /tmp/bn.XXXXXX)"   # unix socket paths are limited to 108 bytes: keep them short
+  cp "$BENCH/bin/egress-fwd.py" "$NET/fwd.py"
+  ALLOW="help.sap.com,rules.abaplint.org,abaplint.app${BENCH_EGRESS_EXTRA:+,$BENCH_EGRESS_EXTRA}"
+  LOCALS=(); FWD=(3128=/run/bench-net/egress.sock)
+  endpoint() {
+    [[ "$1" =~ ^https?://([^/:]+)(:([0-9]+))? ]] || return 0
+    local h="${BASH_REMATCH[1]}" p="${BASH_REMATCH[3]}"
+    case "$h" in
+      127.0.0.1|localhost) [ -n "$p" ] && { LOCALS+=("$p=$NET/local-$p.sock"); FWD+=("$p=/run/bench-net/local-$p.sock"); } ;;
+      *) ALLOW="$ALLOW,$h" ;;
+    esac
+  }
+  case "$PROVIDER" in
+    custom) if [ "$HARNESS" = claude ]; then endpoint "$(custom_anthropic_url)"; else endpoint "${CUSTOM_BASE_URL:-}"; fi ;;
+    openai) ALLOW="$ALLOW,openai.com,chatgpt.com" ;;
+    zai) ALLOW="$ALLOW,z.ai" ;;
+    anthropic) ALLOW="$ALLOW,anthropic.com,claude.ai" ;;
+    alibaba) ALLOW="$ALLOW,aliyuncs.com"; endpoint "${ALI_CODEX_BASE_URL:-}" ;;
+    azure) endpoint "${AZURE_OPENAI_ENDPOINT:-}" ;;
+  esac
+  printf '%s\n' "$ALLOW" > "$NETLOG/allowlist"
+  python3 -I "$BENCH/bin/egress-proxy.py" "$NET/egress.sock" "$NETLOG/egress.log" "$ALLOW" "${LOCALS[@]+"${LOCALS[@]}"}" \
+    > "$NETLOG/proxy.out" 2>&1 &
+  EGRESS_PID=$!
+  trap 'kill "$EGRESS_PID" ${KEYPROXY_PID:-} 2>/dev/null; rm -rf "$NET"' EXIT
+  for _ in $(seq 50); do grep -q ready "$NETLOG/proxy.out" 2>/dev/null && break; sleep 0.1; done
+  grep -q ready "$NETLOG/proxy.out" || { echo "egress proxy did not start (see $NETLOG/proxy.out)" >&2; exit 2; }
+  { echo '#!/bin/sh'
+    echo "python3 -I /run/bench-net/fwd.py ${FWD[*]} > /tmp/egress-fwd.out 2>&1 &"
+    echo 'i=0; while [ $i -lt 50 ] && ! grep -q ready /tmp/egress-fwd.out 2>/dev/null; do sleep 0.1; i=$((i+1)); done'
+    echo 'exec "$@"'; } > "$NET/start.sh"
+  NETARGS=(--unshare-net)   # the socket dir is bound after the tmpfs on /run, below
+  for v in HTTPS_PROXY HTTP_PROXY ALL_PROXY https_proxy http_proxy all_proxy; do ENVV+=(--setenv "$v" http://127.0.0.1:3128); done
+  ENVV+=(--setenv NO_PROXY 127.0.0.1,localhost --setenv no_proxy 127.0.0.1,localhost)
+  CMD=(sh /run/bench-net/start.sh "${CMD[@]}")
+fi
+
 set +e
-bwrap --die-with-parent --unshare-pid --unshare-ipc \
+bwrap --die-with-parent --unshare-pid --unshare-ipc "${NETARGS[@]+"${NETARGS[@]}"}" \
   --ro-bind /usr /usr --ro-bind /etc /etc --ro-bind "$HOSTS" /etc/hosts \
   --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/sbin /sbin \
   --proc /proc --dev /dev --tmpfs /tmp --tmpfs /run --tmpfs /mnt \
+  ${NETARGS:+--bind "$NET" /run/bench-net} \
   --ro-bind "$RESOLV" "$RESOLV" \
   --bind "$H" "$REAL" \
   "${TOOL_BINDS[@]+"${TOOL_BINDS[@]}"}" "${GO_BINDS[@]+"${GO_BINDS[@]}"}" \

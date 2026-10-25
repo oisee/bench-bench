@@ -82,6 +82,8 @@ def check(run, ref_text, near=()):
     best = dict(score=0.0, tool=None, what=None)
     contaminated, reasons = False, []
     for c in calls:
+        if c['kind'] == 'egress':
+            continue
         if c['tool'] == 'web_search' and c['fetched']:
             contaminated = True
             reasons.append('provider-side web search returned results (content not logged): ' + c['what'][:120])
@@ -98,7 +100,8 @@ def check(run, ref_text, near=()):
         if score >= 0.5:
             contaminated = True
             reasons.append('%s result matches the hidden reference (%.0f%%): %s' % (c['tool'], 100 * score, c['what'][:120]))
-    outside = sorted({h for h in (host_of(c['what']) for c in calls) if h and not any(h == a or h.endswith('.' + a) for a in ALLOWED)})
+    hosts = {host_of(c['what']) for c in calls if c['kind'] != 'egress'} | {c['host'] for c in calls if c['kind'] == 'egress' and not c['allowed']}
+    outside = sorted({h for h in hosts if h and not any(h == a or h.endswith('.' + a) for a in ALLOWED)})
     return dict(contaminated=contaminated, reasons=reasons, best_match=best, reference_tokens=len(ref),
                 network_attempts=len(calls), hosts_outside_allowlist=outside)
 
