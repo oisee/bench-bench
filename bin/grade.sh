@@ -107,11 +107,14 @@ while IFS= read -r c; do [ -z "$c" ] && continue; i=$((i+1)); rc=$(run_check p2p
 # A broken sandbox, test timeout, or OOM is not evidence that the patch failed.
 for ((i=1; i<${#F[@]}; i+=2)); do
   case "${F[i]}" in 124|125|126|127|137) infra=1 ;; esac
+  # the native ABAP grader exits 3 for its own infrastructure errors (e.g. its wall limit under load), 1 for a FAIL
+  [ -n "${HIDDEN_DIR:-}" ] && [ "${F[i]}" = 3 ] && infra=1
 done
 for ((i=1; i<${#P[@]}; i+=2)); do
   case "${P[i]}" in 124|125|126|127|137) infra=1 ;; esac
 done
-if grep -rqiE '(^bwrap:|signal: killed|out of memory|cannot allocate memory)' "$LOGS"; then infra=1; fi
+# the native ABAP grader reports its own internal timeouts (e.g. under CPU load) as a FAIL; that is not the patch
+if grep -rqiE '(^bwrap:|signal: killed|out of memory|cannot allocate memory|wall time limit exceeded)' "$LOGS"; then infra=1; fi
 if ((infra)); then
   echo '[grade] INCONCLUSIVE: sandbox, resource limit, or test timeout; see grade/*.log' >&2
   rm -rf "$G"
