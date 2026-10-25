@@ -253,8 +253,11 @@ for kv in sys.argv[2:]:
 json.dump(d,open(p,"w"),indent=2)
 EOF
 }
+# network policy of this run: open (GitHub unresolvable only), no-web (web tools off + code hosts unresolvable),
+# egress-allowlist (no-web + own network namespace, out only via the allowlisting proxy)
+NET_POLICY=open; [ "${BENCH_NO_WEB:-0}" = 1 ] && NET_POLICY=no-web; [ $EGRESS_ON = 1 ] && NET_POLICY=egress-allowlist
 meta harness="$HARNESS" provider="$PROVIDER" model="$MODEL" effort="$EFFORT" round="${BENCH_ROUND:-1}" \
-     harness_version="$("${CMD[0]}" --version 2>/dev/null | head -1)" started_at="$(date -Is)"
+     harness_version="$("${CMD[0]}" --version 2>/dev/null | head -1)" started_at="$(date -Is)" net_policy="$NET_POLICY"
 
 # Egress allowlist: the sandbox gets its own network namespace (loopback only). A forwarder inside turns
 # 127.0.0.1:3128 into the way out: bin/egress-proxy.py on a unix socket outside, which allows only the model endpoint

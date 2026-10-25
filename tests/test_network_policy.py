@@ -204,6 +204,7 @@ class Egress(SandboxNoWeb):
         audit = json.loads(subprocess.run([sys.executable, '-I', str(BIN / 'net-audit.py'), self.run_dir], capture_output=True,
                                           text=True).stdout)
         self.assertIn('raw.githubusercontent.com', audit['egress_denied'])
+        self.assertEqual(json.load(open(os.path.join(self.run_dir, 'meta.json')))['net_policy'], 'egress-allowlist')
 
 
 if __name__ == '__main__':
