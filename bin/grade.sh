@@ -13,10 +13,15 @@ source "$T/task.env"
 SRC="$BENCH/.cache/repos/$REPO.git"
 WORK="$(realpath "${GRADE_WORK:-$RUN/work}")"; OUT="${GRADE_OUT:-$RUN}"; mkdir -p "$OUT"; OUT="$(realpath "$OUT")"
 
-# agent's patch relative to the baseline commit (untracked files included)
-git -C "$WORK" add -A -N 2>/dev/null
-git -C "$WORK" diff baseline > "$OUT/patch.diff"
-git -C "$WORK" reset -q 2>/dev/null
+# agent's patch relative to the baseline commit (untracked files included). Never run git inside the agent's repo:
+# its .git/config could name an fsmonitor, filter or diff driver that would run outside the sandbox.
+# If the diff fails, patch.diff is left empty and result.json says why (patch_error): the verdict still comes from
+# the tree, but an empty patch must never pass for "no change".
+PATCH_ERR=""
+python3 -I "$BENCH/bin/snapshot.py" diff "$WORK" > "$OUT/patch.diff" 2> "$OUT/patch.err" || {
+  PATCH_ERR="$(tail -1 "$OUT/patch.err" | cut -c1-300)"; [ -n "$PATCH_ERR" ] || PATCH_ERR="diff failed"
+  echo "[grade] patch.diff unavailable: $PATCH_ERR" >&2; : > "$OUT/patch.diff"; }
+rm -f "$OUT/patch.err"
 
 G="$OUT/grade-tree"; LOGS="$OUT/grade"
 rm -rf "$G" "$LOGS"; mkdir -p "$LOGS"
@@ -97,11 +102,12 @@ fi
 
 status=$([ $ok = 1 ] && echo RESOLVED || echo FAILED)
 python3 -I - "$OUT/result.json" "$status" "$(json_items "${F[@]}")" "$(json_items "${P[@]+"${P[@]}"}")" \
-  "$(wc -l < "$OUT/patch.diff")" "$GRADE_FIX" <<'EOF'
+  "$(wc -l < "$OUT/patch.diff")" "$GRADE_FIX" "$PATCH_ERR" <<'EOF'
 import json,sys
-p,status,f,pp,lines,grade_fix=sys.argv[1:]
+p,status,f,pp,lines,grade_fix,patch_err=sys.argv[1:]
 r={"status":status,"f2p":json.loads(f),"p2p":json.loads(pp) if pp else [],"patch_lines":int(lines)}
 if grade_fix: r["grade_fix"]=grade_fix
+if patch_err: r["patch_error"]=patch_err
 json.dump(r,open(p,"w"),indent=2)
 EOF
 rm -rf "$G"

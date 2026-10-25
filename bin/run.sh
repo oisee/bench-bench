@@ -35,19 +35,27 @@ echo "[run] $TID / $EX ($HARNESS · $PROVIDER · $MODEL · $EFFORT, limit $((LIM
 
 harness_args "$HARNESS" "$BRIEF" || exit 2
 
-if [ "${BENCH_RECORD:-0}" = 1 ]; then
+# A custom endpoint's key never enters the sandbox: the agent gets a dummy key and the proxy (outside the sandbox)
+# swaps in the real one, so the agent cannot print it into its tree, transcript or traffic.
+REAL_KEY=""
+[ "$PROVIDER" = custom ] && [ -n "${CUSTOM_API_KEY:-}" ] && [ "$CUSTOM_API_KEY" != none ] && REAL_KEY="$CUSTOM_API_KEY"
+if [ "${BENCH_RECORD:-0}" = 1 ] || [ -n "$REAL_KEY" ]; then
   [ "$PROVIDER" = custom ] || { echo 'BENCH_RECORD=1 needs provider custom' >&2; exit 2; }
+  RECORD=$([ "${BENCH_RECORD:-0}" = 1 ] && echo 1 || echo 0)
   if [ "$HARNESS" = claude ]; then UP="$(custom_anthropic_url)"; else UP="${CUSTOM_BASE_URL%/}"; fi
   [[ "$UP" =~ ^(https?://[^/]+)(.*)$ ]] || { echo "cannot parse endpoint URL $UP" >&2; exit 2; }
   ORIGIN="${BASH_REMATCH[1]}"; UPATH="${BASH_REMATCH[2]}"
   # snapshots of the work tree per request, outside the sandbox, for bin/first-green.py (BENCH_SNAPSHOTS=0 turns them off)
-  [ "${BENCH_SNAPSHOTS:-1}" = 1 ] && export BENCH_SNAPSHOT_RUN="$RUN"
-  coproc PROXY { exec python3 -I "$BENCH/bin/record-proxy.py" "$ORIGIN" "$RUN/traffic.jsonl" 2> "$RUN/proxy.err"; }
+  [ "$RECORD" = 1 ] && [ "${BENCH_SNAPSHOTS:-1}" = 1 ] && export BENCH_SNAPSHOT_RUN="$RUN"
+  coproc PROXY { export BENCH_PROXY_RECORD="$RECORD" BENCH_UPSTREAM_KEY="$REAL_KEY"
+                 exec python3 -I "$BENCH/bin/record-proxy.py" "$ORIGIN" "$RUN/traffic.jsonl" 2> "$RUN/proxy.err"; }
   read -r -t 10 PORT <&"${PROXY[0]}" || { echo 'record proxy did not start (see proxy.err)' >&2; exit 2; }
   trap 'kill "$PROXY_PID" 2>/dev/null' EXIT
   if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT$UPATH"
   else export CUSTOM_BASE_URL="http://127.0.0.1:$PORT$UPATH"; fi
-  echo "[run] recording model traffic via 127.0.0.1:$PORT -> $RUN/traffic.jsonl"
+  [ -n "$REAL_KEY" ] && export CUSTOM_API_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
+  if [ "$RECORD" = 1 ]; then echo "[run] recording model traffic via 127.0.0.1:$PORT -> $RUN/traffic.jsonl"
+  else echo "[run] endpoint key held by the proxy on 127.0.0.1:$PORT (not recording)"; fi
 fi
 
 T0=$(date +%s)
@@ -70,8 +78,10 @@ if [ "$SCALE" != 1 ]; then
   python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="time-scaled-v1",time_scale=sys.argv[2],time_limit_s=int(sys.argv[3]));json.dump(d,open(p,"w"),indent=2)' \
     "$RUN/meta.json" "$SCALE" "$LIMIT_S"
 fi
-# the tree that finalize grades, timed at the end of the session; stop the proxy first so no request snapshot races it
-if [ -n "$SNAP" ] && [ -n "${PROXY_PID:-}" ]; then kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null
-  rm -f "$SNAP/index.lock"; fi   # a snapshot cut short by the kill leaves its lock
+# stop the proxy before the final snapshot and finalize: no request snapshot may race them, and finalize rewrites
+# traffic.jsonl/live.txt when it masks secrets
+if [ -n "${PROXY_PID:-}" ]; then kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null
+  [ -n "$SNAP" ] && rm -f "$SNAP/index.lock"; fi   # a snapshot cut short by the kill leaves its lock
+# the tree that finalize grades, timed at the end of the session
 [ -n "$SNAP" ] && [ -d "$SNAP" ] && { python3 -I "$BENCH/bin/snapshot.py" take "$RUN" final $((T0 + DUR)) > /dev/null || echo '[run] final snapshot failed' >&2; }
-"$BENCH/bin/finalize.sh" "$RUN" "$T" "$EX" "$RC" "$DUR"
+BENCH_SECRET="$REAL_KEY" "$BENCH/bin/finalize.sh" "$RUN" "$T" "$EX" "$RC" "$DUR"

@@ -243,6 +243,23 @@ transcript in `agent.out`. With `BENCH_RECORD=1` (in `.env` or the environment) 
 from your endpoint is also logged to `traffic.jsonl` in the run directory; `bin/traffic-summary.py` turns it into
 requests, tokens, context growth, time to first byte, generation speed and tool calls (`--csv` for analysis).
 
+**Endpoint key and other secrets.** A custom endpoint's key (`CUSTOM_API_KEY`) never enters the sandbox. The
+agent gets a dummy key, and a local proxy outside the sandbox swaps in the real one on the way to your endpoint. The
+proxy also removes the key from anything the endpoint sends back. After each run, `bin/secret-scan.py --mask` looks
+for that key and for every provider key, token and OAuth login secret it can find (environment, `~/.bashrc`,
+`~/.profile`, Claude/Codex logins). It checks each one as is, URL-encoded and base64-encoded, across the whole run
+directory, git objects included:
+- **Masking.** Matches in logs, traffic, transcripts, `patch.diff` and `result.json` become `E***** [ZAI_API_KEY]`.
+  Matches in `work/` and the snapshots are only reported.
+- **Flags.** Any match sets `secret_leak` in `result.json` and lists the files in `secret-audit.txt`, never the
+  secret itself. `patch_masked` says the published patch differs from the graded tree.
+
+The scan catches accidental leaks, not a deliberately obfuscated key. Keys of the hosted providers (Z.ai, Alibaba,
+Azure, an Anthropic or OpenAI login) are still passed into the sandbox.
+
+**Grading never runs git inside the agent's repository.** Its `.git/config` could name hooks or filters that would
+run outside the sandbox. `patch.diff` is built in a throwaway repository instead (`bin/snapshot.py diff`).
+
 **Time to first green.** A run that passes often has the fix in place long before it ends, and spends the rest on
 polish (README, extra tests, CI). With `BENCH_RECORD=1` the recording proxy snapshots the work tree into `snap.git`
 in the run directory when the run starts, as each request arrives, and once more when the session ends. That

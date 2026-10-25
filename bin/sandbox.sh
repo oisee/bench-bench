@@ -32,6 +32,7 @@ done
 # provider keys live in the user's shell rc files; read just the one we need
 key_from_rc() { bash --norc --noprofile -c 'for f in "$2/.bashrc" "$2/.profile"; do [ -f "$f" ] && eval "$(grep -E "^export $1=" "$f" | tail -1)"; done; printf %s "${!1}"' _ "$1" "$REAL"; }
 ENVV=()
+DUMMY_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
 case "$PROVIDER" in
   alibaba)
     if [ "$HARNESS" = codex ]; then
@@ -49,6 +50,20 @@ case "$PROVIDER" in
   zai)     K="${ZAI_API_KEY:-$(key_from_rc ZAI_API_KEY)}";     [ -n "$K" ] || { echo "ZAI_API_KEY not set" >&2; exit 1; };     ENVV+=(--setenv ZAI_API_KEY "$K") ;;
   azure)   K="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; [ -n "$K" ] || { echo "AZURE_OPENAI_API_KEY not set" >&2; exit 1; }; ENVV+=(--setenv AZURE_OPENAI_API_KEY "$K") ;;
   custom)  [ -n "${CUSTOM_BASE_URL:-}" ] || { echo "CUSTOM_BASE_URL not set (see .env.example)" >&2; exit 1; }
+           # A real key never enters the sandbox. bin/run.sh normally hands us the dummy already (its proxy holds the
+           # key); any other caller gets a non-recording key proxy here, so every path is covered.
+           if [ -n "${CUSTOM_API_KEY:-}" ] && [ "$CUSTOM_API_KEY" != none ] && [ "$CUSTOM_API_KEY" != "$DUMMY_KEY" ]; then
+             if [ "$HARNESS" = claude ]; then KUP="$(custom_anthropic_url)"; else KUP="${CUSTOM_BASE_URL%/}"; fi
+             [[ "$KUP" =~ ^(https?://[^/]+)(.*)$ ]] || { echo "cannot parse endpoint URL $KUP" >&2; exit 2; }
+             KORIGIN="${BASH_REMATCH[1]}"; KPATH="${BASH_REMATCH[2]}"
+             coproc KEYPROXY { export BENCH_PROXY_RECORD=0 BENCH_UPSTREAM_KEY="$CUSTOM_API_KEY"; unset BENCH_SNAPSHOT_RUN
+                               exec python3 -I "$BENCH/bin/record-proxy.py" "$KORIGIN" "$RUN/traffic.jsonl" 2>> "$RUN/proxy.err"; }
+             read -r -t 10 KPORT <&"${KEYPROXY[0]}" || { echo 'key proxy did not start (see proxy.err)' >&2; exit 2; }
+             trap 'kill "$KEYPROXY_PID" 2>/dev/null' EXIT
+             if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$KPORT$KPATH"
+             else export CUSTOM_BASE_URL="http://127.0.0.1:$KPORT$KPATH"; fi
+             CUSTOM_API_KEY="$DUMMY_KEY"
+           fi
            ENVV+=(--setenv CUSTOM_API_KEY "${CUSTOM_API_KEY:-none}") ;;
   anthropic|openai) ;;
   *) echo "unknown provider $PROVIDER" >&2; exit 2 ;;

@@ -5,6 +5,8 @@ set -uo pipefail
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
 RUN="$(realpath "$1")"; T="$(realpath "$2")"; TID="$(basename "$T")"; EX="$3"; RC="$4"; DUR="$5"
 source "$T/task.env"
+# the endpoint key is for the secret scan only; nothing else in finalize (grading included) gets it
+SCAN_SECRET="${BENCH_SECRET:-}"; unset BENCH_SECRET
 read -r PROVIDER MODEL HARNESS EFFORT < <(python3 -I -c 'import json,sys;m=json.load(open(sys.argv[1]));print(m["provider"],m["model"],m["harness"],m["effort"])' "$RUN/meta.json")
 STOP=$({ [ "$RC" = 124 ] || [ "$RC" = 137 ]; } && echo TIMEOUT || echo DONE)
 "$BENCH/bin/grade.sh" "$RUN" "$T" | tail -1
@@ -12,13 +14,27 @@ HITS=$(grep -rhoE "github\.com/oisee/$REPO/(pull|pulls|commit|commits|compare|tr
   "$RUN/agent.out" "$RUN/agent.err" "$RUN/home" 2>/dev/null | \
   grep -vF "github.com/oisee/$REPO/blob/main-archive/docs/" | sort | uniq -c | sort -rn | head -20)
 rm -f "$RUN/leak-audit.txt"; [ -n "$HITS" ] && printf '%s\n' "$HITS" > "$RUN/leak-audit.txt"
-python3 -I - "$RUN" "$TID" "$LEVEL" "$EX" "$HARNESS" "$PROVIDER" "$MODEL" "$EFFORT" "$RC" "$DUR" "$STOP" "${HITS:+yes}" <<'PY'
+# no secret may stay in the run's artifacts: the endpoint key (BENCH_SECRET, from bin/run.sh) and every provider key,
+# token or OAuth login secret are masked in place (work/ and snap.git only reported); any hit keeps secret_leak set
+SECRET_LEAK=""; rm -f "$RUN/secret-audit.txt"
+BENCH_SECRET="$SCAN_SECRET" python3 -I "$BENCH/bin/secret-scan.py" "$RUN" --mask > "$RUN/secret-audit.txt"
+case $? in
+  0) rm -f "$RUN/secret-audit.txt" ;;
+  1) SECRET_LEAK=yes; echo "[run] secrets found in the run directory and masked where possible, see $RUN/secret-audit.txt" >&2 ;;
+  *) SECRET_LEAK=unknown; echo '[run] secret scan failed; treat the run directory as unsafe to publish' >&2 ;;
+esac
+python3 -I - "$RUN" "$TID" "$LEVEL" "$EX" "$HARNESS" "$PROVIDER" "$MODEL" "$EFFORT" "$RC" "$DUR" "$STOP" "${HITS:+yes}" "$SECRET_LEAK" <<'PY'
 import json,sys,os
-run,tid,lvl,ex,h,p,m,e,rc,dur,stop,leak=sys.argv[1:]
+run,tid,lvl,ex,h,p,m,e,rc,dur,stop,leak,secret=sys.argv[1:]
 r=json.load(open(os.path.join(run,"result.json")))
 meta=json.load(open(os.path.join(run,"meta.json")))
 r.update(task=tid,level=lvl,executor=ex,harness=h,provider=p,model=m,effort=e,agent_exit=int(rc),
          duration_s=int(dur),stop=stop,leak_suspect=bool(leak),harness_version=meta.get("harness_version"))
+if secret:
+    r["secret_leak"]=secret
+    audit=os.path.join(run,"secret-audit.txt")
+    if os.path.exists(audit) and "masked\tpatch.diff" in open(audit).read().splitlines():
+        r["patch_masked"]=True   # the published patch differs from the graded tree where a secret was masked
 if meta.get("protocol"):
     r.update(protocol=meta["protocol"],internal_review_rounds=meta.get("internal_review_rounds",0))
 json.dump(r,open(os.path.join(run,"result.json"),"w"),indent=2)
