@@ -53,7 +53,10 @@ def num(x):
 
 
 runs = []
+TASK_IDS = ("L1a", "L1b", "L2a", "L2b", "L3a", "L3b")   # the report covers the six PR tasks, not the native ABAP set
 for r in csv.DictReader(open(os.path.join(B, "data/runs.csv"))):
+    if r["task"].split("-")[0] not in TASK_IDS:
+        continue
     model, harness = NAMES.get(r["executor"], (r["executor"], r["harness"]))
     runs.append(dict(
         task=r["task"].split("-")[0], executor=r["executor"], model=model, harness=harness,

@@ -29,6 +29,18 @@ rm -rf "$G" "$LOGS"; mkdir -p "$LOGS"
 infra_exit() { echo "[grade] INCONCLUSIVE: $1" >&2; rm -rf "$G"; exit 2; }
 cp -a --reflink=auto "$WORK" "$G" || infra_exit "cannot copy the work tree (disk full?)"
 for p in $HIDDEN; do mkdir -p "$G/$(dirname "$p")" && git -C "$SRC" show "$MERGE:$p" > "$G/$p" || infra_exit "cannot write hidden test $p"; done
+# native ABAP tasks: the hidden part is a generated directory in the private package (HIDDEN_ROOT/HIDDEN_DIR). It
+# replaces whatever the agent left under that name, and exists only in this grade copy.
+REJECT=""
+if [ -n "${HIDDEN_DIR:-}" ]; then
+  # The task trees have no symlinks of their own. One in the candidate tree could point into the hidden part copied
+  # below (e.g. the answer file -> .grader/pristine/...), so the tree is rejected unseen: FAILED, tests not run.
+  link="$(find "$G" -path "$G/.git" -prune -o -type l -print | head -1)"
+  [ -n "$link" ] && REJECT="symlink in the candidate tree: ${link#$G/}"
+  case "$HIDDEN_DIR" in /*|*..*) infra_exit "HIDDEN_DIR must be a relative path inside the package: $HIDDEN_DIR" ;; esac
+  [ -d "${HIDDEN_ROOT:-}/$HIDDEN_DIR" ] || infra_exit "hidden directory missing: ${HIDDEN_ROOT:-}/$HIDDEN_DIR"
+  rm -rf "$G/$(basename "$HIDDEN_DIR")" && cp -a "$HIDDEN_ROOT/$HIDDEN_DIR" "$G/" || infra_exit "cannot copy $HIDDEN_DIR"
+fi
 
 # L2a's upstream TestParseI8 name is a natural choice for an agent-written
 # unit test. Give the held-out function a unique name so a valid patch cannot
@@ -63,6 +75,8 @@ PY
 fi
 
 toolchain_setup "$HOME" || exit 2
+GRADER_MOUNT=()  # native ABAP tasks: the grader tool, read-only at /tool (grading only)
+[ -n "${GRADER_TOOL:-}" ] && GRADER_MOUNT=(--ro-bind "$GRADER_TOOL" /tool)
 GO_MOUNTS=()  # module cache read-only (GOPROXY=off), build cache writable
 [ -n "$GOMODCACHE_DIR" ] && GO_MOUNTS=(--ro-bind "$GOMODCACHE_DIR" "$GOMODCACHE_DIR" --bind "$GOCACHE_DIR" "$GOCACHE_DIR")
 run_check() { # kind idx cmd
@@ -71,7 +85,7 @@ run_check() { # kind idx cmd
     --ro-bind /usr /usr --ro-bind /etc /etc \
     --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/sbin /sbin \
     --proc /proc --dev /dev --tmpfs /tmp --tmpfs /mnt --tmpfs "$HOME" \
-    "${TOOL_BINDS[@]+"${TOOL_BINDS[@]}"}" "${GO_MOUNTS[@]+"${GO_MOUNTS[@]}"}" \
+    "${TOOL_BINDS[@]+"${TOOL_BINDS[@]}"}" "${GO_MOUNTS[@]+"${GO_MOUNTS[@]}"}" "${GRADER_MOUNT[@]+"${GRADER_MOUNT[@]}"}" \
     --bind "$G" /work --chdir /work \
     --clearenv --setenv HOME "$HOME" --setenv PATH "$TOOL_PATH:/usr/lib/go/bin:/usr/local/bin:/usr/bin:/bin" \
     "${TOOL_ENV[@]+"${TOOL_ENV[@]}"}" --setenv LANG C.UTF-8 --setenv GOFLAGS -mod=mod --setenv GOPROXY off --setenv GOTOOLCHAIN local \
@@ -82,6 +96,7 @@ run_check() { # kind idx cmd
 
 json_items() { python3 -I -c 'import json,sys;print(json.dumps([{"cmd":c,"rc":int(r)} for c,r in zip(sys.argv[1::2],sys.argv[2::2])]))' "$@"; }
 F=(); P=(); ok=1; infra=0; i=0
+if [ -n "$REJECT" ]; then echo "[grade] rejected: $REJECT" >&2; ok=0; F2P=""; P2P=""; fi
 while IFS= read -r c; do [ -z "$c" ] && continue; i=$((i+1)); rc=$(run_check f2p $i "$c"); F+=("$c" "$rc"); [ "$rc" = 0 ] || ok=0; echo "[grade] f2p-$i rc=$rc  $c"; done <<< "$F2P"
 i=0
 while IFS= read -r c; do [ -z "$c" ] && continue; i=$((i+1)); rc=$(run_check p2p $i "$c"); P+=("$c" "$rc"); [ "$rc" = 0 ] || ok=0; echo "[grade] p2p-$i rc=$rc  $c"; done <<< "$P2P"
@@ -102,11 +117,12 @@ fi
 
 status=$([ $ok = 1 ] && echo RESOLVED || echo FAILED)
 python3 -I - "$OUT/result.json" "$status" "$(json_items "${F[@]}")" "$(json_items "${P[@]+"${P[@]}"}")" \
-  "$(wc -l < "$OUT/patch.diff")" "$GRADE_FIX" "$PATCH_ERR" <<'EOF'
+  "$(wc -l < "$OUT/patch.diff")" "$GRADE_FIX" "$PATCH_ERR" "$REJECT" <<'EOF'
 import json,sys
-p,status,f,pp,lines,grade_fix,patch_err=sys.argv[1:]
+p,status,f,pp,lines,grade_fix,patch_err,reject=sys.argv[1:]
 r={"status":status,"f2p":json.loads(f),"p2p":json.loads(pp) if pp else [],"patch_lines":int(lines)}
 if grade_fix: r["grade_fix"]=grade_fix
+if reject: r["rejected"]=reject
 if patch_err: r["patch_error"]=patch_err
 json.dump(r,open(p,"w"),indent=2)
 EOF

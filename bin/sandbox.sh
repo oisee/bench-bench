@@ -83,6 +83,17 @@ EOF
 # --- harness config inside the fake HOME -------------------------------------
 BINDS=()
 harness_bin "$HARNESS" "$REAL" "$H" || exit 2
+# native ABAP tasks: the agent-side tool (osg-abap with its own node), read-only at /agent-tool, as `osg-abap` on PATH.
+# Only this directory of the task package is mounted; the grader and the hidden tests stay outside.
+if [ -n "${BENCH_AGENT_TOOL:-}" ]; then
+  BINDS+=(--ro-bind "$BENCH_AGENT_TOOL" /agent-tool)
+  if [ -x "$BENCH_AGENT_TOOL/bin/osg-abap" ]; then          # the package's own launcher (packages from eee9ede on)
+    printf '#!/bin/sh\nexec /agent-tool/bin/osg-abap "$@"\n' > "$H/.local/bin/osg-abap"
+  elif [ -x "$BENCH_AGENT_TOOL/bin/node" ] && [ -f "$BENCH_AGENT_TOOL/bin/osg-abap.mjs" ]; then
+    printf '#!/bin/sh\nexec /agent-tool/bin/node /agent-tool/bin/osg-abap.mjs "$@"\n' > "$H/.local/bin/osg-abap"
+  else echo "BENCH_AGENT_TOOL: no osg-abap in $BENCH_AGENT_TOOL/bin" >&2; exit 2; fi
+  chmod +x "$H/.local/bin/osg-abap"
+fi
 case "$HARNESS" in
   claude)
     python3 -I - "$H/.claude.json" <<'EOF'

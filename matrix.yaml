@@ -27,6 +27,8 @@ executors:
   # --- OpenAI (subscription) · gpt-6-luna in Codex, three effort levels ---
   - {id: oai-luna-codex-m,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: medium}
   - {id: oai-luna-codex-h,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: high}
+  # Sol 6.1 through the ChatGPT login (codex), used for the native ABAP references; a different access path from az-sol61-codex
+  - {id: oai-sol61-codex,   provider: openai,  model: gpt-6.1-sol,    harness: codex,  effort: medium}
   - {id: oai-luna-codex-x,  provider: openai,  model: gpt-6-luna,     harness: codex,  effort: xhigh}
 
   # --- Round 3: harness experiments (bin/run-visible.sh, bin/run.sh for the effort row) ---

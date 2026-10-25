@@ -58,6 +58,7 @@ if [ "${BENCH_RECORD:-0}" = 1 ] || [ -n "$REAL_KEY" ]; then
   else echo "[run] endpoint key held by the proxy on 127.0.0.1:$PORT (not recording)"; fi
 fi
 
+export BENCH_AGENT_TOOL="${AGENT_TOOL:-}"   # native ABAP tasks: osg-abap, read-only at /agent-tool in the sandbox
 T0=$(date +%s)
 SNAP="${BENCH_SNAPSHOT_RUN:+$RUN/snap.git}"
 [ -n "$SNAP" ] && [ -d "$SNAP" ] && echo "$T0" > "$SNAP/t0"   # duration origin for bin/first-green.py
@@ -77,6 +78,10 @@ fi
 if [ "$SCALE" != 1 ]; then
   python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="time-scaled-v1",time_scale=sys.argv[2],time_limit_s=int(sys.argv[3]));json.dump(d,open(p,"w"),indent=2)' \
     "$RUN/meta.json" "$SCALE" "$LIMIT_S"
+fi
+if [ -n "${ABAP_PACKAGE:-}" ]; then   # native ABAP tasks: their own protocol, the package commit and the tier
+  python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="abap-native-v1",abap_package=sys.argv[2],abap_tier=sys.argv[3],time_limit_s=int(sys.argv[4]));json.dump(d,open(p,"w"),indent=2)' \
+    "$RUN/meta.json" "$ABAP_PACKAGE" "${ABAP_TIER:-}" "$LIMIT_S"
 fi
 # stop the proxy before the final snapshot and finalize: no request snapshot may race them, and finalize rewrites
 # traffic.jsonl/live.txt when it masks secrets

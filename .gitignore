@@ -15,3 +15,5 @@ runs/*/*/proxy.err
 runs/*/*/live.txt
 runs/*/*/snap.git/
 runs/*/*/first-green-*/
+tasks-abap/*/
+!tasks-abap/tiers/

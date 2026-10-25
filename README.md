@@ -364,6 +364,13 @@ test fixtures; see `brief-review.md` for the QA step.
 [MIT](LICENSE) for the benchmark code, data and report. Task content (briefs aside) comes from the linked public
 repositories under their own licenses.
 
+## Native ABAP tasks
+
+A second, larger task set, the native ABAP tasks: holes cut into real ABAP code and graded by its own ABAP Unit
+tests, with tiers smoke (12 tasks), medium (69) and full (337). The tasks come from a separately distributed package;
+bench-bench has only the adapter ([tasks-abap/README.md](tasks-abap/README.md)). These results are kept apart from
+the six-task tables.
+
 ## Cutting Qwen3.8-Flash-Next to fewer experts
 
 `bin/expert-cut.py` cuts a Hugging Face safetensors checkpoint of Qwen3.8-Flash-Next (e.g. NVIDIA NVFP4) to the 224- or

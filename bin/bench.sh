@@ -17,8 +17,10 @@ for a in "$@"; do
 done
 executor_fields "$EX" >/dev/null || { echo "unknown executor $EX: add it to matrix.yaml" >&2; exit 2; }
 
+TASKS_DIR="$(realpath "${BENCH_TASKS_DIR:-$BENCH/tasks}")"   # BENCH_TASKS_DIR=tasks-abap: the native ABAP tasks (bin/abap-tasks.sh)
 TASKS=()
-for t in "$BENCH"/tasks/*/; do
+for t in "$TASKS_DIR"/*/; do
+  [ -f "$t/task.env" ] || continue
   id="$(basename "$t")"
   if [ ${#SEL[@]} -eq 0 ]; then TASKS+=("$id"); continue; fi
   for s in "${SEL[@]}"; do [[ "$id" == "$s"* ]] && { TASKS+=("$id"); break; }; done
@@ -53,11 +55,11 @@ CHECK="$("$BENCH/bin/doctor.sh" "$EX" 2>&1)" || { echo "$CHECK"; exit 1; }
 TODO=(); MIN=0
 for id in "${TASKS[@]}"; do
   if [ $AGAIN = 0 ] && [ -n "$(last_result "$id")" ]; then echo "[bench] $id: already done (--again to repeat)"; continue; fi
-  TODO+=("$id"); MIN=$(awk -v a="$MIN" -v m="$(. "$BENCH/tasks/$id/task.env"; echo "$TIME_MIN")" -v s="${BENCH_TIME_SCALE:-1}" 'BEGIN { printf "%d", a + m * s }')
+  TODO+=("$id"); MIN=$(awk -v a="$MIN" -v m="$(. "$TASKS_DIR/$id/task.env"; echo "$TIME_MIN")" -v s="${BENCH_TIME_SCALE:-1}" 'BEGIN { printf "%d", a + m * s }')
 done
 [ ${#TODO[@]} -gt 0 ] && echo "[bench] $EX: ${#TODO[@]} task(s), at most ~${MIN} min of agent time plus grading"
 for id in "${TODO[@]}"; do
-  "$BENCH/bin/run.sh" "$BENCH/tasks/$id" "$EX"
+  "$BENCH/bin/run.sh" "$TASKS_DIR/$id" "$EX"
   case $? in 0) ;; 2) echo "[bench] $id: run did not produce a result; see the messages above" ;; esac
 done
 collect; table "${ROWS[@]}"
