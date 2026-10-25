@@ -166,8 +166,20 @@ tasks; it was not measured on NVFP4/vLLM either. For the NVIDIA NVFP4 checkpoint
 
 DSLab 224 with 16 experts per layer replaced by experts ranked on an agentic ABAP/Go session. In layers 0–46 the 16
 weakest experts of the 224 set (lowest summed router weight on that session) give way to the 16 strongest experts outside
-DSLab's 256; layer 47 has one replacement, 753 in total. Same format and commands as the 224 set. In our 3.5-bit GGUF
-tests it had a lower KL divergence to the full model than DSLab 224 (0.148 vs 0.202) and solved L1a (7.3 min) and L2a (23.9 min) in
-live runs; these runs are not paired with the committed DSLab 224 series, so the times
-do not compare directly. It is not measured on NVFP4/vLLM; there the newcomers keep their own NVFP4 bytes.
+DSLab's 256; layer 47 has one replacement, 753 in total. Same format and commands as the 224 set.
 
+**Which sources it works on.** The ids are original ids (0..511), and in every layer some are outside DSLab's 256, so the
+set can only be cut from a checkpoint that still holds all 512 experts, such as the NVIDIA NVFP4 build. There every kept
+expert, the newcomers included, keeps its own bytes. A checkpoint that is already pruned (DSLab's 256, or any earlier cut)
+does not have those experts. `bin/expert-cut.py` refuses such a source: the ids are out of range
+(`test_refuses_already_cut_source`). It reads safetensors only; GGUF files are not supported.
+
+**What was measured, and on which build.** Two different GGUF models carry this set; neither is the HF/NVFP4 cut above,
+which is not measured.
+
+| Build | How the newcomers were made | KL to the full model | Live runs |
+|---|---|---|---|
+| 3.5-bit, DSLab 224 + implants | requantized from Q8_0 to each layer's DSLab quant type (with imatrix), not a byte copy | 0.148 (DSLab 224 on the same setup: 0.202, lower in every token class) | L1a 7.3 min and L2a 23.9 min, both solved |
+| 2-bit, cut from DSLab's IQ2_XS 512-expert build | byte copy | 0.886 overall, 0.299 on decision tokens (L2b; another harness, not comparable with 0.148) | none |
+
+The live runs are not paired with the committed DSLab 224 series, so their times do not compare directly.

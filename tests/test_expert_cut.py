@@ -253,6 +253,13 @@ class TestCut(Base):
         with self.assertRaisesRegex(hc.CutError, 'out of range'):
             self.cut(self.write_keep(keep, 'k5.json'))
 
+    def test_refuses_already_cut_source(self):            # original ids against a source that no longer has them
+        self.cut()
+        self.assertTrue(any(max(v) >= len(v) for v in KEEP.values()))
+        with self.assertRaisesRegex(hc.CutError, 'out of range'):
+            with quiet():
+                hc.cut(self.dst, self.keep, os.path.join(self.tmp, 'dst2'))
+
     def test_dry_run_writes_nothing(self):
         with quiet():
             r = hc.cut(self.src, self.keep, self.dst, dry_run=True)

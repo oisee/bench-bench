@@ -3,23 +3,26 @@
 # and run FAIL_TO_PASS + PASS_TO_PASS commands in an offline sandbox.
 #   bin/grade.sh RUN_DIR TASK_DIR
 # Writes RUN_DIR/patch.diff, RUN_DIR/grade/*.log, RUN_DIR/result.json
+# GRADE_WORK=DIR grades DIR instead of RUN_DIR/work and GRADE_OUT=DIR writes the three outputs there
+# (bin/first-green.py uses both for snapshots).
 set -uo pipefail
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
 . "$BENCH/bin/lib.sh"
 RUN="$(realpath "$1")"; T="$(realpath "$2")"
 source "$T/task.env"
 SRC="$BENCH/.cache/repos/$REPO.git"
+WORK="$(realpath "${GRADE_WORK:-$RUN/work}")"; OUT="${GRADE_OUT:-$RUN}"; mkdir -p "$OUT"; OUT="$(realpath "$OUT")"
 
 # agent's patch relative to the baseline commit (untracked files included)
-git -C "$RUN/work" add -A -N 2>/dev/null
-git -C "$RUN/work" diff baseline > "$RUN/patch.diff"
-git -C "$RUN/work" reset -q 2>/dev/null
+git -C "$WORK" add -A -N 2>/dev/null
+git -C "$WORK" diff baseline > "$OUT/patch.diff"
+git -C "$WORK" reset -q 2>/dev/null
 
-G="$RUN/grade-tree"; LOGS="$RUN/grade"
+G="$OUT/grade-tree"; LOGS="$OUT/grade"
 rm -rf "$G" "$LOGS"; mkdir -p "$LOGS"
 # a failed copy (e.g. disk full) is an infrastructure problem, not a failed patch
 infra_exit() { echo "[grade] INCONCLUSIVE: $1" >&2; rm -rf "$G"; exit 2; }
-cp -a --reflink=auto "$RUN/work" "$G" || infra_exit "cannot copy the work tree (disk full?)"
+cp -a --reflink=auto "$WORK" "$G" || infra_exit "cannot copy the work tree (disk full?)"
 for p in $HIDDEN; do mkdir -p "$G/$(dirname "$p")" && git -C "$SRC" show "$MERGE:$p" > "$G/$p" || infra_exit "cannot write hidden test $p"; done
 
 # L2a's upstream TestParseI8 name is a natural choice for an agent-written
@@ -93,8 +96,8 @@ if ((infra)); then
 fi
 
 status=$([ $ok = 1 ] && echo RESOLVED || echo FAILED)
-python3 -I - "$RUN/result.json" "$status" "$(json_items "${F[@]}")" "$(json_items "${P[@]+"${P[@]}"}")" \
-  "$(wc -l < "$RUN/patch.diff")" "$GRADE_FIX" <<'EOF'
+python3 -I - "$OUT/result.json" "$status" "$(json_items "${F[@]}")" "$(json_items "${P[@]+"${P[@]}"}")" \
+  "$(wc -l < "$OUT/patch.diff")" "$GRADE_FIX" <<'EOF'
 import json,sys
 p,status,f,pp,lines,grade_fix=sys.argv[1:]
 r={"status":status,"f2p":json.loads(f),"p2p":json.loads(pp) if pp else [],"patch_lines":int(lines)}

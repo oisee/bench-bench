@@ -3,6 +3,8 @@
 # Set BENCH_INTERNAL_REVIEW_ROUNDS=2 to opt in to the two-critic builder protocol
 # (docs/internal-review-protocol.md); its 3-run pilot showed no solve gain at 2-10x time.
 # Set BENCH_RECORD=1 (provider custom) to log every model request/response to RUN/traffic.jsonl.
+# It also snapshots the work tree as each request arrives (RUN/snap.git, outside the sandbox; BENCH_SNAPSHOTS=0
+# turns that off); bin/first-green.py RUN TASK grades them afterwards for time to first green.
 # Set BENCH_TIME_SCALE=N to multiply the task's time limit (slow local hardware); such runs are
 # recorded with protocol time-scaled-v1 and time_scale=N so they never mix with standard-limit runs.
 #   bin/run.sh tasks/<task-id> <executor-id>        (executor ids: matrix.yaml)
@@ -38,6 +40,8 @@ if [ "${BENCH_RECORD:-0}" = 1 ]; then
   if [ "$HARNESS" = claude ]; then UP="$(custom_anthropic_url)"; else UP="${CUSTOM_BASE_URL%/}"; fi
   [[ "$UP" =~ ^(https?://[^/]+)(.*)$ ]] || { echo "cannot parse endpoint URL $UP" >&2; exit 2; }
   ORIGIN="${BASH_REMATCH[1]}"; UPATH="${BASH_REMATCH[2]}"
+  # snapshots of the work tree per request, outside the sandbox, for bin/first-green.py (BENCH_SNAPSHOTS=0 turns them off)
+  [ "${BENCH_SNAPSHOTS:-1}" = 1 ] && export BENCH_SNAPSHOT_RUN="$RUN"
   coproc PROXY { exec python3 -I "$BENCH/bin/record-proxy.py" "$ORIGIN" "$RUN/traffic.jsonl" 2> "$RUN/proxy.err"; }
   read -r -t 10 PORT <&"${PROXY[0]}" || { echo 'record proxy did not start (see proxy.err)' >&2; exit 2; }
   trap 'kill "$PROXY_PID" 2>/dev/null' EXIT
@@ -47,6 +51,8 @@ if [ "${BENCH_RECORD:-0}" = 1 ]; then
 fi
 
 T0=$(date +%s)
+SNAP="${BENCH_SNAPSHOT_RUN:+$RUN/snap.git}"
+[ -n "$SNAP" ] && [ -d "$SNAP" ] && echo "$T0" > "$SNAP/t0"   # duration origin for bin/first-green.py
 timeout --kill-after=30 "$LIMIT_S" "$BENCH/bin/sandbox.sh" --run "$RUN" --harness "$HARNESS" \
   --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" -- "${ARGS[@]}" \
   < /dev/null > "$RUN/agent.out" 2> "$RUN/agent.err"
@@ -64,4 +70,8 @@ if [ "$SCALE" != 1 ]; then
   python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="time-scaled-v1",time_scale=sys.argv[2],time_limit_s=int(sys.argv[3]));json.dump(d,open(p,"w"),indent=2)' \
     "$RUN/meta.json" "$SCALE" "$LIMIT_S"
 fi
+# the tree that finalize grades, timed at the end of the session; stop the proxy first so no request snapshot races it
+if [ -n "$SNAP" ] && [ -n "${PROXY_PID:-}" ]; then kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null
+  rm -f "$SNAP/index.lock"; fi   # a snapshot cut short by the kill leaves its lock
+[ -n "$SNAP" ] && [ -d "$SNAP" ] && { python3 -I "$BENCH/bin/snapshot.py" take "$RUN" final $((T0 + DUR)) > /dev/null || echo '[run] final snapshot failed' >&2; }
 "$BENCH/bin/finalize.sh" "$RUN" "$T" "$EX" "$RC" "$DUR"

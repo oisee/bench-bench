@@ -7,8 +7,12 @@ appends the full exchange (request body, response body or raw SSE stream, timing
 Listens on a free 127.0.0.1 port and prints it on stdout. API keys are redacted from the log.
 While a streamed answer is still being generated, its thinking, text and tool calls are also appended as plain
 text to live.txt next to OUT.jsonl (`tail -f runs/.../live.txt` to watch). Started by bin/run.sh when BENCH_RECORD=1.
+With BENCH_SNAPSHOT_RUN=RUN_DIR it also snapshots RUN_DIR/work at start (seq 0) and as each request arrives, before
+forwarding it (bin/snapshot.py; used by bin/first-green.py). A failed snapshot is logged to stderr, never fatal.
 """
 import http.client, http.server, json, os, sys, threading, time, urllib.parse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import snapshot
 
 UP = urllib.parse.urlsplit(sys.argv[1])
 OUT = open(sys.argv[2], "a")
@@ -16,6 +20,17 @@ LIVE = open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[2])), "live.tx
 LOCK = threading.Lock()
 SEQ = [0]
 LIVE_LAST = [None]  # seq of the request live.txt is currently showing
+SNAP_RUN = os.environ.get("BENCH_SNAPSHOT_RUN")
+SNAP_LOCK = threading.Lock()
+
+
+def take_snapshot(seq):
+    if not SNAP_RUN:
+        return
+    try:
+        snapshot.take(SNAP_RUN, seq)
+    except Exception as e:
+        print(f"snapshot {seq} failed: {e}", file=sys.stderr, flush=True)
 
 
 def live_write(seq, text):
@@ -88,9 +103,11 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         hdrs["Host"] = UP.netloc
         if req:
             hdrs["Content-Length"] = str(len(req))
-        with LOCK:
-            SEQ[0] += 1
-            seq = SEQ[0]
+        with SNAP_LOCK:  # numbering and snapshot together, so request N's snapshot is taken before request N+1's
+            with LOCK:
+                SEQ[0] += 1
+                seq = SEQ[0]
+            take_snapshot(seq)
         rec = {"seq": seq, "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "method": self.command, "path": self.path,
                "req_headers": {k: ("<redacted>" if k.lower() in SECRET else v) for k, v in hdrs.items()},
                "req": body_value(req, self.headers.get("content-type", "json"))}
@@ -141,6 +158,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = relay
 
 
+take_snapshot(0)
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
 srv.daemon_threads = True
 print(srv.server_address[1], flush=True)

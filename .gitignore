@@ -13,3 +13,5 @@ runs/*/*/internal-reviews/
 runs/*/*/traffic.jsonl
 runs/*/*/proxy.err
 runs/*/*/live.txt
+runs/*/*/snap.git/
+runs/*/*/first-green-*/

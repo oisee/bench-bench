@@ -243,6 +243,21 @@ transcript in `agent.out`. With `BENCH_RECORD=1` (in `.env` or the environment) 
 from your endpoint is also logged to `traffic.jsonl` in the run directory; `bin/traffic-summary.py` turns it into
 requests, tokens, context growth, time to first byte, generation speed and tool calls (`--csv` for analysis).
 
+**Time to first green.** A run that passes often has the fix in place long before it ends, and spends the rest on
+polish (README, extra tests, CI). With `BENCH_RECORD=1` the recording proxy snapshots the work tree into `snap.git`
+in the run directory when the run starts, as each request arrives, and once more when the session ends. That
+directory is outside the sandbox, so the agent never sees it. Afterwards,
+`bin/first-green.py runs/<task>/<run> tasks/<task> [--jobs N]` grades every distinct snapshot with the hidden tests
+and adds `first_green_s`, `first_green_request`, `polish_s` (= `duration_s − first_green_s`) and `stayed_green` to
+`result.json`.
+- **Bisection.** `--bisect` grades only about log2 of the snapshots, plus the ones after the boundary. It assumes
+  the run never went green and then broke before that boundary, so it can miss an earlier green spell.
+- **Ignored files.** Files the repo ignores (`node_modules/`, build output) are not snapshotted; every snapshot is
+  graded with the ones the run ended with. If a `.gitignore` or a dependency file changed during the run,
+  `first_green_caveat` says so.
+
+Grading takes CPU, so run it when no timed run shares the machine.
+
 To compare with the published results, put your `result.json` next to `data/runs.csv`. A full re-export
 (`bin/export.py`) needs the jury reviews and agent transcripts, which are not in git, so on a fresh clone it would
 rebuild `data/` without them; run it only where those exist.
