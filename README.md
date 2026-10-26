@@ -501,11 +501,19 @@ filter statuses, or sort tasks; each row shows duration, traffic request count,
 patch lines, network policy, and contamination. Click a task for a live log panel
 with the latest 200 lines (auto-scrolling while running) and patch/result links.
 Light/dark themes follow your device and the layout adapts to narrow screens.
-The newest queue in `/out/queue-<executor>.json` selects the active executor;
-other executors in the same output appear alongside it, or supply reference
-outputs with `--compare saved-runs,other-runs`. Comparisons use each executor's
-latest valid verdict per matching task, skip INVALID attempts, and show totals
-over the active task set. Partial JSON files are tolerated during writes.
+Runs are grouped by protocol, ABAP set, package, tier, and environment version,
+keeping older non-ABAP tasks separate. Group and executor selectors default to
+the newest local run. The compact comparison table ranks all executors in that
+group by solved tasks, highlights the selection, and shows failed counts and
+median times; expand it past eight rows with “Show all”. All rows use the group's
+same task set; missing attempts appear as “not run”. Task references show a solved
+count with the executor list on hover or click. Durations use `m:ss`, long executor
+names truncate with tooltips, and policy/contamination columns hide on smaller
+screens. Supply reference outputs with `--compare saved-runs,other-runs`.
+Comparisons use the latest valid verdict per executor/task and skip INVALID
+attempts; the selected executor's summary shows its latest actual attempts.
+Legacy queue files inherit their executor's newest group for pending tasks.
+Partial JSON files are tolerated during writes.
 The server stops when the launcher exits, including on setup failure. To view
 saved output afterwards:
 
