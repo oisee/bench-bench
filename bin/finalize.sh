@@ -45,7 +45,7 @@ if secret:
     audit=os.path.join(run,"secret-audit.txt")
     if os.path.exists(audit) and "masked\tpatch.diff" in open(audit).read().splitlines():
         r["patch_masked"]=True   # the published patch differs from the graded tree where a secret was masked
-for k in ("net_policy", "abap_package", "abap_tier", "abap_set"):
+for k in ("net_policy", "abap_package", "abap_tier", "abap_set", "task_uid", "env_version", "content_digest"):
     if meta.get(k):
         r[k]=meta[k]
 if meta.get("protocol"):

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Native ABAP tasks (an external, privately distributed package) as bench-bench tasks.
-#   ABAP_TASKS=<package root> ABAP_TASKS_REPO=<descriptor checkout> bin/abap-tasks.sh [smoke|medium|full|agentic[-smoke]|synthetic[-smoke]|ID ...]
+#   ABAP_TASKS=<package root> ABAP_TASKS_REPO=<descriptor checkout> [ABAP_ENV=<n>] bin/abap-tasks.sh [<tier>|ID|ID@n ...]
 # The package root is <root>/{agent,grader-tool,private/{abap-tasks,src-repos,hidden}}, named after the descriptor
 # repository's commit; tasks-abap/PACKAGE pins that commit. Descriptors are read from that commit's git objects, package
 # files are checked against <root>/MANIFEST.sha256 when present, and sources come from the package's own clones
@@ -35,14 +35,14 @@ fi
 IDS=(); TIER=()
 for a in "${@:-smoke}"; do
   case "$a" in
-    smoke|medium|full|agentic|agentic-smoke|synthetic|synthetic-smoke)
-      # the tier list from the pinned commit when it has one (agentic/synthetic sets ship only there)
+    *)
+      # a tier is any list at the pinned commit (tiers/<name>.txt) or in tasks-abap/tiers; anything else is a task id
       n0=${#IDS[@]}
       if git -C "$REPO_DIR" cat-file -e "$PIN:tiers/$a.txt" 2>/dev/null; then
         mapfile -t -O "$n0" IDS < <(git -C "$REPO_DIR" show "$PIN:tiers/$a.txt" | grep -v '^\s*$')
-      else mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$OUT/tiers/$a.txt"); fi
+      elif [ -f "$OUT/tiers/$a.txt" ]; then mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$OUT/tiers/$a.txt")
+      else IDS+=("$a"); TIER[$n0]=ids; continue; fi
       for ((k = n0; k < ${#IDS[@]}; k++)); do TIER[$k]=$a; done ;;
-    *) IDS+=("$a"); TIER[$((${#IDS[@]} - 1))]=ids ;;
   esac
 done
 
@@ -58,11 +58,18 @@ STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 n=0
 for k in "${!IDS[@]}"; do
   id="${IDS[$k]}"
-  [[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "bad task id: $id" >&2; exit 2; }
+  [[ "$id" =~ ^[a-z0-9-]+(@[0-9]+)?$ ]] || { echo "bad task id: $id" >&2; exit 2; }
+  # a versioned uid (id@n, v2.5 packages) uses the descriptor for that uid under ABAP_ENV (bench-bench/<uid>.env<E>);
+  # its local task dir is <id>-u<n>-e<E>, so it never collides with the latest descriptor of the same id
+  ddir="$id"; tdir="$id"
+  if [[ "$id" == *@* ]]; then
+    : "${ABAP_ENV:?a versioned task id ($id) needs ABAP_ENV (the environment version, e.g. 3)}"
+    ddir="$id.env$ABAP_ENV"; tdir="${id%@*}-u${id#*@}-e$ABAP_ENV"
+  fi
   # descriptors are read from the pinned commit's objects, never from the working tree (which may differ)
-  src="$STAGE/$id"; mkdir -p "$src"
+  src="$STAGE/$tdir"; mkdir -p "$src"
   for f in task.env brief.md; do
-    git -C "$REPO_DIR" show "$PIN:bench-bench/$id/$f" > "$src/$f" 2>/dev/null || { echo "no descriptor for $id at $PIN" >&2; exit 2; }
+    git -C "$REPO_DIR" show "$PIN:bench-bench/$ddir/$f" > "$src/$f" 2>/dev/null || { echo "no descriptor for $ddir at $PIN" >&2; exit 2; }
   done
   url="$(bash -c 'set -u; source "$1"; printf %s "$URL"' _ "$src/task.env")"
   prep="$(bash -c 'set -u; source "$1"; printf %s "$PREPARE"' _ "$src/task.env")"
@@ -72,8 +79,8 @@ for k in "${!IDS[@]}"; do
   case "$id" in *-agentic-*) set_=agentic ;; *-synthetic-*) set_=synthetic ;; *) set_=corpus ;; esac   # separate result tables
   key="${url%.git}"; local_src="${LOCAL_SRC[${key,,}]:-}"
   name="$(basename "$url" .git)"
-  rm -rf "$OUT/$id"; mkdir -p "$OUT/$id"
-  cp "$src/brief.md" "$OUT/$id/brief.md"
+  rm -rf "$OUT/$tdir"; mkdir -p "$OUT/$tdir"
+  cp "$src/brief.md" "$OUT/$tdir/brief.md"
   { cat "$src/task.env"; echo
     echo "# added by bin/abap-tasks.sh (package $PIN)"
     printf "REPO=%q\nLEVEL=%q\nSTRIP=''\nP2P=''\n" "abap-$name" "$level"
@@ -81,7 +88,7 @@ for k in "${!IDS[@]}"; do
     printf "ABAP_TASKS=%q\nAGENT_TOOL=%q\nGRADER_TOOL=%q\nHIDDEN_ROOT=%q\n" "$ROOT" "$ROOT/agent" "$ROOT/grader-tool" "$ROOT/private"
     printf "GOLD_PREPARE=%q\n" "$gold"
     printf "ABAP_PACKAGE=%q\nABAP_TIER=%q\nABAP_SET=%q\n" "$PIN" "${TIER[$k]}" "$set_"
-  } > "$OUT/$id/task.env"
+  } > "$OUT/$tdir/task.env"
   n=$((n + 1))
 done
 echo "[abap-tasks] $n tasks in $OUT (package $PIN; sources from the package: $( (set +u; echo ${#LOCAL_SRC[@]}) ) repositories)"

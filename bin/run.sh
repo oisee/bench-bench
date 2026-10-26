@@ -87,8 +87,8 @@ if [ "$SCALE" != 1 ]; then
     "$RUN/meta.json" "$SCALE" "$LIMIT_S"
 fi
 if [ -n "${ABAP_PACKAGE:-}" ]; then   # native ABAP tasks: their own protocol, the package commit and the tier
-  python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="abap-native-v1",abap_package=sys.argv[2],abap_tier=sys.argv[3],time_limit_s=int(sys.argv[4]),abap_set=sys.argv[5]);json.dump(d,open(p,"w"),indent=2)' \
-    "$RUN/meta.json" "$ABAP_PACKAGE" "${ABAP_TIER:-}" "$LIMIT_S" "${ABAP_SET:-corpus}"
+  python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.update(protocol="abap-native-v1",abap_package=sys.argv[2],abap_tier=sys.argv[3],time_limit_s=int(sys.argv[4]),abap_set=sys.argv[5]);d.update({k:v for k,v in (("task_uid",sys.argv[6]),("env_version",sys.argv[7]),("content_digest",sys.argv[8])) if v});json.dump(d,open(p,"w"),indent=2)' \
+    "$RUN/meta.json" "$ABAP_PACKAGE" "${ABAP_TIER:-}" "$LIMIT_S" "${ABAP_SET:-corpus}" "${TASK_UID:-}" "${ENV_VERSION:-}" "${CONTENT_DIGEST:-}"
 fi
 # stop the proxy before the final snapshot and finalize: no request snapshot may race them, and finalize rewrites
 # traffic.jsonl/live.txt when it masks secrets
