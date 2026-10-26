@@ -494,11 +494,18 @@ run is performed by the unit tests.
 ### Live progress
 
 Add `--port 8080` and Docker's `-p 8080:8080`, then open
-`http://localhost:8080`. The stdlib server starts before setup checks, refreshes
-every three seconds, and shows each task's queued/running/verdict state, duration,
-request count, and a link to the latest 200 lines of `live.txt`. Queues are saved
-in `/out/queue-<executor>.json`; results and transcripts stay under
-`/out/<task>/<run>/`. Partial JSON files are tolerated while a run is writing them.
+`http://localhost:8080`. The offline, single-file stdlib dashboard polls `/api/state`
+every two seconds, with executor/model, package/tier/env, solved and failed totals,
+queued/running counts, total agent time, and a progress bar. Search task IDs,
+filter statuses, or sort tasks; each row shows duration, traffic request count,
+patch lines, network policy, and contamination. Click a task for a live log panel
+with the latest 200 lines (auto-scrolling while running) and patch/result links.
+Light/dark themes follow your device and the layout adapts to narrow screens.
+The newest queue in `/out/queue-<executor>.json` selects the active executor;
+other executors in the same output appear alongside it, or supply reference
+outputs with `--compare saved-runs,other-runs`. Comparisons use each executor's
+latest valid verdict per matching task, skip INVALID attempts, and show totals
+over the active task set. Partial JSON files are tolerated during writes.
 The server stops when the launcher exits, including on setup failure. To view
 saved output afterwards:
 
@@ -506,5 +513,5 @@ saved output afterwards:
 python3 bin/live-page.py --runs output --port 8080
 ```
 
-The server exposes the dashboard and transcript tails only. It does not serve
+The server exposes the dashboard, JSON state/log endpoints, transcript tails, and patch/result files only. It does not serve
 package files or arbitrary paths under the output directory.
