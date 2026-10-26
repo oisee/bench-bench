@@ -254,7 +254,7 @@ EOF
 }
 # network policy of this run: open (GitHub unresolvable only), no-web (web tools off + code hosts unresolvable),
 # egress-allowlist (no-web + own network namespace, out only via the allowlisting proxy)
-NET_POLICY=open; [ "${BENCH_NO_WEB:-0}" = 1 ] && NET_POLICY=no-web; [ $EGRESS_ON = 1 ] && NET_POLICY=egress-allowlist
+NET_POLICY=open; [ "${BENCH_NO_WEB:-0}" = 1 ] && NET_POLICY=no-web; [ $EGRESS_ON = 1 ] && egress_docs_policy
 meta harness="$HARNESS" provider="$PROVIDER" model="$MODEL" effort="$EFFORT" round="${BENCH_ROUND:-1}" \
      harness_version="$("${CMD[0]}" --version 2>/dev/null | head -1)" started_at="$(date -Is)" net_policy="$NET_POLICY"
 
@@ -267,7 +267,7 @@ if [ $EGRESS_ON = 1 ]; then
   NETLOG="$RUN/net"; rm -rf "$NETLOG"; mkdir -p "$NETLOG"
   NET="$(mktemp -d /tmp/bn.XXXXXX)"   # unix socket paths are limited to 108 bytes: keep them short
   cp "$BENCH/bin/egress-fwd.py" "$NET/fwd.py"
-  ALLOW="help.sap.com,rules.abaplint.org,abaplint.app${BENCH_EGRESS_EXTRA:+,$BENCH_EGRESS_EXTRA}"
+  egress_docs_policy
   LOCALS=(); FWD=(3128=/run/bench-net/egress.sock)
   endpoint() {
     [[ "$1" =~ ^https?://([^/:]+)(:([0-9]+))? ]] || return 0

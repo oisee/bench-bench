@@ -98,3 +98,13 @@ harness_bin() {
   mkdir -p "$fake/.local/bin"
   ln -sfn "$p" "$fake/.local/bin/$name"
 }
+
+# Documentation access for the egress proxy; strict mode ignores extra hosts too.
+egress_docs_policy() {
+  NET_POLICY=egress-allowlist
+  ALLOW="help.sap.com,rules.abaplint.org,abaplint.app${BENCH_EGRESS_EXTRA:+,$BENCH_EGRESS_EXTRA}"
+  if [ "${BENCH_EGRESS_DOCS:-1}" = 0 ]; then
+    NET_POLICY=egress-endpoint-only
+    ALLOW=""
+  fi
+}

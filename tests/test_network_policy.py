@@ -115,6 +115,20 @@ class Contamination(unittest.TestCase):
         self.assertFalse(self.check('demo-l0-line-001')['contaminated'])
 
 
+class DocsPolicy(unittest.TestCase):
+    def test_docs_switch(self):
+        for docs, expected in [('0', 'egress-endpoint-only'), ('1', 'egress-allowlist')]:
+            env = dict(os.environ, BENCH_EGRESS_DOCS=docs, BENCH_EGRESS_EXTRA='example.org')
+            out = subprocess.run(['bash', '-c', 'source "$1"; egress_docs_policy; printf "%s\\n%s" "$NET_POLICY" "$ALLOW"',
+                                  '_', str(BIN / 'lib.sh')], env=env, capture_output=True, text=True, check=True).stdout
+            policy, allow = out.split('\n', 1)
+            self.assertEqual(policy, expected)
+            self.assertEqual('help.sap.com' in allow, docs == '1')
+            self.assertEqual('rules.abaplint.org' in allow, docs == '1')
+            self.assertEqual('abaplint.app' in allow, docs == '1')
+            self.assertEqual('example.org' in allow, docs == '1')
+
+
 class SandboxNoWeb(unittest.TestCase):
     """bin/sandbox.sh with BENCH_NO_WEB=1, driven by fake harnesses that report what they were given."""
 
@@ -175,6 +189,15 @@ class SandboxNoWeb(unittest.TestCase):
 
 class Egress(SandboxNoWeb):
     """The egress allowlist: own network namespace, out only through bin/egress-proxy.py."""
+
+    def test_endpoint_only(self):
+        self.fake_harness('pi', 'curl -s --max-time 2 http://help.sap.com/ > /dev/null; echo ok > /work/probe.txt\n')
+        self.sandbox('pi', 'custom', BENCH_EGRESS_DOCS='0', BENCH_EGRESS_EXTRA='example.org')
+        allow = Path(self.run_dir, 'net', 'allowlist').read_text()
+        for host in ('help.sap.com', 'rules.abaplint.org', 'abaplint.app', 'example.org'):
+            self.assertNotIn(host, allow)
+        meta = json.loads(Path(self.run_dir, 'meta.json').read_text())
+        self.assertEqual(meta['net_policy'], 'egress-endpoint-only')
 
     def test_allowlist(self):
         import socketserver, http.server, threading
