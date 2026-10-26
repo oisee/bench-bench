@@ -536,3 +536,6 @@ class TestProviderWiring(unittest.TestCase):
                         config = (run / 'home/.pi/agent/models.json' if harness == 'pi' else
                                   run / 'home/.codex/config.toml' if harness == 'codex' else probe)
                         self.assertIn('127.0.0.1:32123', config.read_text())
+                        if harness == 'pi' and provider in ('zai', 'alibaba'):
+                            models = json.loads(config.read_text())
+                            self.assertEqual(models['providers'][provider]['baseUrl'], 'http://127.0.0.1:32123/v1')

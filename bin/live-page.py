@@ -6,7 +6,6 @@ import html
 import http.server
 import json
 from pathlib import Path
-import time
 import urllib.parse
 
 

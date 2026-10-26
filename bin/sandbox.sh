@@ -163,9 +163,9 @@ EOF
     CMD=(codex) ;;
   pi)
     python3 -I - "$REAL/.pi/agent/models.json" "$H/.pi/agent" "$PROVIDER" "$MODEL" \
-      "${CUSTOM_BASE_URL:-}" "${CUSTOM_PI_API:-openai-completions}" "${CUSTOM_CONTEXT_WINDOW:-131072}" "${CUSTOM_MAX_TOKENS:-32768}" "$ZAI_ORIGIN$ZAI_CODEX_PATH" "$ALI_ANTHROPIC_BASE_URL" <<'EOF'
+      "${CUSTOM_BASE_URL:-}" "${CUSTOM_PI_API:-openai-completions}" "${CUSTOM_CONTEXT_WINDOW:-131072}" "${CUSTOM_MAX_TOKENS:-32768}" "${BENCH_PI_BASE_URL:-}" <<'EOF'
 import json,sys,os
-src,dst,prov,model,url,api,ctx,maxtok,zai_url,ali_url=sys.argv[1:]
+src,dst,prov,model,url,api,ctx,maxtok,proxy_url=sys.argv[1:]
 if prov=="custom":  # generated from .env; reasoning levels pass through unchanged
     p={"name":"Custom endpoint","baseUrl":url.rstrip("/"),"apiKey":"$CUSTOM_API_KEY","api":api,
        "models":[{"id":model,"name":model,"api":api,"reasoning":True,"input":["text"],
@@ -177,7 +177,7 @@ else:
     if prov not in d: sys.exit(f"provider {prov} not in pi models.json")
     p=d[prov]
     if prov in ("zai", "alibaba"):
-        p["baseUrl"] = zai_url if prov == "zai" else ali_url
+        p["baseUrl"] = proxy_url
         p["apiKey"] = "$ZAI_API_KEY" if prov == "zai" else "$ALI_CP_API_KEY"
     assert str(p.get("apiKey","$")).startswith("$"), "refusing to copy a literal key"
 json.dump({"providers":{prov:p}},open(os.path.join(dst,"models.json"),"w"),indent=2)

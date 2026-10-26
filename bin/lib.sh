@@ -136,6 +136,17 @@ key_proxy_setup() {
     [ "$PROVIDER" = custom ] || { echo "$PROVIDER API key not set" >&2; return 1; }
     key=""; [ "$record" = 1 ] || return 0
   fi
+  # Pi providers may use a different API path from Claude/Codex. Preserve their configured base.
+  if [ "$HARNESS" = pi ] && { [ "$PROVIDER" = zai ] || [ "$PROVIDER" = alibaba ]; }; then
+    up="$(python3 -I - "$HOME/.pi/agent/models.json" "$PROVIDER" <<'PYPI'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["providers"][sys.argv[2]]["baseUrl"])
+except (OSError, ValueError, KeyError):
+    sys.exit('configure the pi provider baseUrl in ~/.pi/agent/models.json')
+PYPI
+)" || return 2
+  fi
   [[ "$up" =~ ^(https?://[^/]+)(.*)$ ]] || { echo 'cannot parse endpoint URL' >&2; return 2; }
   origin="${BASH_REMATCH[1]}"; path="${BASH_REMATCH[2]}"
   REAL_KEY="$key"
@@ -144,6 +155,7 @@ key_proxy_setup() {
                  exec python3 -I "$BENCH/bin/record-proxy.py" "$origin" "$RUN/traffic.jsonl" 2>> "$RUN/proxy.err"; }
   read -r -t 10 port <&"${PROXY[0]}" || { echo 'key proxy did not start (see proxy.err)' >&2; return 2; }
   trap 'kill "${PROXY_PID:-}" 2>/dev/null || true' EXIT
+  [ "$HARNESS" != pi ] || export BENCH_PI_BASE_URL="http://127.0.0.1:$port$path"
   case "$PROVIDER" in
     custom)
       if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$port$path"
