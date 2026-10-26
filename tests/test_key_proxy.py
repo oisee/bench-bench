@@ -472,11 +472,67 @@ class TestRunShWiring(unittest.TestCase):
     def test_dummy_matches(self):
         run_sh = (BIN / 'run.sh').read_text()
         proxy = (BIN / 'record-proxy.py').read_text()
-        self.assertIn('export CUSTOM_API_KEY=%s' % DUMMY, run_sh)
+        lib = (BIN / 'lib.sh').read_text()
+        self.assertIn('export CUSTOM_API_KEY=%s' % DUMMY, lib)
         self.assertIn('DUMMY_KEY = "%s"' % DUMMY, proxy)
-        i = run_sh.index('export CUSTOM_API_KEY=')
+        i = run_sh.index('key_proxy_setup')
         self.assertLess(i, run_sh.index('bin/sandbox.sh'))
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestProviderWiring(unittest.TestCase):
+    """Exercise sandbox configuration with fake launchers, without TCP or kernel namespaces."""
+
+    def test_all_key_providers_and_harnesses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = root / 'bin'
+            fake.mkdir()
+            # The proxy only needs to announce a port; no upstream or benchmark is run.
+            (fake / 'python3').write_text('#!/bin/bash\nif [[ "$*" == *record-proxy.py* ]]; then\n'
+                                        '  echo "${BENCH_PROXY_RECORD}" > "$PROXY_MODE"\n'
+                                        '  echo 32123; exec sleep 60\nfi\nexec ' + sys.executable + ' "$@"\n')
+            (fake / 'bwrap').write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$PROBE"\n')
+            for name in ('pi', 'claude', 'codex'):
+                (fake / name).write_text('#!/bin/sh\necho fake-version\n')
+            for path in fake.iterdir():
+                path.chmod(0o755)
+            for provider, key_var in [('custom', 'CUSTOM_API_KEY'), ('zai', 'ZAI_API_KEY'),
+                                      ('alibaba', 'ALI_CP_API_KEY'), ('azure', 'AZURE_OPENAI_API_KEY')]:
+                for harness in ('pi', 'claude', 'codex'):
+                    if provider == 'azure' and harness != 'codex':
+                        continue
+                    with self.subTest(provider=provider, harness=harness):
+                        home = root / (provider + harness)
+                        (home / '.pi/agent').mkdir(parents=True)
+                        (home / '.pi/agent/models.json').write_text(json.dumps({'providers': {
+                            provider: {'baseUrl': 'https://example.org/v1', 'apiKey': '$' + key_var,
+                                       'api': 'anthropic-messages', 'models': []}}}))
+                        run = home / 'run'
+                        (run / 'work').mkdir(parents=True)
+                        probe = home / 'probe'
+                        mode = home / 'mode'
+                        env = dict(os.environ, HOME=str(home), PATH=str(fake) + ':' + os.environ['PATH'],
+                                   BENCH_NO_WEB='0', PROBE=str(probe), PROXY_MODE=str(mode),
+                                   CUSTOM_BASE_URL='https://example.org/v1', ZAI_ORIGIN='https://example.org',
+                                   ALI_ANTHROPIC_BASE_URL='https://example.org/anthropic',
+                                   ALI_CODEX_BASE_URL='http://127.0.0.1:9/v1', ALI_CODEX_MASTER_KEY=KEY,
+                                   AZURE_OPENAI_ENDPOINT='https://example.org')
+                        env[key_var] = KEY
+                        r = subprocess.run([str(BIN / 'sandbox.sh'), '--run', str(run), '--harness', harness,
+                                            '--provider', provider, '--model', 'qwen3.7-plus'],
+                                           env=env, capture_output=True, text=True, timeout=20)
+                        self.assertEqual(r.returncode, 0, r.stderr)
+                        dumped = probe.read_text()
+                        self.assertIn(DUMMY, dumped)
+                        self.assertNotIn(KEY, dumped)
+                        self.assertEqual(mode.read_text().strip(), '0')
+                        for path in run.rglob('*'):
+                            if path.is_file() and not path.is_symlink():
+                                self.assertNotIn(KEY, path.read_text(errors='replace'), str(path))
+                        config = (run / 'home/.pi/agent/models.json' if harness == 'pi' else
+                                  run / 'home/.codex/config.toml' if harness == 'codex' else probe)
+                        self.assertIn('127.0.0.1:32123', config.read_text())

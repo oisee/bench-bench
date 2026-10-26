@@ -66,7 +66,7 @@ class Scrub:
 
 
 def scrub_text(v):
-    return v if KEY_RX is None else KEY_RX.sub(DUMMY_KEY.encode(), v.encode("latin-1", "replace")).decode("latin-1")
+    return v if KEY_RX is None else KEY_RX.sub(DUMMY_KEY.encode(), v.encode("utf-8")).decode("utf-8")
 
 
 def with_real_key(hdrs):
@@ -213,16 +213,16 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                        resp=body_value(b"".join(chunks), resp.getheader("content-type")))
             conn.close()
         except Exception as e:  # upstream or client failure: keep what we have
-            rec.update(error=f"{type(e).__name__}: {e}", resp=b"".join(chunks).decode("utf-8", "replace"))
+            rec.update(error=scrub_text(f"{type(e).__name__}: {e}"), resp=b"".join(chunks).decode("utf-8", "replace"))
             if not chunks:
                 try:
-                    self.send_error(502, str(e))
+                    self.send_error(502, scrub_text(str(e)))
                 except Exception:
                     pass
         rec["dur_s"] = round(time.time() - t0, 3)
         if OUT is not None:
             with LOCK:
-                OUT.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                OUT.write(scrub_text(json.dumps(rec, ensure_ascii=False)) + "\n")
                 OUT.flush()
 
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = relay

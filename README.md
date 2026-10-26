@@ -321,8 +321,8 @@ directory, git objects included:
 - **Flags.** Any match sets `secret_leak` in `result.json` and lists the files in `secret-audit.txt`, never the
   secret itself. `patch_masked` says the published patch differs from the graded tree.
 
-The scan catches accidental leaks, not a deliberately obfuscated key. Keys of the hosted providers (Z.ai, Alibaba,
-Azure, an Anthropic or OpenAI login) are still passed into the sandbox.
+The scan catches accidental leaks, not a deliberately obfuscated key. Z.ai, Alibaba and Azure use the same
+host-side key proxy. Anthropic and OpenAI login credentials remain available inside their sandboxes.
 
 **Grading never runs git inside the agent's repository.** Its `.git/config` could name hooks or filters that would
 run outside the sandbox. `patch.diff` is built in a throwaway repository instead (`bin/snapshot.py diff`).
@@ -376,3 +376,21 @@ the six-task tables.
 `bin/expert-cut.py` cuts a Hugging Face safetensors checkpoint of Qwen3.8-Flash-Next (e.g. NVIDIA NVFP4) to the 224- or
 192-expert sets (or 224 with implanted experts) in `data/expert-sets/`, streaming, standard-library Python only, with a content `--verify` and a
 `--compare-router` check. How-to: [docs/expert-cut.md](docs/expert-cut.md).
+
+
+## API keys and network isolation
+
+Custom, Z.ai, Alibaba and Azure API keys stay in a proxy outside the agent sandbox.
+The sandbox receives `bench-sandbox-dummy-key`; the proxy replaces it on upstream
+requests and scrubs echoed keys from responses. This applies to direct sandbox
+calls as well as benchmark runs. `BENCH_RECORD=1` enables traffic recording;
+otherwise the proxy uses `BENCH_PROXY_RECORD=0` and writes no traffic or live log.
+Alibaba Codex still requires its existing local Responses API bridge.
+
+OpenAI (ChatGPT) and Anthropic subscription providers place a login in the sandbox:
+Codex gets a private copy removed after the run; Claude binds its credential file
+so token refreshes persist. These login providers do not provide API-key isolation.
+
+Native ABAP tasks default to documentation-only web access plus the model endpoint.
+Set `BENCH_EGRESS_DOCS=0` for endpoint-only access (`net_policy=egress-endpoint-only`);
+this also ignores `BENCH_EGRESS_EXTRA`. The egress filter must remain enabled.

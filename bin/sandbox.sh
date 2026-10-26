@@ -29,6 +29,9 @@ done
 [ -n "$RUN" ] && [ -n "$HARNESS" ] && [ -n "$PROVIDER" ] && [ -n "$MODEL" ] || { sed -n '2,13p' "$0"; exit 2; }
 [ -d "$RUN/work" ] || { echo "$RUN/work missing" >&2; exit 1; }
 
+# Direct callers get the same key isolation as run.sh, without traffic recording.
+key_proxy_setup 0 || exit $?
+
 # provider keys live in the user's shell rc files; read just the one we need
 ENVV=()
 DUMMY_KEY=bench-sandbox-dummy-key   # must match DUMMY_KEY in record-proxy.py
@@ -49,20 +52,6 @@ case "$PROVIDER" in
   zai)     K="${ZAI_API_KEY:-$(key_from_rc ZAI_API_KEY)}";     [ -n "$K" ] || { echo "ZAI_API_KEY not set" >&2; exit 1; };     ENVV+=(--setenv ZAI_API_KEY "$K") ;;
   azure)   K="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; [ -n "$K" ] || { echo "AZURE_OPENAI_API_KEY not set" >&2; exit 1; }; ENVV+=(--setenv AZURE_OPENAI_API_KEY "$K") ;;
   custom)  [ -n "${CUSTOM_BASE_URL:-}" ] || { echo "CUSTOM_BASE_URL not set (see .env.example)" >&2; exit 1; }
-           # A real key never enters the sandbox. bin/run.sh normally hands us the dummy already (its proxy holds the
-           # key); any other caller gets a non-recording key proxy here, so every path is covered.
-           if [ -n "${CUSTOM_API_KEY:-}" ] && [ "$CUSTOM_API_KEY" != none ] && [ "$CUSTOM_API_KEY" != "$DUMMY_KEY" ]; then
-             if [ "$HARNESS" = claude ]; then KUP="$(custom_anthropic_url)"; else KUP="${CUSTOM_BASE_URL%/}"; fi
-             [[ "$KUP" =~ ^(https?://[^/]+)(.*)$ ]] || { echo "cannot parse endpoint URL $KUP" >&2; exit 2; }
-             KORIGIN="${BASH_REMATCH[1]}"; KPATH="${BASH_REMATCH[2]}"
-             coproc KEYPROXY { export BENCH_PROXY_RECORD=0 BENCH_UPSTREAM_KEY="$CUSTOM_API_KEY"; unset BENCH_SNAPSHOT_RUN
-                               exec python3 -I "$BENCH/bin/record-proxy.py" "$KORIGIN" "$RUN/traffic.jsonl" 2>> "$RUN/proxy.err"; }
-             read -r -t 10 KPORT <&"${KEYPROXY[0]}" || { echo 'key proxy did not start (see proxy.err)' >&2; exit 2; }
-             trap 'kill "$KEYPROXY_PID" 2>/dev/null' EXIT
-             if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$KPORT$KPATH"
-             else export CUSTOM_BASE_URL="http://127.0.0.1:$KPORT$KPATH"; fi
-             CUSTOM_API_KEY="$DUMMY_KEY"
-           fi
            ENVV+=(--setenv CUSTOM_API_KEY "${CUSTOM_API_KEY:-none}") ;;
   anthropic|openai) ;;
   *) echo "unknown provider $PROVIDER" >&2; exit 2 ;;
@@ -111,8 +100,7 @@ EOF
           ENVV+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
         else echo 'Anthropic: run `claude` once to log in, or set ANTHROPIC_API_KEY' >&2; exit 1; fi ;;
       alibaba)
-        cp "$REAL/.claude/alibaba-settings.json" "$H/.claude/settings.json"
-        ENVV+=(--setenv ANTHROPIC_BASE_URL "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
+        ENVV+=(--setenv ANTHROPIC_BASE_URL "$ALI_ANTHROPIC_BASE_URL"
                --setenv ANTHROPIC_AUTH_TOKEN "$K" --setenv CLAUDE_CODE_MAX_OUTPUT_TOKENS 32768
                --setenv ANTHROPIC_DEFAULT_HAIKU_MODEL "$MODEL" --setenv CLAUDE_CODE_SUBAGENT_MODEL "$MODEL")
         case "$MODEL" in qwen*) ENVV+=(--setenv CLAUDE_CODE_MAX_CONTEXT_TOKENS 1000000) ;;
@@ -175,9 +163,9 @@ EOF
     CMD=(codex) ;;
   pi)
     python3 -I - "$REAL/.pi/agent/models.json" "$H/.pi/agent" "$PROVIDER" "$MODEL" \
-      "${CUSTOM_BASE_URL:-}" "${CUSTOM_PI_API:-openai-completions}" "${CUSTOM_CONTEXT_WINDOW:-131072}" "${CUSTOM_MAX_TOKENS:-32768}" <<'EOF'
+      "${CUSTOM_BASE_URL:-}" "${CUSTOM_PI_API:-openai-completions}" "${CUSTOM_CONTEXT_WINDOW:-131072}" "${CUSTOM_MAX_TOKENS:-32768}" "$ZAI_ORIGIN$ZAI_CODEX_PATH" "$ALI_ANTHROPIC_BASE_URL" <<'EOF'
 import json,sys,os
-src,dst,prov,model,url,api,ctx,maxtok=sys.argv[1:]
+src,dst,prov,model,url,api,ctx,maxtok,zai_url,ali_url=sys.argv[1:]
 if prov=="custom":  # generated from .env; reasoning levels pass through unchanged
     p={"name":"Custom endpoint","baseUrl":url.rstrip("/"),"apiKey":"$CUSTOM_API_KEY","api":api,
        "models":[{"id":model,"name":model,"api":api,"reasoning":True,"input":["text"],
@@ -188,6 +176,9 @@ else:
     d=json.load(open(src))["providers"]
     if prov not in d: sys.exit(f"provider {prov} not in pi models.json")
     p=d[prov]
+    if prov in ("zai", "alibaba"):
+        p["baseUrl"] = zai_url if prov == "zai" else ali_url
+        p["apiKey"] = "$ZAI_API_KEY" if prov == "zai" else "$ALI_CP_API_KEY"
     assert str(p.get("apiKey","$")).startswith("$"), "refusing to copy a literal key"
 json.dump({"providers":{prov:p}},open(os.path.join(dst,"models.json"),"w"),indent=2)
 json.dump({"defaultProvider":prov,"defaultModel":model,"enabledModels":[f"{prov}/{model}"]},
@@ -280,16 +271,16 @@ if [ $EGRESS_ON = 1 ]; then
   case "$PROVIDER" in
     custom) if [ "$HARNESS" = claude ]; then endpoint "$(custom_anthropic_url)"; else endpoint "${CUSTOM_BASE_URL:-}"; fi ;;
     openai) ALLOW="$ALLOW,openai.com,chatgpt.com" ;;
-    zai) ALLOW="$ALLOW,z.ai"; endpoint "$ZAI_ORIGIN" ;;   # a recording proxy on 127.0.0.1 when BENCH_RECORD=1
+    zai) endpoint "$ZAI_ORIGIN" ;;   # a recording proxy on 127.0.0.1 when BENCH_RECORD=1
     anthropic) ALLOW="$ALLOW,anthropic.com,claude.ai" ;;
-    alibaba) ALLOW="$ALLOW,aliyuncs.com"; endpoint "${ALI_CODEX_BASE_URL:-}" ;;
+    alibaba) if [ "$HARNESS" = codex ]; then endpoint "${ALI_CODEX_BASE_URL:-}"; else endpoint "$ALI_ANTHROPIC_BASE_URL"; fi ;;
     azure) endpoint "${AZURE_OPENAI_ENDPOINT:-}" ;;
   esac
   printf '%s\n' "$ALLOW" > "$NETLOG/allowlist"
   python3 -I "$BENCH/bin/egress-proxy.py" "$NET/egress.sock" "$NETLOG/egress.log" "$ALLOW" "${LOCALS[@]+"${LOCALS[@]}"}" \
     > "$NETLOG/proxy.out" 2>&1 &
   EGRESS_PID=$!
-  trap 'kill "$EGRESS_PID" ${KEYPROXY_PID:-} 2>/dev/null; rm -rf "$NET"' EXIT
+  trap 'kill "$EGRESS_PID" ${PROXY_PID:-} 2>/dev/null; rm -rf "$NET"' EXIT
   for _ in $(seq 50); do grep -q ready "$NETLOG/proxy.out" 2>/dev/null && break; sleep 0.1; done
   grep -q ready "$NETLOG/proxy.out" || { echo "egress proxy did not start (see $NETLOG/proxy.out)" >&2; exit 2; }
   { echo '#!/bin/sh'

@@ -24,8 +24,9 @@ EOF
 
 # The Anthropic-style base URL for a custom endpoint: CUSTOM_ANTHROPIC_BASE_URL, or
 # CUSTOM_BASE_URL without its trailing /v1 (Claude Code appends /v1/messages itself).
-# z.ai endpoints; bin/run.sh points ZAI_ORIGIN at its recording proxy when BENCH_RECORD=1
+# API endpoints; key_proxy_setup points these at a local proxy before sandboxing.
 : "${ZAI_ORIGIN:=https://api.z.ai}"; ZAI_ANTHROPIC_PATH=/api/anthropic; ZAI_CODEX_PATH=/api/v1
+: "${ALI_ANTHROPIC_BASE_URL:=https://coding-intl.dashscope.aliyuncs.com/apps/anthropic}"
 
 # A provider key exported in ~/.bashrc or ~/.profile (non-interactive shells skip them)
 key_from_rc() { bash --norc --noprofile -c 'for f in "$2/.bashrc" "$2/.profile"; do [ -f "$f" ] && eval "$(grep -E "^export $1=" "$f" | tail -1)"; done; printf %s "${!1}"' _ "$1" "$HOME"; }
@@ -107,4 +108,51 @@ egress_docs_policy() {
     NET_POLICY=egress-endpoint-only
     ALLOW=""
   fi
+}
+
+# Start outside bwrap. Only the proxy receives the real key; callers inherit dummy credentials.
+# $1: record (0/1). Expects PROVIDER, HARNESS, RUN; sets REAL_KEY and PROXY_PID.
+key_proxy_setup() {
+  local record="$1" key="" up="" origin path port
+  REAL_KEY=""
+  case "$PROVIDER" in
+    custom)
+      key="${CUSTOM_API_KEY:-}"
+      if [ "$HARNESS" = claude ]; then up="$(custom_anthropic_url)"; else up="${CUSTOM_BASE_URL:-}"; fi ;;
+    zai)
+      key="${ZAI_API_KEY:-$(key_from_rc ZAI_API_KEY)}"
+      up="$ZAI_ORIGIN$([ "$HARNESS" = claude ] && echo "$ZAI_ANTHROPIC_PATH" || echo "$ZAI_CODEX_PATH")" ;;
+    alibaba)
+      if [ "$HARNESS" = codex ]; then
+        key="${ALI_CODEX_MASTER_KEY:-}"; up="${ALI_CODEX_BASE_URL:-}"
+        [[ "$up" =~ ^http://127\.0\.0\.1:[0-9]+/v1$ ]] || { echo 'Alibaba Codex requires a local LiteLLM tunnel ending in /v1' >&2; return 2; }
+      else key="${ALI_CP_API_KEY:-$(key_from_rc ALI_CP_API_KEY)}"; up="$ALI_ANTHROPIC_BASE_URL"; fi ;;
+    azure) key="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; up="${AZURE_OPENAI_ENDPOINT:-}" ;;
+    *) [ "$record" = 0 ] && return 0
+       echo 'recording requires an API-key provider' >&2; return 2 ;;
+  esac
+  [ "$key" != bench-sandbox-dummy-key ] || return 0   # already proxied by run.sh
+  if [ -z "$key" ] || [ "$key" = none ]; then
+    [ "$PROVIDER" = custom ] || { echo "$PROVIDER API key not set" >&2; return 1; }
+    key=""; [ "$record" = 1 ] || return 0
+  fi
+  [[ "$up" =~ ^(https?://[^/]+)(.*)$ ]] || { echo 'cannot parse endpoint URL' >&2; return 2; }
+  origin="${BASH_REMATCH[1]}"; path="${BASH_REMATCH[2]}"
+  REAL_KEY="$key"
+  coproc PROXY { export BENCH_PROXY_RECORD="$record" BENCH_UPSTREAM_KEY="$key"
+                 [ "$record" = 1 ] || unset BENCH_SNAPSHOT_RUN
+                 exec python3 -I "$BENCH/bin/record-proxy.py" "$origin" "$RUN/traffic.jsonl" 2>> "$RUN/proxy.err"; }
+  read -r -t 10 port <&"${PROXY[0]}" || { echo 'key proxy did not start (see proxy.err)' >&2; return 2; }
+  trap 'kill "${PROXY_PID:-}" 2>/dev/null || true' EXIT
+  case "$PROVIDER" in
+    custom)
+      if [ "$HARNESS" = claude ]; then export CUSTOM_ANTHROPIC_BASE_URL="http://127.0.0.1:$port$path"
+      else export CUSTOM_BASE_URL="http://127.0.0.1:$port$path"; fi
+      export CUSTOM_API_KEY=bench-sandbox-dummy-key ;;
+    zai) export ZAI_ORIGIN="http://127.0.0.1:$port" ZAI_API_KEY=bench-sandbox-dummy-key ;;
+    alibaba)
+      if [ "$HARNESS" = codex ]; then export ALI_CODEX_BASE_URL="http://127.0.0.1:$port$path" ALI_CODEX_MASTER_KEY=bench-sandbox-dummy-key
+      else export ALI_ANTHROPIC_BASE_URL="http://127.0.0.1:$port$path" ALI_CP_API_KEY=bench-sandbox-dummy-key; fi ;;
+    azure) export AZURE_OPENAI_ENDPOINT="http://127.0.0.1:$port$path" AZURE_OPENAI_API_KEY=bench-sandbox-dummy-key ;;
+  esac
 }
