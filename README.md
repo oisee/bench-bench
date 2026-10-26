@@ -380,12 +380,16 @@ the six-task tables.
 
 ## API keys and network isolation
 
-Custom, Z.ai, Alibaba and Azure API keys stay in a proxy outside the agent sandbox.
+Custom, Z.ai, Alibaba, Anthropic and Azure API keys stay in a proxy outside the agent sandbox.
 The sandbox receives `bench-sandbox-dummy-key`; the proxy replaces it on upstream
 requests and scrubs echoed keys from responses. This applies to direct sandbox
 calls as well as benchmark runs. `BENCH_RECORD=1` enables traffic recording;
 otherwise the proxy uses `BENCH_PROXY_RECORD=0` and writes no traffic or live log.
 Alibaba Codex still requires its existing local Responses API bridge.
+Anthropic API-key mode uses `ANTHROPIC_API_KEY` with a loopback
+`ANTHROPIC_BASE_URL`; the proxy injects `x-api-key` for `api.anthropic.com`.
+As before, an existing `~/.claude/.credentials.json` takes precedence over the
+API key and is bound writable into the sandbox so OAuth refreshes persist.
 
 OpenAI (ChatGPT) and Anthropic subscription providers place a login in the sandbox:
 Codex gets a private copy removed after the run; Claude binds its credential file

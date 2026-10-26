@@ -113,7 +113,7 @@ egress_docs_policy() {
 # Start outside bwrap. Only the proxy receives the real key; callers inherit dummy credentials.
 # $1: record (0/1). Expects PROVIDER, HARNESS, RUN; sets REAL_KEY and PROXY_PID.
 key_proxy_setup() {
-  local record="$1" key="" up="" origin path port
+  local record="$1" key="" up="" auth_header="" origin path port
   REAL_KEY=""
   case "$PROVIDER" in
     custom)
@@ -127,6 +127,13 @@ key_proxy_setup() {
         key="${ALI_CODEX_MASTER_KEY:-}"; up="${ALI_CODEX_BASE_URL:-}"
         [[ "$up" =~ ^http://127\.0\.0\.1:[0-9]+/v1$ ]] || { echo 'Alibaba Codex requires a local LiteLLM tunnel ending in /v1' >&2; return 2; }
       else key="${ALI_CP_API_KEY:-$(key_from_rc ALI_CP_API_KEY)}"; up="$ALI_ANTHROPIC_BASE_URL"; fi ;;
+    anthropic)
+      # Keep the existing OAuth credential binding and refresh behaviour.
+      if [ -f "$HOME/.claude/.credentials.json" ] || [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+        [ "$record" = 0 ] && return 0
+        echo 'recording requires an API-key provider' >&2; return 2
+      fi
+      key="$ANTHROPIC_API_KEY"; up=https://api.anthropic.com; auth_header=x-api-key ;;
     azure) key="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; up="${AZURE_OPENAI_ENDPOINT:-}" ;;
     *) [ "$record" = 0 ] && return 0
        echo 'recording requires an API-key provider' >&2; return 2 ;;
@@ -150,7 +157,7 @@ PYPI
   [[ "$up" =~ ^(https?://[^/]+)(.*)$ ]] || { echo 'cannot parse endpoint URL' >&2; return 2; }
   origin="${BASH_REMATCH[1]}"; path="${BASH_REMATCH[2]}"
   REAL_KEY="$key"
-  coproc PROXY { export BENCH_PROXY_RECORD="$record" BENCH_UPSTREAM_KEY="$key"
+  coproc PROXY { export BENCH_PROXY_RECORD="$record" BENCH_UPSTREAM_KEY="$key" BENCH_UPSTREAM_AUTH_HEADER="$auth_header"
                  [ "$record" = 1 ] || unset BENCH_SNAPSHOT_RUN
                  exec python3 -I "$BENCH/bin/record-proxy.py" "$origin" "$RUN/traffic.jsonl" 2>> "$RUN/proxy.err"; }
   read -r -t 10 port <&"${PROXY[0]}" || { echo 'key proxy did not start (see proxy.err)' >&2; return 2; }
@@ -165,6 +172,7 @@ PYPI
     alibaba)
       if [ "$HARNESS" = codex ]; then export ALI_CODEX_BASE_URL="http://127.0.0.1:$port$path" ALI_CODEX_MASTER_KEY=bench-sandbox-dummy-key
       else export ALI_ANTHROPIC_BASE_URL="http://127.0.0.1:$port$path" ALI_CP_API_KEY=bench-sandbox-dummy-key; fi ;;
+    anthropic) export ANTHROPIC_BASE_URL="http://127.0.0.1:$port" ANTHROPIC_API_KEY=bench-sandbox-dummy-key ;;
     azure) export AZURE_OPENAI_ENDPOINT="http://127.0.0.1:$port$path" AZURE_OPENAI_API_KEY=bench-sandbox-dummy-key ;;
   esac
 }

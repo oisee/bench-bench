@@ -23,6 +23,7 @@ OUT = open(sys.argv[2], "a") if RECORD else None
 LIVE = open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[2])), "live.txt"), "a") if RECORD else None
 DUMMY_KEY = "bench-sandbox-dummy-key"
 REAL_KEY = os.environ.pop("BENCH_UPSTREAM_KEY", "")
+AUTH_HEADER = os.environ.get("BENCH_UPSTREAM_AUTH_HEADER", "")
 LOCK = threading.Lock()
 SEQ = [0]
 LIVE_LAST = [None]  # seq of the request live.txt is currently showing
@@ -73,6 +74,10 @@ def with_real_key(hdrs):
     """Headers for upstream: the sandbox's dummy key replaced by the real one; other credentials are dropped."""
     if not REAL_KEY:
         return hdrs
+    if AUTH_HEADER:
+        out = {k: v for k, v in hdrs.items() if k.lower() not in SECRET}
+        out[AUTH_HEADER] = REAL_KEY
+        return out
     out, auth = {}, False
     for k, v in hdrs.items():
         if k.lower() in SECRET:

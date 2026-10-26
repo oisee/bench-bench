@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import random
+import runpy
 import shutil
 import string
 import subprocess
@@ -15,6 +16,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,7 +27,7 @@ KEY = 'sk-live-' + ''.join(random.Random(7).choices(string.ascii_letters + strin
 DUMMY = 'bench-sandbox-dummy-key'
 
 
-def run_proxy(tmp, headers_list, record=True, key=KEY):
+def run_proxy(tmp, headers_list, record=True, key=KEY, auth_header="", echo=False):
     """Start an upstream that records the headers it sees and the proxy in front of it; send requests."""
     seen = []
 
@@ -33,7 +35,7 @@ def run_proxy(tmp, headers_list, record=True, key=KEY):
         def do_POST(self):
             self.rfile.read(int(self.headers['content-length']))
             seen.append({k.lower(): v for k, v in self.headers.items()})
-            body = json.dumps({'echo': 'ok'}).encode()
+            body = json.dumps({'echo': key if echo else 'ok'}).encode()
             self.send_response(200)
             self.send_header('content-type', 'application/json')
             self.end_headers()
@@ -43,15 +45,18 @@ def run_proxy(tmp, headers_list, record=True, key=KEY):
             pass
     up = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Up)
     threading.Thread(target=up.serve_forever, daemon=True).start()
-    env = dict(os.environ, BENCH_UPSTREAM_KEY=key, BENCH_PROXY_RECORD='1' if record else '0')
+    env = dict(os.environ, BENCH_UPSTREAM_KEY=key, BENCH_PROXY_RECORD='1' if record else '0',
+               BENCH_UPSTREAM_AUTH_HEADER=auth_header)
     env.pop('BENCH_SNAPSHOT_RUN', None)
     p = subprocess.Popen([sys.executable, '-I', str(BIN / 'record-proxy.py'), 'http://127.0.0.1:%d' % up.server_address[1],
                           os.path.join(tmp, 'traffic.jsonl')], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         port = int(p.stdout.readline())
+        transcript = []
         for h in headers_list:
-            urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:%d/v1/messages' % port, b'{"m": 1}',
-                                                          dict({'content-type': 'application/json'}, **h))).read()
+            transcript.append(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:%d/v1/messages' % port, b'{"m": 1}',
+                                                          dict({'content-type': 'application/json'}, **h))).read().decode())
+        Path(tmp, 'transcript.jsonl').write_text('\n'.join(transcript))
         log = os.path.join(tmp, 'traffic.jsonl')
         for _ in range(100):                                # the record is written after the response is sent
             if not record or (os.path.exists(log) and len(open(log).readlines()) >= len(headers_list)):
@@ -77,6 +82,27 @@ class TestProxyKey(unittest.TestCase):
         self.assertEqual(seen[0]['authorization'], 'Bearer ' + KEY)
         self.assertEqual(seen[1]['x-api-key'], KEY)
         self.assertNotIn('authorization', seen[1])
+
+    def test_provider_headers_and_echoes(self):
+        for provider, header, forced in [('anthropic', 'x-api-key', 'x-api-key'),
+                                         ('azure', 'api-key', 'api-key'),
+                                         ('zai', 'Authorization', ''),
+                                         ('alibaba', 'x-api-key', '')]:
+            for record in (False, True):
+                with self.subTest(provider=provider, record=record), tempfile.TemporaryDirectory() as tmp:
+                    value = 'Bearer ' + DUMMY if header == 'Authorization' else DUMMY
+                    seen, err = run_proxy(tmp, [{header: value}], record=record,
+                                          auth_header=forced, echo=True)
+                    self.assertEqual(err, '')
+                    expected = 'Bearer ' + KEY if header == 'Authorization' else KEY
+                    self.assertEqual(seen[0][header.lower()], expected)
+                    if header != 'Authorization':
+                        self.assertNotIn('authorization', seen[0])
+                    self.assertIn(DUMMY, Path(tmp, 'transcript.jsonl').read_text())
+                    for path in Path(tmp).iterdir():
+                        self.assertNotIn(KEY, path.read_text(), path.name)
+                    self.assertEqual(Path(tmp, 'traffic.jsonl').exists(), record)
+                    self.assertEqual(Path(tmp, 'live.txt').exists(), record)
 
     def test_no_auth_header_gets_bearer(self):
         seen, _ = run_proxy(self.tmp, [{}])
@@ -205,6 +231,32 @@ class TestProxyKey(unittest.TestCase):
     def test_without_key_headers_pass_through(self):
         seen, _ = run_proxy(self.tmp, [{'Authorization': 'Bearer local'}], key='')
         self.assertEqual(seen[0]['authorization'], 'Bearer local')
+
+
+class TestProxyOffline(unittest.TestCase):
+    """Credential injection and response scrubbing also run where TCP is forbidden."""
+
+    def test_provider_auth_and_stream_scrubbing(self):
+        for header in ('x-api-key', 'api-key'):
+            with self.subTest(header=header), tempfile.TemporaryDirectory() as tmp:
+                server = mock.Mock(server_address=('127.0.0.1', 32123))
+                with mock.patch.dict(os.environ, {'BENCH_UPSTREAM_KEY': KEY,
+                                     'BENCH_UPSTREAM_AUTH_HEADER': header, 'BENCH_PROXY_RECORD': '0'}, clear=True), \
+                     mock.patch.object(sys, 'argv', ['record-proxy.py', 'https://example.org', tmp + '/traffic.jsonl']), \
+                     mock.patch('http.server.ThreadingHTTPServer', return_value=server), \
+                     mock.patch('builtins.print'):
+                    proxy = runpy.run_path(str(BIN / 'record-proxy.py'))
+                headers = proxy['with_real_key']({'Authorization': 'Bearer ' + DUMMY,
+                                                  'x-api-key': 'untrusted', 'api-key': DUMMY,
+                                                  'anthropic-version': '2023-06-01'})
+                self.assertEqual(headers, {header: KEY, 'anthropic-version': '2023-06-01'})
+                # An echoed credential split across arbitrary reads never reaches the transcript.
+                scrub = proxy['Scrub']()
+                raw = ('prefix ' + KEY + ' suffix ' + urllib.parse.quote(KEY, safe='')).encode()
+                output = b''.join(scrub.feed(bytes([b])) for b in raw) + scrub.feed(b'', final=True)
+                self.assertNotIn(KEY.encode(), output)
+                self.assertEqual(output.count(DUMMY.encode()), 2)
+                self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 def scan(run, key=KEY, mask=False, extra_env=None, home=None):
@@ -501,9 +553,10 @@ class TestProviderWiring(unittest.TestCase):
             for path in fake.iterdir():
                 path.chmod(0o755)
             for provider, key_var in [('custom', 'CUSTOM_API_KEY'), ('zai', 'ZAI_API_KEY'),
-                                      ('alibaba', 'ALI_CP_API_KEY'), ('azure', 'AZURE_OPENAI_API_KEY')]:
+                                      ('alibaba', 'ALI_CP_API_KEY'), ('azure', 'AZURE_OPENAI_API_KEY'),
+                                      ('anthropic', 'ANTHROPIC_API_KEY')]:
                 for harness in ('pi', 'claude', 'codex'):
-                    if provider == 'azure' and harness != 'codex':
+                    if (provider == 'azure' and harness != 'codex') or (provider == 'anthropic' and harness != 'claude'):
                         continue
                     with self.subTest(provider=provider, harness=harness):
                         home = root / (provider + harness)

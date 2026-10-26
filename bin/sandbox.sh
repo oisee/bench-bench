@@ -97,7 +97,8 @@ EOF
           touch "$H/.claude/.credentials.json"
           BINDS+=(--bind "$REAL/.claude/.credentials.json" "$REAL/.claude/.credentials.json")
         elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-          ENVV+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
+          ENVV+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
+                 --setenv ANTHROPIC_BASE_URL "$ANTHROPIC_BASE_URL")
         else echo 'Anthropic: run `claude` once to log in, or set ANTHROPIC_API_KEY' >&2; exit 1; fi ;;
       alibaba)
         ENVV+=(--setenv ANTHROPIC_BASE_URL "$ALI_ANTHROPIC_BASE_URL"
@@ -272,7 +273,8 @@ if [ $EGRESS_ON = 1 ]; then
     custom) if [ "$HARNESS" = claude ]; then endpoint "$(custom_anthropic_url)"; else endpoint "${CUSTOM_BASE_URL:-}"; fi ;;
     openai) ALLOW="$ALLOW,openai.com,chatgpt.com" ;;
     zai) endpoint "$ZAI_ORIGIN" ;;   # a recording proxy on 127.0.0.1 when BENCH_RECORD=1
-    anthropic) ALLOW="$ALLOW,anthropic.com,claude.ai" ;;
+    anthropic) if [ "${ANTHROPIC_API_KEY:-}" = "$DUMMY_KEY" ]; then endpoint "$ANTHROPIC_BASE_URL"
+               else ALLOW="$ALLOW,anthropic.com,claude.ai"; fi ;;
     alibaba) if [ "$HARNESS" = codex ]; then endpoint "${ALI_CODEX_BASE_URL:-}"; else endpoint "$ALI_ANTHROPIC_BASE_URL"; fi ;;
     azure) endpoint "${AZURE_OPENAI_ENDPOINT:-}" ;;
   esac
