@@ -8,6 +8,23 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
 [live version](https://claude.ai/artifact/55YCFRr4r2C6hSLUE2sRXu) ([на русском](https://claude.ai/artifact/RJ9CyqqUJtiEj8Jy9zkmPm)) ·
 **Method:** [METHODOLOGY.md](METHODOLOGY.md) · **Data:** [data/](data/README.md)
 
+## News
+
+- **2026-10-26: one command.** `docker/Dockerfile` + `bin/abap-bench` run the native ABAP tasks against your own endpoint:
+  `--agent claude|codex|pi --model <m> --api-base <url> --api-key-env <VAR> --tier ember|smoke|medium|full [--no-internet] [--port 8080]`.
+  The image pins Claude Code, Codex and Pi. `--port` serves a live progress page (`bin/live-page.py`: per task status, time,
+  requests, the tail of the agent's live log). `--dry-run` prints the plan. Details: [One-command native ABAP runs](#one-command-native-abap-runs).
+- **2026-10-26: keys stay outside the sandbox** for custom endpoints, z.ai, Alibaba, the Anthropic API key and Azure: the agent gets a
+  dummy key, a proxy on the host swaps in the real one and redacts it in the recorded traffic. Logins (Claude OAuth, ChatGPT for Codex)
+  still enter the sandbox; see [API keys and network isolation](#api-keys-and-network-isolation).
+  `--no-internet` leaves the agent only the model endpoint; otherwise ABAP runs may also reach three documentation hosts.
+- **2026-10-26: native ABAP results.** MEDIUM (69 tasks, package v2.2.1): Sol 6.1 67, GLM-5.3 in Claude Code 65, Luna xhigh 60,
+  Qwen3.8-Flash-Next (full model, cloud GPU) 58, GLM-5.3 in Codex 58, Luna high 57, Luna medium 51.
+  SMOKE (12, package v2.3): Qwen3.8-Flash-Next 11/12 both full in the cloud and as the local 192-expert cut K192p on a home GPU.
+  Not yet in the report page.
+- **2026-10-25: native ABAP tasks** (infill and method tasks from abapGit, open-abap and others, hidden tests, graded offline) join the
+  PR tasks as a separate protocol; see [Native ABAP tasks](#native-abap-tasks).
+
 ## TL;DR
 
 - **66 baseline runs + 3 pilot runs**, 6 tasks, 15 model + harness combinations, 8 models, 3 harnesses
