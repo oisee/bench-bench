@@ -1,4 +1,5 @@
 # Bench Bench
+English · [Русский](README.ru.md) · [Українська](README.uk.md) · [Deutsch](README.de.md)
 
 A small, reproducible benchmark of **coding agents** (model + harness + effort) on tasks cut from
 **real merged pull requests**. Each agent gets the repository at the PR's parent commit and a written
@@ -24,6 +25,46 @@ brief, works alone in a sandbox under a time limit, and is graded by the PR's ow
   Not yet in the report page.
 - **2026-10-25: native ABAP tasks** (infill and method tasks from abapGit, open-abap and others, hidden tests, graded offline) join the
   PR tasks as a separate protocol; see [Native ABAP tasks](#native-abap-tasks).
+
+## Tasks and tools
+
+**Choose a task set; compare results within that set.** The harnesses are Claude Code, Codex and Pi.
+No SAP system is needed. To run your own model, start with the Docker image and `bin/abap-bench` in
+[One-command native ABAP runs](#one-command-native-abap-runs); add `--port` for a live progress page.
+The native ABAP package is distributed separately; this repository contains its adapter.
+
+- **PR-6:** six tasks from real merged pull requests, at levels L1–L3. The agent gets the repository at
+  the PR's parent commit and a brief, then implements the change within a time limit. The PR's own
+  hidden tests grade the result. The briefs are in `tasks/`: `L1a-osg678`, `L1b-osg680`, `L2a-osg693`,
+  `L2b-abapiti87`, `L3a-minz39`, `L3b-abapiti95`; see [The tasks](#the-tasks).
+- **Native ABAP:** 337 tasks from abapGit, open-abap-core, open-abap-apc, open-steamgate (osg), osg-demo,
+  pia, zllm, zork-abap, zvdb and zmjs. The source groups are old public code (190), fresh code (109), and
+  the maintainer's own public repositories (38). **L0 infill** restores a missing line, block or body
+  inside a method; **L1** completes a whole method. Hidden tests grade only the target method body,
+  spliced into the original sources. A wrong-answer gate checks that the grader rejects incorrect answers.
+  Tiers: **ember / SMOKE-4 (4)**, **SMOKE (12)**, **MEDIUM (69 in v2.2–v2.3; 54 from v2.4)**,
+  **FULL (337)**. Tasks are versioned (`id@n`); each run records its environment version (v2.3 = env 3).
+  See [Native ABAP tasks](#native-abap-tasks) and the [adapter](bin/abap-tasks.sh).
+- **Extra ABAP sets, in separate tables:** agentic has 10 tasks from real merged changes, levels L1–L3,
+  with 30–60 minute limits; synthetic has 15 tasks with injected bugs or removed features. Grading uses
+  the change's tests, tests derived from the reference solution, and 200 seeded differential scenarios per task.
+
+**The agent has a local ABAP tool.** `osg-abap` is on PATH inside the sandbox:
+
+| Command | What the agent can check |
+|---|---|
+| `osg-abap lint` | Fast source diagnostics |
+| `osg-abap check` | Syntax and activation |
+| `osg-abap test` | Workspace unit tests, including tests the agent writes in `<class>.clas.testclasses.abap` |
+
+Hidden tests remain invisible. Workspace `AGENTS.md` / `CLAUDE.md` explain the commands and, from v2.3,
+encourage agents to write their own tests. The bundled tool works offline; the source repository's build
+scripts are not needed.
+
+**Network and credentials.** For ABAP, harness web tools are off. Egress permits only the model endpoint
+and `help.sap.com`, `rules.abaplint.org`, `abaplint.app`; `--no-internet` permits only the endpoint.
+Custom endpoint, z.ai, Alibaba, Anthropic API and Azure keys stay outside the sandbox; Claude OAuth and
+ChatGPT logins still enter it. See [API keys and network isolation](#api-keys-and-network-isolation).
 
 ## TL;DR
 
