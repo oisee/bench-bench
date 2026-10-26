@@ -32,6 +32,36 @@ echo; echo "== Task repositories"
 mkdir -p "$BENCH/.cache/repos"
 for id in "${TASKS[@]}"; do
   ( source "$TASKS_DIR/$id/task.env"; R="$BENCH/.cache/repos/$REPO.git"; U="${URL:-https://github.com/oisee/$REPO}"
+    # native ABAP tasks: PREPARE builds the whole workspace from the package, so no base clone and no network. Instead
+    # the task's BASE is checked against the package: an agentic task (built from a snapshot of the change's parent)
+    # needs BASE == task.json sha == parent; any other task needs BASE == the sources.json revision of its repository.
+    if [ -n "${PREPARE:-}" ] && [ -f "${ABAP_TASKS:-}/private/src-repos/sources.json" ]; then
+      python3 -I - "$ABAP_TASKS" "$id" "$BASE" "${UPSTREAM_URL:-$URL}" <<'PY' || exit 1
+import json, os, sys
+root, tid, base, url = sys.argv[1:5]
+pa = os.path.join(root, 'private', 'abap-tasks')
+t = None
+tj = os.path.join(pa, 'tasks', tid, 'task.json')
+if os.path.exists(tj):
+    t = json.load(open(tj))
+elif os.path.exists(os.path.join(pa, 'tasks.jsonl')):
+    t = next((json.loads(l) for l in open(os.path.join(pa, 'tasks.jsonl')) if json.loads(l).get('id') == tid), None)
+if t is None:
+    sys.exit(f'the package has no descriptor for {tid}')
+if t.get('kind') == 'agentic':
+    if not (t.get('sha') == t.get('parent') == base):
+        sys.exit(f'{tid}: BASE {base[:12]} != task sha {str(t.get("sha"))[:12]} / parent {str(t.get("parent"))[:12]}')
+else:
+    src = json.load(open(os.path.join(root, 'private', 'src-repos', 'sources.json')))
+    e = src.get(t.get('repo') or '') or next((v for v in src.values()
+        if v.get('url', '').lower().removesuffix('.git') == url.lower().removesuffix('.git')), None)
+    if not e:
+        sys.exit(f'{tid}: sources.json has no repository {t.get("repo") or url}')
+    if e.get('revision') != base:
+        sys.exit(f'{tid}: BASE {base[:12]} != sources.json revision {str(e.get("revision"))[:12]}')
+PY
+      echo "  ✓ $id: $REPO (from the package, BASE ${BASE:0:12})"; exit 0
+    fi
     if [ ! -d "$R" ]; then
       echo "  cloning $U ..."
       git clone -q --bare "$U" "$R" || exit 1

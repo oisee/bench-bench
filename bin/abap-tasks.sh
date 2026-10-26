@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Native ABAP tasks (an external, privately distributed package) as bench-bench tasks.
-#   ABAP_TASKS=<package root> ABAP_TASKS_REPO=<descriptor checkout> bin/abap-tasks.sh [smoke|medium|full|ID ...]
+#   ABAP_TASKS=<package root> ABAP_TASKS_REPO=<descriptor checkout> bin/abap-tasks.sh [smoke|medium|full|agentic[-smoke]|synthetic[-smoke]|ID ...]
 # The package root is <root>/{agent,grader-tool,private/{abap-tasks,src-repos,hidden}}, named after the descriptor
 # repository's commit; tasks-abap/PACKAGE pins that commit. Descriptors are read from that commit's git objects, package
 # files are checked against <root>/MANIFEST.sha256 when present, and sources come from the package's own clones
 # (<root>/private/src-repos, matched by remote URL; the upstream stays in UPSTREAM_URL), so no task needs the network.
 # Writes tasks-abap/<id>/{task.env,brief.md} (git-ignored)
-# for the chosen tier (tasks-abap/tiers/<tier>.txt) or ids, then:
+# for the chosen tier (tiers/<tier>.txt at the pinned commit, else tasks-abap/tiers/<tier>.txt) or ids, then:
+# ABAP_SET (corpus | agentic | synthetic, from the id) keeps the sets in separate result tables.
 #   BENCH_TASKS_DIR=tasks-abap bin/setup.sh --check smoke-ids...      (or no ids: every materialized task)
 #   BENCH_TASKS_DIR=tasks-abap bin/bench.sh <executor> [ids...]
 # Each task.env is the package's descriptor plus the fields bench-bench needs (REPO, LEVEL, STRIP, P2P) and the
@@ -34,8 +35,13 @@ fi
 IDS=(); TIER=()
 for a in "${@:-smoke}"; do
   case "$a" in
-    smoke|medium|full) n0=${#IDS[@]}; mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$OUT/tiers/$a.txt")
-                       for ((k = n0; k < ${#IDS[@]}; k++)); do TIER[$k]=$a; done ;;
+    smoke|medium|full|agentic|agentic-smoke|synthetic|synthetic-smoke)
+      # the tier list from the pinned commit when it has one (agentic/synthetic sets ship only there)
+      n0=${#IDS[@]}
+      if git -C "$REPO_DIR" cat-file -e "$PIN:tiers/$a.txt" 2>/dev/null; then
+        mapfile -t -O "$n0" IDS < <(git -C "$REPO_DIR" show "$PIN:tiers/$a.txt" | grep -v '^\s*$')
+      else mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$OUT/tiers/$a.txt"); fi
+      for ((k = n0; k < ${#IDS[@]}; k++)); do TIER[$k]=$a; done ;;
     *) IDS+=("$a"); TIER[$((${#IDS[@]} - 1))]=ids ;;
   esac
 done
@@ -62,7 +68,8 @@ for k in "${!IDS[@]}"; do
   prep="$(bash -c 'set -u; source "$1"; printf %s "$PREPARE"' _ "$src/task.env")"
   gold="${prep/\"\$task_stage\/w\";/\"\$task_stage\/w\" --solution;}"
   [ "$gold" != "$prep" ] || { echo "$id: cannot derive GOLD_PREPARE from PREPARE" >&2; exit 2; }
-  case "$id" in *-l0-*) level=ABAP-L0 ;; *-l1-*) level=ABAP-L1 ;; *) level=ABAP ;; esac
+  case "$id" in *-l0-*) level=ABAP-L0 ;; *-l1-*) level=ABAP-L1 ;; *-l2-*) level=ABAP-L2 ;; *-l3-*) level=ABAP-L3 ;; *) level=ABAP ;; esac
+  case "$id" in *-agentic-*) set_=agentic ;; *-synthetic-*) set_=synthetic ;; *) set_=corpus ;; esac   # separate result tables
   key="${url%.git}"; local_src="${LOCAL_SRC[${key,,}]:-}"
   name="$(basename "$url" .git)"
   rm -rf "$OUT/$id"; mkdir -p "$OUT/$id"
@@ -73,7 +80,7 @@ for k in "${!IDS[@]}"; do
     if [ -n "$local_src" ]; then printf "UPSTREAM_URL=%q\nURL=%q\n" "$url" "$local_src"; fi
     printf "ABAP_TASKS=%q\nAGENT_TOOL=%q\nGRADER_TOOL=%q\nHIDDEN_ROOT=%q\n" "$ROOT" "$ROOT/agent" "$ROOT/grader-tool" "$ROOT/private"
     printf "GOLD_PREPARE=%q\n" "$gold"
-    printf "ABAP_PACKAGE=%q\nABAP_TIER=%q\n" "$PIN" "${TIER[$k]}"
+    printf "ABAP_PACKAGE=%q\nABAP_TIER=%q\nABAP_SET=%q\n" "$PIN" "${TIER[$k]}" "$set_"
   } > "$OUT/$id/task.env"
   n=$((n + 1))
 done

@@ -9,7 +9,11 @@ source "$T/task.env"
 SRC="$BENCH/.cache/repos/$REPO.git"
 OUT="$BENCH/.cache/templates/$ID"
 rm -rf "$OUT"; mkdir -p "$OUT"
-git -C "$SRC" archive "$BASE" | tar -x -C "$OUT"
+# with PREPARE the package builds the whole tree (it empties the dir first), so the BASE tree is not needed; tasks
+# from packages without sources.json still start from it
+if [ -z "${PREPARE:-}" ] || [ ! -f "${ABAP_TASKS:-}/private/src-repos/sources.json" ]; then
+  git -C "$SRC" archive "$BASE" | tar -x -C "$OUT"
+fi
 for p in $STRIP; do rm -rf "$OUT/$p"; done
 cd "$OUT"
 # PREPARE (native ABAP tasks): trusted package code that turns the tree into the task's workspace (cuts the hole,
