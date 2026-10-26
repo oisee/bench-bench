@@ -134,7 +134,7 @@ key_proxy_setup() {
         echo 'recording requires an API-key provider' >&2; return 2
       fi
       key="$ANTHROPIC_API_KEY"; up=https://api.anthropic.com; auth_header=x-api-key ;;
-    azure) key="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; up="${AZURE_OPENAI_ENDPOINT:-}" ;;
+    azure) key="${AZURE_OPENAI_API_KEY:-$(key_from_rc AZURE_OPENAI_API_KEY)}"; up="${AZURE_OPENAI_ENDPOINT:-}"; auth_header=api-key ;;
     *) [ "$record" = 0 ] && return 0
        echo 'recording requires an API-key provider' >&2; return 2 ;;
   esac

@@ -4,6 +4,8 @@ bin/secret-scan.py finds the key in a run directory in every form we know of. Ru
 """
 import base64
 import http.server
+import io
+from email.message import Message
 import json
 import os
 import random
@@ -257,6 +259,59 @@ class TestProxyOffline(unittest.TestCase):
                 self.assertNotIn(KEY.encode(), output)
                 self.assertEqual(output.count(DUMMY.encode()), 2)
                 self.assertEqual(list(Path(tmp).iterdir()), [])
+
+
+    def test_provider_relay_without_sockets(self):
+        for provider, header, forced in [('anthropic', 'x-api-key', 'x-api-key'),
+                                         ('azure', 'api-key', 'api-key'),
+                                         ('zai', 'Authorization', ''),
+                                         ('alibaba', 'Authorization', '')]:
+            for record in (False, True):
+                with self.subTest(provider=provider, record=record), tempfile.TemporaryDirectory() as tmp:
+                    server = mock.Mock(server_address=('127.0.0.1', 32123))
+                    with mock.patch.dict(os.environ, {'BENCH_UPSTREAM_KEY': KEY,
+                                         'BENCH_UPSTREAM_AUTH_HEADER': forced,
+                                         'BENCH_PROXY_RECORD': '1' if record else '0'}, clear=True), \
+                         mock.patch.object(sys, 'argv', ['record-proxy.py', 'https://example.org', tmp + '/traffic.jsonl']), \
+                         mock.patch('http.server.ThreadingHTTPServer', return_value=server), \
+                         mock.patch('builtins.print'):
+                        proxy = runpy.run_path(str(BIN / 'record-proxy.py'))
+                    body = ('data: ' + json.dumps({'type': 'content_block_delta',
+                            'delta': {'text': 'echo ' + KEY}}) + '\n\n').encode()
+                    resp = mock.Mock(status=200)
+                    resp.getheader.side_effect = lambda name: {'content-type': 'text/event-stream'}.get(name)
+                    resp.getheaders.return_value = [('content-type', 'text/event-stream'), ('x-echo', KEY)]
+                    resp.read1.side_effect = [body[:30], body[30:], b'']
+                    handler = proxy['Proxy'].__new__(proxy['Proxy'])
+                    handler.headers = Message()
+                    handler.headers['content-length'] = '2'
+                    handler.headers[header] = 'Bearer ' + DUMMY if header == 'Authorization' else DUMMY
+                    handler.rfile = io.BytesIO(b'{}')
+                    handler.wfile = io.BytesIO()
+                    handler.command, handler.path = 'POST', '/v1/responses'
+                    handler.send_response = mock.Mock()
+                    handler.send_header = mock.Mock()
+                    handler.end_headers = mock.Mock()
+                    with mock.patch('http.client.HTTPSConnection') as connection:
+                        connection.return_value.getresponse.return_value = resp
+                        handler.relay()
+                    sent = connection.return_value.request.call_args.kwargs['headers']
+                    self.assertEqual(sent[header], 'Bearer ' + KEY if header == 'Authorization' else KEY)
+                    if forced:
+                        self.assertNotIn('Authorization', sent)
+                    transcript = handler.wfile.getvalue().decode()
+                    self.assertIn(DUMMY, transcript)
+                    self.assertNotIn(KEY, transcript)
+                    self.assertNotIn(KEY, str(handler.send_header.call_args_list))
+                    for name in ('OUT', 'LIVE'):
+                        if proxy[name]:
+                            proxy[name].close()
+                    for path in Path(tmp).iterdir():
+                        self.assertNotIn(KEY, path.read_text(), path.name)
+                    self.assertEqual(Path(tmp, 'traffic.jsonl').exists(), record)
+                    self.assertEqual(Path(tmp, 'live.txt').exists(), record)
+                    if record:
+                        self.assertIn(DUMMY, Path(tmp, 'live.txt').read_text())
 
 
 def scan(run, key=KEY, mask=False, extra_env=None, home=None):
@@ -531,9 +586,6 @@ class TestRunShWiring(unittest.TestCase):
         self.assertLess(i, run_sh.index('bin/sandbox.sh'))
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class TestProviderWiring(unittest.TestCase):
     """Exercise sandbox configuration with fake launchers, without TCP or kernel namespaces."""
@@ -546,6 +598,7 @@ class TestProviderWiring(unittest.TestCase):
             # The proxy only needs to announce a port; no upstream or benchmark is run.
             (fake / 'python3').write_text('#!/bin/bash\nif [[ "$*" == *record-proxy.py* ]]; then\n'
                                         '  echo "${BENCH_PROXY_RECORD}" > "$PROXY_MODE"\n'
+                                        '  echo "${BENCH_UPSTREAM_AUTH_HEADER}" > "$PROXY_MODE.header"\n'
                                         '  echo 32123; exec sleep 60\nfi\nexec ' + sys.executable + ' "$@"\n')
             (fake / 'bwrap').write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$PROBE"\n')
             for name in ('pi', 'claude', 'codex'):
@@ -583,12 +636,62 @@ class TestProviderWiring(unittest.TestCase):
                         self.assertIn(DUMMY, dumped)
                         self.assertNotIn(KEY, dumped)
                         self.assertEqual(mode.read_text().strip(), '0')
+                        expected_header = {'anthropic': 'x-api-key', 'azure': 'api-key'}.get(provider, '')
+                        self.assertEqual(Path(str(mode) + '.header').read_text().strip(), expected_header)
                         for path in run.rglob('*'):
                             if path.is_file() and not path.is_symlink():
                                 self.assertNotIn(KEY, path.read_text(errors='replace'), str(path))
                         config = (run / 'home/.pi/agent/models.json' if harness == 'pi' else
                                   run / 'home/.codex/config.toml' if harness == 'codex' else probe)
                         self.assertIn('127.0.0.1:32123', config.read_text())
+                        if provider == 'azure':
+                            self.assertIn('env_http_headers = { api-key = "AZURE_OPENAI_API_KEY" }', config.read_text())
+                            self.assertNotIn('env_key =', config.read_text())
+                            self.assertIn('requires_openai_auth = false', config.read_text())
                         if harness == 'pi' and provider in ('zai', 'alibaba'):
                             models = json.loads(config.read_text())
                             self.assertEqual(models['providers'][provider]['baseUrl'], 'http://127.0.0.1:32123/v1')
+
+    def test_login_paths_keep_existing_credentials(self):
+        for provider, harness, credential in [('anthropic', 'claude', '.claude/.credentials.json'),
+                                               ('openai', 'codex', '.codex/auth.json')]:
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                fake = root / 'bin'
+                fake.mkdir()
+                (fake / harness).write_text('#!/bin/sh\necho fake-version\n')
+                (fake / 'bwrap').write_text('#!' + sys.executable + '\nimport json, os, sys\n'
+                    'from pathlib import Path\n'
+                    'p = Path(os.environ["PROBE"])\n'
+                    'p.write_text(json.dumps(sys.argv[1:]))\n'
+                    'credential = p.parent / "run/home" / os.environ["CREDENTIAL"]\n'
+                    'if credential.stat().st_size:\n'
+                    '    (p.parent / "copied-auth").write_bytes(credential.read_bytes())\n')
+                for path in fake.iterdir():
+                    path.chmod(0o755)
+                home = root / 'real'
+                source = home / credential
+                source.parent.mkdir(parents=True)
+                source.write_text('{"test-login":"synthetic-login-token"}')
+                run = root / 'run'
+                (run / 'work').mkdir(parents=True)
+                env = dict(os.environ, HOME=str(home), PATH=str(fake) + ':' + os.environ['PATH'],
+                           PROBE=str(root / 'probe'), CREDENTIAL=credential, BENCH_NO_WEB='0',
+                           ANTHROPIC_API_KEY=KEY, OPENAI_API_KEY=KEY)
+                r = subprocess.run([str(BIN / 'sandbox.sh'), '--run', str(run), '--harness', harness,
+                                    '--provider', provider, '--model', 'm'], env=env,
+                                   capture_output=True, text=True, timeout=20)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                args = json.loads((root / 'probe').read_text())
+                self.assertNotIn(KEY, args)
+                if provider == 'anthropic':
+                    self.assertIn(str(source), args)  # writable OAuth bind, preserving refresh
+                    self.assertNotIn('ANTHROPIC_API_KEY', args)
+                else:
+                    self.assertEqual((root / 'copied-auth').read_bytes(), source.read_bytes())
+                    self.assertFalse((run / 'home' / credential).exists())
+                self.assertEqual(source.read_text(), '{"test-login":"synthetic-login-token"}')
+
+
+if __name__ == '__main__':
+    unittest.main()

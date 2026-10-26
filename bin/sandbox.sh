@@ -127,8 +127,9 @@ EOF
         zai) printf '%s\n' 'model_provider = "zai"' '' '[model_providers.zai]' 'name = "Z.ai"' \
                "base_url = \"$ZAI_ORIGIN$ZAI_CODEX_PATH\"" 'env_key = "ZAI_API_KEY"' 'wire_api = "responses"' 'requires_openai_auth = false' ;;
         azure) printf '%s\n' 'model_provider = "azure"' '' '[model_providers.azure]' 'name = "Azure"' \
-               "base_url = \"${AZURE_OPENAI_ENDPOINT:?AZURE_OPENAI_ENDPOINT not set}/openai\"" 'env_key = "AZURE_OPENAI_API_KEY"' \
-               'query_params = { api-version = "2025-04-01-preview" }' 'wire_api = "responses"' ;;
+               "base_url = \"${AZURE_OPENAI_ENDPOINT:?AZURE_OPENAI_ENDPOINT not set}/openai\"" 'env_http_headers = { api-key = "AZURE_OPENAI_API_KEY" }' \
+               'query_params = { api-version = "2025-04-01-preview" }' 'wire_api = "responses"' \
+               'requires_openai_auth = false' 'supports_websockets = false' ;;
         alibaba)
           cp "$BENCH/gateway/codex-models.json" "$H/.codex/codex-models.json"
           case "$MODEL" in

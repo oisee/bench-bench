@@ -390,10 +390,24 @@ Anthropic API-key mode uses `ANTHROPIC_API_KEY` with a loopback
 `ANTHROPIC_BASE_URL`; the proxy injects `x-api-key` for `api.anthropic.com`.
 As before, an existing `~/.claude/.credentials.json` takes precedence over the
 API key and is bound writable into the sandbox so OAuth refreshes persist.
+Azure Codex uses `env_http_headers` for the dummy `api-key` header; the host proxy
+injects the real `AZURE_OPENAI_API_KEY` and removes competing auth headers.
 
 OpenAI (ChatGPT) and Anthropic subscription providers place a login in the sandbox:
 Codex gets a private copy removed after the run; Claude binds its credential file
 so token refreshes persist. These login providers do not provide API-key isolation.
+
+ChatGPT login remains unchanged: a backend reverse proxy can replace a request's
+bearer token, but cannot make Codex's dummy refresh token valid at the separate
+OAuth token endpoint. The installed Codex CLI (0.163.0) exposes `chatgpt_base_url`
+and contains `https://auth.openai.com/oauth/token` plus explicit expired, reused
+and revoked refresh-token errors. These local binary observations support keeping
+the current login path; they do not establish a supported refresh override.
+A reliable implementation would need a host-side OAuth refresh broker, synthetic
+credential responses, synchronized token rotation and account metadata, plus
+coverage for startup refresh and 401 recovery. The current static-key HTTP proxy
+does not implement that lifecycle. A dummy login that only works until refresh
+is required is insufficient. No real login or remote endpoint was used to test it.
 
 Native ABAP tasks default to documentation-only web access plus the model endpoint.
 Set `BENCH_EGRESS_DOCS=0` for endpoint-only access (`net_policy=egress-endpoint-only`);

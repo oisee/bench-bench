@@ -9,7 +9,8 @@ While a streamed answer is still being generated, its thinking, text and tool ca
 text to live.txt next to OUT.jsonl (`tail -f runs/.../live.txt` to watch). Started by bin/run.sh when BENCH_RECORD=1.
 With BENCH_UPSTREAM_KEY set it is also the only holder of the endpoint's key: the sandbox gets DUMMY_KEY, and the
 proxy swaps it for the real key on the way upstream (or adds `Authorization: Bearer <key>` if the client sent no auth
-header). Logged headers are the client's, redacted. BENCH_PROXY_RECORD=0 forwards without writing OUT.jsonl/live.txt.
+header). BENCH_UPSTREAM_AUTH_HEADER forces a provider header (x-api-key or api-key), dropping competing credentials.
+Logged headers are the client's, redacted. BENCH_PROXY_RECORD=0 forwards without writing OUT.jsonl/live.txt.
 With BENCH_SNAPSHOT_RUN=RUN_DIR it also snapshots RUN_DIR/work at start (seq 0) and as each request arrives, before
 forwarding it (bin/snapshot.py; used by bin/first-green.py). A failed snapshot is logged to stderr, never fatal.
 """
