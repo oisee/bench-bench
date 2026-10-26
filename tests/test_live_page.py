@@ -1,3 +1,4 @@
+import os
 """Dashboard rendering and HTTP routing with filesystem fixtures and no model calls."""
 from datetime import datetime, timezone
 import importlib.util
@@ -281,6 +282,8 @@ class LivePage(unittest.TestCase):
         """Render only the inline component, with fixture state and no server/network."""
         import shutil
         import subprocess
+        if os.environ.get('BENCH_BROWSER_TESTS') != '1':
+            self.skipTest('browser layout test is opt-in: BENCH_BROWSER_TESTS=1')
         browser = shutil.which('chrome-headless-shell') or shutil.which('chromium') or shutil.which('chromium-browser')
         if not browser:
             browser = next(iter(sorted((Path.home() / '.cache/ms-playwright').glob(
