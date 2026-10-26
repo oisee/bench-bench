@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# One-command native ABAP benchmark. API keys are read from the environment only.
+set -uo pipefail
+BENCH="$(cd "$(dirname "$0")/.." && pwd)"
+AGENT="" MODEL="" API_BASE="" KEY_ENV="" TIER=smoke4 ENV_VERSION=3 PORT="" DRY=0 DOCS=1
+PKG="${ABAP_TASKS:-/pkg}"; OUT="${BENCH_OUT:-/out}"; REPO="${ABAP_TASKS_REPO:-}"
+usage() {
+  echo 'abap-bench --agent claude|codex|pi --model MODEL --api-base URL --api-key-env NAME'
+  echo '           [--tier smoke4|ember|smoke|medium|full] [--env 3] [--no-internet] [--port 8080] [--dry-run]'
+  echo '           [--pkg /pkg] [--out /out] [--repo /pkg/repo]'
+}
+fail() { echo "abap-bench: $*" >&2; exit 2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY=1; shift ;;
+    --no-internet) DOCS=0; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --agent|--model|--api-base|--api-key-env|--tier|--env|--port|--pkg|--out|--repo)
+      [ $# -ge 2 ] || fail "$1 needs a value"
+      case "$1" in
+        --agent) AGENT="$2" ;; --model) MODEL="$2" ;; --api-base) API_BASE="$2" ;; --api-key-env) KEY_ENV="$2" ;;
+        --tier) TIER="$2" ;; --env) ENV_VERSION="$2" ;; --port) PORT="$2" ;;
+        --pkg) PKG="$2" ;; --out) OUT="$2" ;; --repo) REPO="$2" ;;
+      esac; shift 2 ;;
+    *) fail "unknown argument $1" ;;
+  esac
+done
+case "$AGENT" in claude|codex|pi) ;; *) fail '--agent must be claude, codex or pi' ;; esac
+[ -n "$MODEL" ] && [ -n "$API_BASE" ] || fail '--model and --api-base are required'
+[[ "$KEY_ENV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail '--api-key-env must name an environment variable'
+[[ "$ENV_VERSION" =~ ^[1-9][0-9]*$ ]] || fail '--env must be a positive integer'
+if [ -n "$PORT" ]; then
+  [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$PORT >= 1 && 10#$PORT <= 65535)) || fail '--port must be 1..65535'
+fi
+[ "$TIER" != ember ] || TIER=smoke4
+case "$TIER" in smoke4|smoke|medium|full) ;; *) fail 'unknown tier' ;; esac
+python3 -I - "$MODEL" "$API_BASE" <<'PY' || exit 2
+import re, sys, urllib.parse
+model, base = sys.argv[1:]
+u = urllib.parse.urlsplit(base)
+if not re.fullmatch(r'[A-Za-z0-9_./:\[\]-]+', model):
+    sys.exit('abap-bench: invalid model identifier')
+if (u.scheme not in ('http', 'https') or not u.hostname or u.username or u.password or u.query or u.fragment
+        or any(c.isspace() or c in '\\"' for c in base)):
+    sys.exit('abap-bench: expected an HTTP(S) API base without credentials, query or fragment')
+PY
+if [ "$DRY" = 1 ]; then
+  echo "agent=$AGENT model=$MODEL provider=custom tier=$TIER ABAP_ENV=$ENV_VERSION"
+  echo "package=$PKG descriptors=${REPO:-$PKG/repo} output=$OUT"
+  echo "api_key_env=$KEY_ENV (value omitted); BENCH_EGRESS_DOCS=$DOCS; BENCH_RECORD=1"
+  case "$AGENT" in claude) echo 'API: Anthropic-compatible /v1/messages' ;; codex) echo 'API: Responses /responses' ;; pi) echo 'API: OpenAI-compatible chat completions' ;; esac
+  echo 'plan: resolve package SHA; temporary matrix; materialize tier; runs -> output; record harness versions'
+  [ -z "$PORT" ] || echo "plan: live-page.py --port $PORT"
+  echo 'plan: setup.sh --check; bench.sh one-command (only after setup succeeds)'
+  exit 0
+fi
+[ -n "${!KEY_ENV:-}" ] || fail "environment variable $KEY_ENV is empty"
+PKG="$(realpath "$PKG")" || exit 2
+REPO="$(realpath "${REPO:-$PKG/repo}")" || exit 2
+SHA="$(basename "$PKG")"
+if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  # A bind mount at /pkg loses the host directory name; its bundled descriptor checkout pins the same SHA.
+  SHA="$(git -C "$REPO" rev-parse HEAD)" || fail 'package needs a bundled descriptor repository at /pkg/repo'
+fi
+git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null || fail 'descriptor repository does not contain package SHA'
+mkdir -p "$OUT" "$BENCH/.cache" || exit 2
+OUT="$(realpath "$OUT")"
+if [ -e "$BENCH/runs" ] || [ -L "$BENCH/runs" ]; then
+  [ "$(realpath "$BENCH/runs")" = "$OUT" ] || fail 'runs already exists; use an isolated checkout or the Docker image'
+else ln -s "$OUT" "$BENCH/runs" || exit 2; fi
+STATE="$(mktemp -d "$BENCH/.cache/one-command.XXXXXX")" || exit 2
+PAGE_PID=""; BENCH_PID=""
+cleanup() {
+  [ -z "$PAGE_PID" ] || kill "$PAGE_PID" 2>/dev/null || true
+  [ -z "$BENCH_PID" ] || kill "$BENCH_PID" 2>/dev/null || true
+  rm -rf "$STATE"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+export BENCH_MATRIX="$STATE/matrix.yaml" BENCH_TASKS_DIR="$STATE/tasks-abap" BENCH_ABAP_ONLY=1
+export ABAP_TASKS="$PKG" ABAP_TASKS_REPO="$REPO" ABAP_PACKAGE_SHA="$SHA" ABAP_ENV="$ENV_VERSION"
+export CUSTOM_BASE_URL="$API_BASE" CUSTOM_API_KEY="${!KEY_ENV}" BENCH_NO_WEB=1 BENCH_EGRESS=allowlist
+export BENCH_EGRESS_DOCS="$DOCS" BENCH_RECORD=1 BENCH_INTERNAL_REVIEW_ROUNDS=0
+if [ "$AGENT" = claude ]; then
+  ANTHROPIC_BASE="${API_BASE%/}"; export CUSTOM_ANTHROPIC_BASE_URL="${ANTHROPIC_BASE%/v1}"
+fi
+export CUSTOM_PI_API=openai-completions
+EX="one-command-$AGENT-$(printf '%s\n' "$MODEL" "$API_BASE" | sha256sum | cut -c1-12)"
+printf 'executors:\n  - {id: %s, provider: custom, model: "%s", harness: %s, effort: medium}\n' "$EX" "$MODEL" "$AGENT" > "$BENCH_MATRIX"
+"$BENCH/bin/abap-tasks.sh" "$TIER" || exit $?
+{
+  for tool in node python3 git bwrap claude codex pi; do
+    printf '%s: ' "$tool"; "$tool" --version 2>&1 | head -1
+  done
+} > "$OUT/versions.txt"
+"$BENCH/bin/setup.sh" --check || exit $?
+"$BENCH/bin/bench.sh" "$EX" &
+BENCH_PID=$!
+wait "$BENCH_PID"; RC=$?; BENCH_PID=""
+exit "$RC"

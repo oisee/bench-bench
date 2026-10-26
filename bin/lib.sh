@@ -12,7 +12,7 @@ bench_load_env() {
 
 # executor id -> "provider model harness effort" (from matrix.yaml); exit 1 if unknown
 executor_fields() {
-  python3 -I - "$BENCH/matrix.yaml" "$1" <<'EOF'
+  python3 -I - "${BENCH_MATRIX:-$BENCH/matrix.yaml}" "$1" <<'EOF'
 import re,sys
 for line in open(sys.argv[1]):
     m=re.search(r'\{id:\s*([^,]+),\s*provider:\s*([^,]+),\s*model:\s*("?[^,"]+"?),\s*harness:\s*([^,]+),\s*effort:\s*([^,}]+)',line)

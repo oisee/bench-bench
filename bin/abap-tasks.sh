@@ -17,12 +17,13 @@
 # bin/goldcheck.sh. The private package is never mounted in the agent's sandbox.
 set -euo pipefail
 BENCH="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$BENCH/tasks-abap"
+OUT="${BENCH_TASKS_DIR:-$BENCH/tasks-abap}"
+mkdir -p "$OUT"
 : "${ABAP_TASKS:?set ABAP_TASKS to the package root}" "${ABAP_TASKS_REPO:?set ABAP_TASKS_REPO to the descriptor checkout}"
 ROOT="$(realpath "$ABAP_TASKS")"; REPO_DIR="$(realpath "$ABAP_TASKS_REPO")"
-PIN="$(sed -n 's/^sha=//p' "$OUT/PACKAGE")"
+PIN="${ABAP_PACKAGE_SHA:-$(sed -n 's/^sha=//p' "$OUT/PACKAGE")}"
 git -C "$REPO_DIR" cat-file -e "$PIN^{commit}" 2>/dev/null || { echo "descriptor repository has no commit $PIN (tasks-abap/PACKAGE)" >&2; exit 2; }
-[ "$(basename "$ROOT")" = "$PIN" ] || { echo "package root $ROOT is not named after the pinned commit $PIN" >&2; exit 2; }
+[ "$(basename "$ROOT")" = "$PIN" ] || [ "${ABAP_PACKAGE_SHA:-}" = "$PIN" ] || { echo "package root $ROOT is not named after the pinned commit $PIN" >&2; exit 2; }
 for d in agent grader-tool private/abap-tasks private/hidden; do [ -d "$ROOT/$d" ] || { echo "missing $ROOT/$d" >&2; exit 2; }; done
 
 # the package's own manifest, when it ships one: every file under agent/, grader-tool/ and private/ as listed
@@ -40,7 +41,7 @@ for a in "${@:-smoke}"; do
       n0=${#IDS[@]}
       if git -C "$REPO_DIR" cat-file -e "$PIN:tiers/$a.txt" 2>/dev/null; then
         mapfile -t -O "$n0" IDS < <(git -C "$REPO_DIR" show "$PIN:tiers/$a.txt" | grep -v '^\s*$')
-      elif [ -f "$OUT/tiers/$a.txt" ]; then mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$OUT/tiers/$a.txt")
+      elif [ -f "$BENCH/tasks-abap/tiers/$a.txt" ]; then mapfile -t -O "$n0" IDS < <(grep -v '^\s*$' "$BENCH/tasks-abap/tiers/$a.txt")
       else IDS+=("$a"); TIER[$n0]=ids; continue; fi
       for ((k = n0; k < ${#IDS[@]}; k++)); do TIER[$k]=$a; done ;;
   esac

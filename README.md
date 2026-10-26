@@ -394,3 +394,63 @@ so token refreshes persist. These login providers do not provide API-key isolati
 Native ABAP tasks default to documentation-only web access plus the model endpoint.
 Set `BENCH_EGRESS_DOCS=0` for endpoint-only access (`net_policy=egress-endpoint-only`);
 this also ignores `BENCH_EGRESS_EXTRA`. The egress filter must remain enabled.
+
+
+## One-command native ABAP runs
+
+Build from the repository root:
+
+```bash
+docker build -f docker/Dockerfile -t abap-bench .
+```
+
+The defaults pin Node 22.14.0, Claude Code 2.1.309, Codex 0.162.1 and pi 1.0.2.
+Override harness pins with build arguments `CLAUDE_VERSION`, `CODEX_VERSION`,
+`PI_VERSION`. The image records those pins in `/opt/agent-versions.txt`; every
+invocation writes observed tool versions to `/out/versions.txt`. Managed builds
+can pass `--secret id=proxy_ca,src="$CODEX_PROXY_CERT"` to preserve proxy CA trust.
+
+Mount a complete private package root (including its bundled `repo/` descriptor
+checkout) and an output directory writable by UID 1000:
+
+```bash
+export API_KEY  # set this in your shell or secret manager
+mkdir -p output
+docker run --rm --security-opt seccomp=unconfined \
+  -v "$PACKAGE_ROOT:/pkg:ro" -v "$PWD/output:/out" -e API_KEY \
+  abap-bench --agent claude --model demo-model --api-base https://example.org \
+  --api-key-env API_KEY --tier smoke4 --env 3 --no-internet
+```
+
+Use `--agent codex` with a Responses API base (usually ending in `/v1`), or
+`--agent pi` with an OpenAI-compatible chat completions base. Claude uses an
+Anthropic-compatible base; a trailing `/v1` is removed before Claude appends
+`/v1/messages`. The key is read by variable name and never written to the matrix.
+Recording is enabled for these runs. Models/endpoints get distinct executor IDs,
+so an existing result from another configuration does not suppress the run.
+
+Tiers are `smoke4`, `smoke`, `medium`, `full`; `ember` aliases `smoke4`. A package's
+committed tier wins; older packages fall back to the lists in `tasks-abap/tiers/`.
+The fallback `smoke4` contains the first four tasks of this checkout's smoke tier.
+The package SHA comes from its root name, or from bundled `repo/HEAD` when the
+bind mount renames it to `/pkg`. Descriptors always come from that commit's git
+objects. `--env` selects the environment for versioned task IDs. Only the selected
+tier is materialized into temporary descriptors; `setup.sh --check` must succeed
+before any agent session starts. Native ABAP uses packaged toolchains and does
+not require Go.
+
+`--no-internet` sets `BENCH_EGRESS_DOCS=0`: the sandbox can reach only the model
+endpoint through the key proxy. Without it, approved documentation hosts are also
+available. The container host must allow bubblewrap namespaces; the command above
+relaxes Docker's default seccomp restrictions.
+
+Without Docker, inspect the complete plan without credentials or filesystem changes:
+
+```bash
+bin/abap-bench --dry-run --agent codex --model demo-model \
+  --api-base https://example.org/v1 --api-key-env API_KEY --tier ember --no-internet
+```
+
+A local execution needs an isolated checkout without an existing `runs/` directory;
+`--pkg`, `--repo`, and `--out` override the container paths. No image build or model
+run is performed by the unit tests.

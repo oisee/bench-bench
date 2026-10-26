@@ -27,7 +27,9 @@ echo "== Machine"
 [ "$(uname -s)" = Linux ] && ok "Linux$(grep -qi microsoft /proc/version 2>/dev/null && echo ' (WSL2)')" \
   || { bad "Linux required (bubblewrap sandbox); on Windows use WSL2"; }
 for c in git python3 timeout; do command -v $c >/dev/null && ok "$c" || bad "$c not found"; done
-if command -v go >/dev/null; then
+if [ "${BENCH_ABAP_ONLY:-0}" = 1 ]; then
+  ok "native ABAP: package toolchains (Go not required)"
+elif command -v go >/dev/null; then
   v="$(go env GOVERSION)"; v="${v#go}"
   ver_ge "$v" 1.26 && ok "go $v" || { bad "go $v is too old (tasks need 1.26+)"; hint "https://go.dev/dl/"; }
 else bad "go not found (tasks need Go 1.26+)"; hint "https://go.dev/dl/"; fi
@@ -60,7 +62,7 @@ done
 [ $READY = 1 ] || { bad "no task prepared"; hint "bin/setup.sh"; }
 
 if [ ${#EXS[@]} -eq 0 ]; then
-  mapfile -t EXS < <(grep -E '^\s*-\s*\{id:.*provider:\s*custom' "$BENCH/matrix.yaml" | sed -E 's/.*\{id:\s*([^,]+),.*/\1/')
+  mapfile -t EXS < <(grep -E '^\s*-\s*\{id:.*provider:\s*custom' "${BENCH_MATRIX:-$BENCH/matrix.yaml}" | sed -E 's/.*\{id:\s*([^,]+),.*/\1/')
 fi
 for EX in "${EXS[@]}"; do
   echo; echo "== Executor $EX"
