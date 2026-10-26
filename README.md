@@ -454,3 +454,22 @@ bin/abap-bench --dry-run --agent codex --model demo-model \
 A local execution needs an isolated checkout without an existing `runs/` directory;
 `--pkg`, `--repo`, and `--out` override the container paths. No image build or model
 run is performed by the unit tests.
+
+
+### Live progress
+
+Add `--port 8080` and Docker's `-p 8080:8080`, then open
+`http://localhost:8080`. The stdlib server starts before setup checks, refreshes
+every three seconds, and shows each task's queued/running/verdict state, duration,
+request count, and a link to the latest 200 lines of `live.txt`. Queues are saved
+in `/out/queue-<executor>.json`; results and transcripts stay under
+`/out/<task>/<run>/`. Partial JSON files are tolerated while a run is writing them.
+The server stops when the launcher exits, including on setup failure. To view
+saved output afterwards:
+
+```bash
+python3 bin/live-page.py --runs output --port 8080
+```
+
+The server exposes the dashboard and transcript tails only. It does not serve
+package files or arbitrary paths under the output directory.

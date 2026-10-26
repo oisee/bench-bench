@@ -54,7 +54,8 @@ class OneCommand(unittest.TestCase):
                 (bench / 'matrix.yaml').write_text('original matrix\n')
                 for name, script in {
                     'abap-tasks.sh': 'echo "materialize $* $ABAP_PACKAGE_SHA env=$ABAP_ENV" >> "$CALLS"\n'
-                                     'mkdir -p "$BENCH_TASKS_DIR"\n',
+                                     'mkdir -p "$BENCH_TASKS_DIR/demo-l0-task"\n'
+                                     'touch "$BENCH_TASKS_DIR/demo-l0-task/task.env"\n',
                     'setup.sh': 'echo "setup $*" >> "$CALLS"\n'
                                 'cat "$BENCH_MATRIX" >> "$CALLS"\n'
                                 'echo "docs=$BENCH_EGRESS_DOCS tasks=$BENCH_TASKS_DIR" >> "$CALLS"\n'
@@ -64,11 +65,18 @@ class OneCommand(unittest.TestCase):
                     path = bench / 'bin' / name
                     path.write_text('#!/bin/sh\n' + script)
                     path.chmod(0o755)
+                # Fake server announces readiness, then waits for launcher cleanup.
+                (bench / 'bin/live-page.py').write_text(
+                    'import os, signal, time\nfrom pathlib import Path\n'
+                    'mark = Path(os.environ["PAGE_MARK"])\nmark.write_text("started")\n'
+                    'def stop(*args):\n    mark.write_text("stopped")\n    raise SystemExit(0)\n'
+                    'signal.signal(signal.SIGTERM, stop)\nprint("ready: fixture", flush=True)\n'
+                    'while True: time.sleep(0.1)\n')
                 calls = root / 'calls'
                 out = root / 'out'
-                env = dict(os.environ, TEST_ENDPOINT_KEY='fake-test-key', CALLS=str(calls))
+                env = dict(os.environ, TEST_ENDPOINT_KEY='fake-test-key', CALLS=str(calls), PAGE_MARK=str(root / 'page-mark'))
                 r = subprocess.run([str(bench / 'bin/abap-bench'), *self.args(), '--pkg', str(pkg),
-                                    '--out', str(out), '--no-internet'], env=env, capture_output=True, text=True)
+                                    '--out', str(out), '--no-internet', '--port', '8080'], env=env, capture_output=True, text=True)
                 self.assertEqual(r.returncode, setup_rc, r.stderr)
                 log = calls.read_text()
                 self.assertIn('materialize smoke4 ' + sha + ' env=3', log)
@@ -81,6 +89,10 @@ class OneCommand(unittest.TestCase):
                 self.assertEqual((bench / 'runs').resolve(), out)
                 self.assertFalse(list((bench / '.cache').iterdir()))
                 self.assertTrue((out / 'versions.txt').exists())
+                self.assertEqual((root / 'page-mark').read_text(), 'stopped')
+                import json
+                queue = json.loads(next(out.glob('queue-*.json')).read_text())
+                self.assertEqual(queue['tasks'], ['demo-l0-task'])
 
     def test_existing_runs_are_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:

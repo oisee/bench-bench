@@ -85,6 +85,20 @@ class Adapter(unittest.TestCase):
                              capture_output=True, text=True).stdout.strip()
         self.assertEqual(out, src + '|https://github.com/abapGit/abapGit.git')
 
+    def test_mount_alias_and_temporary_output(self):
+        mount = os.path.join(self.tmp, 'mount')
+        shutil.copytree(self.root, mount)
+        out = os.path.join(self.tmp, 'isolated-tasks')
+        env = dict(os.environ, ABAP_TASKS=mount, ABAP_TASKS_REPO=self.repo,
+                   ABAP_PACKAGE_SHA=self.sha, BENCH_TASKS_DIR=out)
+        r = subprocess.run(['bash', str(Path(self.bench) / 'bin/abap-tasks.sh'), 'smoke'],
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        descriptor = Path(out, 'abapgit-l0-block-001/task.env').read_text()
+        self.assertIn('ABAP_PACKAGE=' + self.sha, descriptor)
+        self.assertIn('ABAP_TASKS=' + mount, descriptor)
+        self.assertFalse(Path(self.bench, 'tasks-abap/abapgit-l0-block-001').exists())
+
     def test_refuses_unknown_pin(self):
         self.pin('0' * 40)
         r = self.run_it('smoke')

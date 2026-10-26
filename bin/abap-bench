@@ -71,7 +71,7 @@ else ln -s "$OUT" "$BENCH/runs" || exit 2; fi
 STATE="$(mktemp -d "$BENCH/.cache/one-command.XXXXXX")" || exit 2
 PAGE_PID=""; BENCH_PID=""
 cleanup() {
-  [ -z "$PAGE_PID" ] || kill "$PAGE_PID" 2>/dev/null || true
+  if [ -n "$PAGE_PID" ]; then kill "$PAGE_PID" 2>/dev/null || true; wait "$PAGE_PID" 2>/dev/null || true; fi
   [ -z "$BENCH_PID" ] || kill "$BENCH_PID" 2>/dev/null || true
   rm -rf "$STATE"
 }
@@ -94,6 +94,26 @@ printf 'executors:\n  - {id: %s, provider: custom, model: "%s", harness: %s, eff
     printf '%s: ' "$tool"; "$tool" --version 2>&1 | head -1
   done
 } > "$OUT/versions.txt"
+python3 -I - "$BENCH_TASKS_DIR" "$OUT/queue-$EX.json" "$EX" <<'PYQ' || exit 2
+import json, pathlib, sys
+src, dst, executor = sys.argv[1:]
+tasks = sorted(p.parent.name for p in pathlib.Path(src).glob('*/task.env'))
+path = pathlib.Path(dst)
+stage = path.with_suffix('.tmp')
+stage.write_text(json.dumps(dict(executor=executor, tasks=tasks)))
+stage.replace(path)
+PYQ
+if [ -n "$PORT" ]; then
+  python3 -I "$BENCH/bin/live-page.py" --runs "$OUT" --port "$PORT" > "$OUT/live-page.log" 2>&1 &
+  PAGE_PID=$!
+  for _ in $(seq 50); do
+    grep -q '^ready:' "$OUT/live-page.log" && break
+    kill -0 "$PAGE_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  grep -q '^ready:' "$OUT/live-page.log" || fail 'progress server did not start (see output/live-page.log)'
+  echo "[bench] progress page on port $PORT"
+fi
 "$BENCH/bin/setup.sh" --check || exit $?
 "$BENCH/bin/bench.sh" "$EX" &
 BENCH_PID=$!
